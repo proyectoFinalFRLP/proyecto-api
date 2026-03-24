@@ -1,8 +1,84 @@
-# Omakase Ruby styling for Rails
-inherit_gem: { rubocop-rails-omakase: rubocop.yml }
+plugins:
+  - rubocop-performance
+  - rubocop-rails
+  - rubocop-rspec
 
-# Overwrite or add rules to create your own house style
-#
-# # Use `[a, [b, c]]` not `[ a, [ b, c ] ]`
-# Layout/SpaceInsideArrayLiteralBrackets:
-#   Enabled: false
+AllCops:
+  NewCops: enable
+  Exclude:
+    - db/schema.rb
+    - db/*schema.rb
+    - db/migrate/*
+    - config/initializers/*
+    - config/environments/*
+    - bin/*
+    - node_modules/**/*
+    - db/seeds.rb
+
+Rails:
+  Enabled: true
+
+# -------------------
+# Style
+# -------------------
+
+Style/Documentation:
+  Enabled: false
+
+Style/FrozenStringLiteralComment:
+  Enabled: false
+
+Style/StringLiterals:
+  EnforcedStyle: single_quotes
+
+Style/HashSyntax:
+  EnforcedShorthandSyntax: either
+
+Style/ArgumentsForwarding:
+  Enabled: false
+
+# -------------------
+# Layout
+# -------------------
+
+Layout/LineLength:
+  Max: 100
+  Exclude:
+    - config/routes.rb
+    - spec/**/*
+    - Gemfile
+    - db/seeds.rb
+
+Layout/EmptyLineAfterGuardClause:
+  Enabled: false
+
+# -------------------
+# Metrics
+# -------------------
+
+Metrics/MethodLength:
+  Max: 20
+
+Metrics/ClassLength:
+  Max: 150
+
+Metrics/AbcSize:
+  Max: 25
+
+Layout/EndOfLine:
+  Enabled: false
+
+Metrics/BlockLength:
+  Exclude:
+    - spec/**/*
+    - config/routes.rb
+
+# -------------------
+# Naming
+# -------------------
+
+Naming/MemoizedInstanceVariableName:
+  Enabled: false
+
+Naming/MethodParameterName:
+  Enabled: false

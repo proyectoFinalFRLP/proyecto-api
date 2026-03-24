@@ -1,7 +1,11 @@
-require "test_helper"
+require 'test_helper'
 
-class Api::V1::UsersControllerTest < ActionDispatch::IntegrationTest
-  # test "the truth" do
-  #   assert true
-  # end
+module Api
+  module V1
+    class UsersControllerTest < ActionDispatch::IntegrationTest
+      # test "the truth" do
+      #   assert true
+      # end
+    end
+  end
 end
