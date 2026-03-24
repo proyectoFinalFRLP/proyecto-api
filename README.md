@@ -24,7 +24,7 @@ El proyecto sigue una arquitectura desacoplada basada en:
 - **Serializers** → Formato de respuesta JSON
 - **Policies** → Autorización mediante Pundit
 
-## ⚙️ Setup del proyecto
+## Setup del proyecto
 
 ### 1. Clonar repositorio
 
@@ -52,7 +52,7 @@ rails db:seed
 
 rails server
 
-## 🧪 Calidad de código
+## Calidad de código
 
 El proyecto utiliza Rubocop para mantener estándares de código consistentes.
 
