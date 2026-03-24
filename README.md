@@ -28,29 +28,43 @@ El proyecto sigue una arquitectura desacoplada basada en:
 
 ### 1. Clonar repositorio
 
+```bash
 git clone https://github.com/proyectoFinalFRLP/proyecto-api.git
+```
 
+```bash
 cd proyecto-api
+```
 
 ### 2. Instalar dependencias
 
+```bash
 bundle install
+```
 
 ### 3. Crear base de datos
 
+```bash
 rails db:create
+```
 
 ### 4. Ejecutar migraciones
 
+```bash
 rails db:migrate
+```
 
 ### 5. Crear seed
 
+```bash
 rails db:seed
+```
 
 ### 6. Iniciar servidor
 
+```bash
 rails server
+```
 
 ## Calidad de código
 
@@ -58,4 +72,6 @@ El proyecto utiliza Rubocop para mantener estándares de código consistentes.
 
 Ejecutar: 
 
+```bash
 bundle exec rubocop
+```
