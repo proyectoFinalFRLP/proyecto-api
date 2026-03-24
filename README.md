@@ -1,24 +1,61 @@
-# README
+# Proyecto API
 
-This README would normally document whatever steps are necessary to get the
-application up and running.
+## Descripción
 
-Things you may want to cover:
+API REST desarrollada en Ruby on Rails como parte del proyecto final.
 
-* Ruby version
+El objetivo de esta aplicación es "".
 
-* System dependencies
+## Tecnologías utilizadas
 
-* Configuration
+- Ruby on Rails (API mode)
+- PostgreSQL
+- Devise + Devise JWT (autenticación)
+- Pundit (autorización)
+- Rubocop (calidad de código)
 
-* Database creation
+## Arquitectura del proyecto
 
-* Database initialization
+El proyecto sigue una arquitectura desacoplada basada en:
 
-* How to run the test suite
+- **Controllers** → Manejo de requests HTTP (sin lógica de negocio)
+- **Models** → Persistencia con ActiveRecord
+- **POROs** → Lógica de negocio (casos de uso)
+- **Serializers** → Formato de respuesta JSON
+- **Policies** → Autorización mediante Pundit
 
-* Services (job queues, cache servers, search engines, etc.)
+## ⚙️ Setup del proyecto
 
-* Deployment instructions
+### 1. Clonar repositorio
 
-* ...
+git clone https://github.com/proyectoFinalFRLP/proyecto-api.git
+
+cd proyecto-api
+
+### 2. Instalar dependencias
+
+bundle install
+
+### 3. Crear base de datos
+
+rails db:create
+
+### 4. Ejecutar migraciones
+
+rails db:migrate
+
+### 5. Crear seed
+
+rails db:seed
+
+### 6. Iniciar servidor
+
+rails server
+
+## 🧪 Calidad de código
+
+El proyecto utiliza Rubocop para mantener estándares de código consistentes.
+
+Ejecutar: 
+
+bundle exec rubocop
