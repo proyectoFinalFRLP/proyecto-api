@@ -1,9 +1,6 @@
 ## ⚠️ Formato del título
 feat: [TESIS-XXX] descripción
 
-Ejemplo:
-feat: [TESIS-123] create login
-
 ## Link card
 [TESIS-XXX](https://jira.frlp.utn.edu.ar/browse/TESIS-XXX)
 
