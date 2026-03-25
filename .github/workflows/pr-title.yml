@@ -1,0 +1,22 @@
+name: Validate PR Title
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+
+jobs:
+  validate-pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR Title
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const regex = /^(feat|fix|chore|refactor|test|docs): \[TESIS-\d+\] .+/;
+            if (!regex.test(title)) {
+              core.setFailed('⚠️ Formato del título de PR inválido. Ej: feat: [TESIS-123] create login');
+            }

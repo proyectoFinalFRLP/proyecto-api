@@ -1,0 +1,27 @@
+# lefthook.yml
+
+pre-commit:
+  parallel: true
+  commands:
+    rubocop:
+      glob: "*.rb"
+      run: bundle exec rubocop --force-exclusion {staged_files}
+
+commit-msg:
+  commands:
+    commitlint:
+      run: |
+        head -n 1 {1} | grep -E '^(feat|fix|chore|refactor|test|docs): .+' || { echo '❌ Formato inválido. Ej: feat: new login'; exit 1; }
+
+pre-push:
+  parallel: true
+  commands:
+    rspec:
+      run: bundle exec rspec
+    branch-name:
+      run: |
+        branch=$(git rev-parse --abbrev-ref HEAD)
+        if [[ "$branch" == "master" || "$branch" == "develop" ]]; then
+          exit 0
+        fi
+        echo "$branch" | grep -E '^TESIS-[0-9]+-[a-z0-9-]+$' || { echo '❌ Nombre de rama inválido. Debe seguir el formato TESIS-XXX-descripcion'; exit 1; }
