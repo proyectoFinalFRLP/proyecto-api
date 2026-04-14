@@ -54,6 +54,7 @@ group :development, :test do
   gem 'rubocop-rspec', require: false
   
   gem 'rspec-rails'
+  gem 'lefthook', require: false
 end
 
 gem 'devise', '~> 5.0'
