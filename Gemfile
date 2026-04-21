@@ -63,6 +63,6 @@ gem 'devise-jwt', '~> 0.13.0'
 
 gem 'pundit', '~> 2.5'
 
-gem 'blueprinter', '~> 1.2'
+gem 'blueprinter', '~> 1.3'
 
 gem 'rack-cors', '~> 3.0'
