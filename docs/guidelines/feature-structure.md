@@ -123,13 +123,64 @@ Ejemplo: agregar `StockPerWarehouse` al dominio `catalog`.
 
 8. **Specs**: `spec/models/`, `spec/requests/api/v1/`, `spec/policies/`, `spec/poros/catalog/`
 
-## 6. La "Regla de Dos" para POROs
+## 6. Cuándo usar PORO vs llamar al modelo directamente
+
+No toda operación necesita un PORO. El patrón se usa cuando la lógica supera lo que ActiveRecord puede manejar por sí solo — no como envoltorio obligatorio de cada operación CRUD.
+
+### Crear un PORO cuando la operación:
+
+- Involucra **más de un modelo** (ej: confirmar orden + descontar stock + registrar evento)
+- Tiene **lógica condicional de negocio** no trivial (ej: confirmar solo si hay stock suficiente en el warehouse correcto)
+- Llama a un **servicio externo** (ej: cotizar envío con courier, sincronizar producto a Mercado Libre)
+- Coordina **efectos secundarios** (ej: crear envío + encolar job de tracking + notificar al canal)
+- Es un **caso de uso nombrable** del dominio (el nombre es un verbo de negocio: `ConfirmOrder`, `ProcessWebhookOrder`)
+
+### Llamar al modelo directamente desde el controller cuando:
+
+- Es creación o actualización de un **único modelo** sin efectos secundarios
+- ActiveRecord maneja toda la lógica mediante validaciones y callbacks simples
+- No hay coordinación entre modelos, jobs ni servicios externos
+
+### Ejemplo comparativo
+
+```ruby
+# ❌ PORO innecesario: solo persiste con params, sin lógica adicional
+module Warehouses
+  class CreateWarehouse < ApplicationPoro
+    def call
+      Warehouse.create!(@params.merge(company: @company))
+    end
+  end
+end
+
+# ✅ Llamada directa al modelo: correcto para CRUD simple
+def create
+  authorize Warehouse
+  warehouse = Warehouse.create!(warehouse_params.merge(company: current_company))
+  render json: WarehouseSerializer.render(warehouse), status: :created
+end
+
+# ✅ PORO justificado: coordina múltiples modelos con lógica de negocio real
+module Orders
+  class ConfirmOrder < ApplicationPoro
+    def call
+      ActiveRecord::Base.transaction do
+        @order.confirm!
+        @order.items.each { |item| item.product.decrement_stock!(item.quantity) }
+        Shipments::ScheduleDispatch.new(order: @order).call
+      end
+    end
+  end
+end
+```
+
+## 7. La "Regla de Dos" para POROs
 
 Si un PORO se usa en un solo contexto, vive en su dominio.
 
 En el momento en que un segundo dominio necesita la misma lógica, se mueve a `app/poros/shared/` o se extrae a un método del model si es lógica de datos pura.
 
-## 7. Testing por dominio
+## 8. Testing por dominio
 
 Cada feature debe tener cobertura de:
 
@@ -141,3 +192,5 @@ Cada feature debe tener cobertura de:
 | Request spec        | El endpoint completo: auth, scope multi-tenant, respuesta JSON |
 
 El request spec es el más importante: verifica que un usuario de un tenant no puede acceder a recursos de otro tenant, incluso manipulando IDs en la URL.
+
+Ver guía completa de testing en [`docs/guidelines/testing.md`](testing.md).

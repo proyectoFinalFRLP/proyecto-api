@@ -68,6 +68,12 @@ app/
 | Policy      | Verificar permisos de autorización            | Lógica de negocio                           |
 | Job         | Trabajo asíncrono en background               | Responder requests HTTP                     |
 
+### Cuándo usar PORO
+
+Se crea un PORO cuando la lógica supera lo que ActiveRecord gestiona por sí solo. Para CRUD simple de un único modelo sin efectos secundarios, el controller puede llamar al modelo directamente — crear un PORO envolvente en ese caso es verbosidad innecesaria que va en contra de "Convention over Configuration".
+
+Ver regla detallada en [`docs/guidelines/feature-structure.md`](../../guidelines/feature-structure.md).
+
 ## Alternativas consideradas
 
 ### Fat Models (lógica en los modelos)
@@ -87,6 +93,15 @@ app/
 - ❌ Ruptura total con las convenciones Rails
 - ❌ Curva de aprendizaje muy pronunciada
 
+### Arquitectura Hexagonal (Puertos y Adaptadores)
+
+- ✅ Separación total del dominio de la infraestructura — natural para múltiples integraciones externas
+- ✅ Cada canal externo (Mercado Libre, Tiendanube, Shopify) implementa un adaptador intercambiable
+- ❌ Ceremonioso para Rails puro — interfaces y puertos explícitos generan overhead innecesario
+- ❌ Innecesario para dominios de CRUD (auth, catalog, orders en el caso base)
+
+**Decisión:** se adoptan los principios de arquitectura hexagonal **únicamente en el dominio `integrations`**: el `HttpAdapter` actúa como puerto y cada canal externo es un adaptador. El resto de los dominios usa la arquitectura en capas estándar.
+
 ## Consecuencias
 
 - ✅ Los controllers son finos y fáciles de leer: solo orquestan
@@ -95,3 +110,5 @@ app/
 - ✅ Cada capa tiene una única responsabilidad clara
 - ⚠️ Requiere disciplina: es tentador poner lógica en models o controllers
 - ⚠️ Más archivos que una arquitectura Rails tradicional — compensado por la claridad
+- ✅ El dominio `integrations` usa principios hexagonales: cada canal externo es un adaptador intercambiable sin tocar la lógica de negocio
+- ✅ "Convention over Configuration" de Rails se respeta: para CRUD simple el controller llama al modelo directamente, sin PORO envolvente
