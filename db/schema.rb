@@ -10,11 +10,21 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_03_23_235214) do
+ActiveRecord::Schema[8.1].define(version: 2026_06_29_120002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
+  create_table "companies", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.boolean "is_active", default: true, null: false
+    t.string "name", null: false
+    t.string "tax_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["tax_id"], name: "index_companies_on_tax_id", unique: true
+  end
+
   create_table "users", force: :cascade do |t|
+    t.bigint "company_id", null: false
     t.datetime "created_at", null: false
     t.string "email", default: "", null: false
     t.string "encrypted_password", default: "", null: false
@@ -22,7 +32,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_23_235214) do
     t.datetime "reset_password_sent_at"
     t.string "reset_password_token"
     t.datetime "updated_at", null: false
+    t.index ["company_id"], name: "index_users_on_company_id"
     t.index ["email"], name: "index_users_on_email", unique: true
     t.index ["reset_password_token"], name: "index_users_on_reset_password_token", unique: true
   end
+
+  create_table "warehouses", force: :cascade do |t|
+    t.string "address", null: false
+    t.bigint "company_id", null: false
+    t.datetime "created_at", null: false
+    t.string "name", null: false
+    t.datetime "updated_at", null: false
+    t.string "zip_code", null: false
+    t.index ["company_id"], name: "index_warehouses_on_company_id"
+  end
+
+  add_foreign_key "users", "companies", on_delete: :cascade
+  add_foreign_key "warehouses", "companies", on_delete: :cascade
 end
