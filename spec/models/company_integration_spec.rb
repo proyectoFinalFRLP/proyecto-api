@@ -9,7 +9,6 @@ RSpec.describe CompanyIntegration, type: :model do
                     uri: 'https://api.andreani.com', http_method: 'POST')
   end
 
-
   it 'is valid with company and service' do
     expect(integration).to be_valid
   end
