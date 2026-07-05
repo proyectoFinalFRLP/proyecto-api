@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
 class Service < ApplicationRecord
-  # `type` es una columna de dominio (ecommerce | courier), NO el discriminador
-  # de STI de Rails. Se desactiva STI para conservar el nombre definido en el DER.
   self.inheritance_column = nil
 
   TYPES = %w[ecommerce courier].freeze
