@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
-# Configuración de devise-jwt. Se aísla del initializer principal de Devise
-# para mantener la config de JWT acotada y legible.
 Devise.setup do |config|
-  # API-only: sin formatos de navegación (evita flash/redirects de Devise).
   config.navigational_formats = []
 
   config.jwt do |jwt|

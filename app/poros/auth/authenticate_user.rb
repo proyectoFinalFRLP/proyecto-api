@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 module Auth
-  # Valida credenciales y devuelve un JWT firmado, o nil si son inválidas.
   class AuthenticateUser < ApplicationPoro
     def initialize(email:, password:)
       super()

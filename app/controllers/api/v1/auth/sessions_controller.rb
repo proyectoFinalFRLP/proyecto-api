@@ -13,7 +13,6 @@ module Api
           if token
             render json: { token: token }, status: :ok
           else
-            # Mensaje genérico: no revelar si falló el email o el password.
             render json: { error: 'Invalid email or password' }, status: :unauthorized
           end
         end
