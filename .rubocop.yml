@@ -13,6 +13,8 @@ AllCops:
     - config/environments/*
     - bin/*
     - node_modules/**/*
+    - vendor/**/*
+    - tmp/**/*
     - db/seeds.rb
 
 Rails:
