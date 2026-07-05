@@ -72,4 +72,49 @@ companies.each do |attrs|
   end
 end
 
-puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, #{Warehouse.count} depósitos."
+# ---------------------------------------------------------------------------
+# TESIS-28 — Integraciones: Services (plantillas globales) + CompanyIntegrations
+# ---------------------------------------------------------------------------
+
+services = [
+  {
+    service_name: 'Mercado Libre',
+    type: 'ecommerce',
+    uri: 'https://api.mercadolibre.com/orders',
+    http_method: 'GET',
+    request_mapper: { 'customer_address' => 'destination.street' },
+    response_mapper: { 'tracking.number' => 'tracking_number' },
+    request_value_mapper: {},
+    response_value_mapper: { 'pagado' => 'paid', 'paid' => 'paid' }
+  },
+  {
+    service_name: 'Andreani',
+    type: 'courier',
+    uri: 'https://apis.andreani.com/v2/ordenes-de-envio',
+    http_method: 'POST',
+    request_mapper: { 'customer_zip_code' => 'destino.postal.codigoPostal' },
+    response_mapper: { 'bulto.0.numeroDeEnvio' => 'tracking_number' },
+    request_value_mapper: {},
+    response_value_mapper: { 'EnDistribucion' => 'in_transit', 'Entregado' => 'delivered' }
+  }
+]
+
+services.each do |attrs|
+  Service.find_or_create_by!(service_name: attrs[:service_name]) do |s|
+    s.assign_attributes(attrs)
+  end
+end
+
+# Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
+first_company = Company.find_by(tax_id: '30-11111111-1')
+ml_service = Service.find_by(service_name: 'Mercado Libre')
+if first_company && ml_service
+  CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
+    ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
+    ci.is_active = true
+  end
+end
+
+puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
+     "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
+     "#{CompanyIntegration.count} integraciones."
