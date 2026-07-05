@@ -1,5 +1,4 @@
-# rubocop:disable Lint/EmptyClass
-class ApplicationSerializer
-  # Base serializer class
+# frozen_string_literal: true
+
+class ApplicationSerializer < Blueprinter::Base
 end
-# rubocop:enable Lint/EmptyClass
