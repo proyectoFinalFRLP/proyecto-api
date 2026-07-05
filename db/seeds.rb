@@ -1,9 +1,75 @@
-# This file should ensure the existence of records required to run the application in every environment (production,
-# development, test). The code here should be idempotent so that it can be executed at any point in every environment.
-# The data can then be loaded with the bin/rails db:seed command (or created alongside the database with db:setup).
+# This file should ensure the existence of records required to run the application in every environment
+# (production, development, test). The code here must be idempotent so it can be executed at any point
+# in every environment. Load it with `bin/rails db:seed` (or `db:setup`).
 #
-# Example:
+# Convención del proyecto: cada vez que se agrega o modifica un modelo, se deben agregar seeds
+# representativos para ese modelo. Ver docs/guidelines/seeds.md.
 #
-#   ["Action", "Comedy", "Drama", "Horror"].each do |genre_name|
-#     MovieGenre.find_or_create_by!(name: genre_name)
-#   end
+# Multi-tenancy: todos los datos viven bajo una Company (tenant). Ver docs/guidelines/multi-tenancy-rls.md.
+
+# ---------------------------------------------------------------------------
+# TESIS-25 — Core & Tenancy: Companies, Users, Warehouses
+# ---------------------------------------------------------------------------
+
+companies = [
+  {
+    name: 'Distribuidora Norte S.A.',
+    tax_id: '30-11111111-1',
+    is_active: true,
+    users: [
+      { email: 'admin@norte.com', password: 'password123' },
+      { email: 'operador@norte.com', password: 'password123' }
+    ],
+    warehouses: [
+      { name: 'Depósito Central', zip_code: '1900', address: 'Av. 7 N° 1234, La Plata' },
+      { name: 'Depósito Satélite Norte', zip_code: '1602', address: 'Calle 25 N° 456, Florida' }
+    ]
+  },
+  {
+    name: 'Comercial Sur S.R.L.',
+    tax_id: '30-22222222-2',
+    is_active: true,
+    users: [
+      { email: 'admin@sur.com', password: 'password123' },
+      { email: 'deposito@sur.com', password: 'password123' }
+    ],
+    warehouses: [
+      { name: 'Depósito Sur', zip_code: '8000', address: 'Av. Colón N° 789, Bahía Blanca' }
+    ]
+  },
+  {
+    # Tenant inactivo: representa una empresa dada de baja (is_active: false).
+    name: 'Importadora Vieja S.A. (inactiva)',
+    tax_id: '30-33333333-3',
+    is_active: false,
+    users: [
+      { email: 'admin@vieja.com', password: 'password123' }
+    ],
+    warehouses: [
+      { name: 'Depósito en Liquidación', zip_code: '5000', address: 'Bv. San Juan N° 100, Córdoba' }
+    ]
+  }
+]
+
+companies.each do |attrs|
+  company = Company.find_or_create_by!(tax_id: attrs[:tax_id]) do |c|
+    c.name = attrs[:name]
+    c.is_active = attrs[:is_active]
+  end
+
+  attrs[:users].each do |user_attrs|
+    User.find_or_create_by!(email: user_attrs[:email]) do |u|
+      u.password = user_attrs[:password]
+      u.company = company
+    end
+  end
+
+  attrs[:warehouses].each do |warehouse_attrs|
+    Warehouse.find_or_create_by!(name: warehouse_attrs[:name], company: company) do |w|
+      w.zip_code = warehouse_attrs[:zip_code]
+      w.address = warehouse_attrs[:address]
+    end
+  end
+end
+
+puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, #{Warehouse.count} depósitos."
