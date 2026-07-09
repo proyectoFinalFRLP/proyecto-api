@@ -4,6 +4,8 @@ module Api
   module V1
     module Auth
       class RegistrationsController < ApplicationController
+        skip_before_action :authenticate_user!
+
         def create
           user = ::Auth::RegisterUser.new(params: user_params).call
           render json: UserSerializer.render(user), status: :created

@@ -4,6 +4,8 @@ module Api
   module V1
     module Auth
       class SessionsController < ApplicationController
+        skip_before_action :authenticate_user!
+
         def create
           token = ::Auth::AuthenticateUser.new(
             email: params[:email],
