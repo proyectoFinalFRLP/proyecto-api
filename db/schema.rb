@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_06_29_120002) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_05_120001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -21,6 +21,33 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_29_120002) do
     t.string "tax_id", null: false
     t.datetime "updated_at", null: false
     t.index ["tax_id"], name: "index_companies_on_tax_id", unique: true
+  end
+
+  create_table "company_integrations", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "credentials", default: {}, null: false
+    t.boolean "is_active", default: true, null: false
+    t.bigint "service_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id", "service_id"], name: "index_company_integrations_on_company_id_and_service_id", unique: true
+    t.index ["company_id"], name: "index_company_integrations_on_company_id"
+    t.index ["service_id"], name: "index_company_integrations_on_service_id"
+  end
+
+  create_table "services", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "http_method", null: false
+    t.jsonb "request_mapper", default: {}, null: false
+    t.jsonb "request_value_mapper", default: {}, null: false
+    t.jsonb "response_mapper", default: {}, null: false
+    t.jsonb "response_value_mapper", default: {}, null: false
+    t.string "service_name", null: false
+    t.string "type", null: false
+    t.datetime "updated_at", null: false
+    t.string "uri", null: false
+    t.index ["service_name"], name: "index_services_on_service_name", unique: true
+    t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
   end
 
   create_table "users", force: :cascade do |t|
@@ -47,6 +74,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_29_120002) do
     t.index ["company_id"], name: "index_warehouses_on_company_id"
   end
 
+  add_foreign_key "company_integrations", "companies", on_delete: :cascade
+  add_foreign_key "company_integrations", "services", on_delete: :restrict
   add_foreign_key "users", "companies", on_delete: :cascade
   add_foreign_key "warehouses", "companies", on_delete: :cascade
 end
