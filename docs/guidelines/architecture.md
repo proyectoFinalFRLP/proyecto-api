@@ -135,17 +135,28 @@ render json: ...
 
 ## 5. Multi-tenancy en detalle
 
-### 5.1 Global Default Scope
+### 5.1 Global Default Scope (concern `CompanyScoped`)
 
 ```ruby
-# app/models/application_record.rb
-class ApplicationRecord < ActiveRecord::Base
-  primary_abstract_class
-  default_scope { where(company_id: Current.company_id) if Current.company_id }
+# app/models/concerns/company_scoped.rb
+module CompanyScoped
+  extend ActiveSupport::Concern
+
+  included do
+    default_scope { where(company_id: Current.company_id) if Current.company_id }
+
+    before_validation :assign_current_company, on: :create
+  end
+
+  private
+
+  def assign_current_company
+    self.company_id = Current.company_id if Current.company_id
+  end
 end
 ```
 
-El scope se aplica automáticamente a toda query sobre modelos de dominio. `Order.all` es equivalente a `Order.where(company_id: Current.company_id)`.
+Todo modelo con tenencia (posee `company_id`) debe incluir `CompanyScoped`. El scope se aplica automáticamente a toda query: `Order.all` es equivalente a `Order.where(company_id: Current.company_id)`. Al crear registros, el `company_id` del contexto se fuerza siempre, ignorando cualquier valor del payload. Las tablas globales (`companies`, `services`) no incluyen el concern. Los procesos que necesitan operar fuera del contexto de un tenant (workers, seeds, consola) usan `Model.unscoped`.
 
 ### 5.2 Inicialización del contexto
 
