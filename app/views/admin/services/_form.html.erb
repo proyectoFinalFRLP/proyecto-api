@@ -1,0 +1,42 @@
+<%= form_with model: service, url: service.persisted? ? admin_service_path(service) : admin_services_path do |f| %>
+  <% if service.errors.any? %>
+    <div class="errors">
+      <ul>
+        <% service.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div class="field">
+    <%= f.label :service_name, 'Nombre del servicio' %>
+    <%= f.text_field :service_name %>
+  </div>
+
+  <div class="field">
+    <%= f.label :type, 'Tipo' %>
+    <%= f.select :type, Service::TYPES %>
+  </div>
+
+  <div class="field">
+    <%= f.label :uri, 'URI' %>
+    <%= f.text_field :uri %>
+  </div>
+
+  <div class="field">
+    <%= f.label :http_method, 'Método HTTP' %>
+    <%= f.select :http_method, %w[GET POST PUT PATCH DELETE] %>
+  </div>
+
+  <% Admin::ServicesController::MAPPER_FIELDS.each do |field| %>
+    <div class="field">
+      <%= label_tag "service_#{field}", field.humanize %>
+      <%= text_area_tag "service[#{field}]",
+                        params.dig(:service, field) || JSON.pretty_generate(service[field] || {}),
+                        rows: 6, id: "service_#{field}" %>
+    </div>
+  <% end %>
+
+  <%= f.submit 'Guardar', class: 'btn' %>
+<% end %>

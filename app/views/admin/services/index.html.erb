@@ -1,0 +1,31 @@
+<h2>Servicios</h2>
+
+<div class="actions">
+  <%= link_to 'Nuevo servicio', new_admin_service_path, class: 'btn' %>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Nombre</th>
+      <th>Tipo</th>
+      <th>URI</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @services.each do |service| %>
+      <tr>
+        <td><%= service.id %></td>
+        <td><%= service.service_name %></td>
+        <td><%= service.type %></td>
+        <td><%= service.uri %></td>
+        <td>
+          <%= link_to 'Ver', admin_service_path(service) %> ·
+          <%= link_to 'Editar', edit_admin_service_path(service) %>
+        </td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
