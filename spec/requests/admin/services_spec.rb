@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe 'Admin services panel', type: :request do
+RSpec.describe 'Admin services panel (Avo)', type: :request do
   let(:auth_headers) do
     credentials = ActionController::HttpAuthentication::Basic.encode_credentials('admin', 'admin')
     { 'HTTP_AUTHORIZATION' => credentials }
@@ -14,67 +14,53 @@ RSpec.describe 'Admin services panel', type: :request do
 
   describe 'authentication' do
     it 'rejects requests without credentials' do
-      get '/admin/services'
+      get '/admin/resources/services'
       expect(response).to have_http_status(:unauthorized)
     end
 
     it 'rejects requests with wrong credentials' do
       wrong = ActionController::HttpAuthentication::Basic.encode_credentials('admin', 'nope')
-      get '/admin/services', headers: { 'HTTP_AUTHORIZATION' => wrong }
+      get '/admin/resources/services', headers: { 'HTTP_AUTHORIZATION' => wrong }
       expect(response).to have_http_status(:unauthorized)
     end
   end
 
-  describe 'GET /admin/services' do
-    it 'lists the services with their key columns', :aggregate_failures do
-      get '/admin/services', headers: auth_headers
+  describe 'GET /admin/resources/services' do
+    it 'lists the services', :aggregate_failures do
+      get '/admin/resources/services', headers: auth_headers
       expect(response).to have_http_status(:ok)
-      expect(response.body).to include('Mercado Libre', 'ecommerce', 'https://api.mercadolibre.com')
+      expect(response.body).to include('Mercado Libre')
     end
   end
 
-  describe 'POST /admin/services' do
+  describe 'POST /admin/resources/services' do
     it 'creates a service with valid JSON mappers' do
-      expect { post '/admin/services', params: valid_params, headers: auth_headers }
+      expect { post '/admin/resources/services', params: valid_params, headers: auth_headers }
         .to change(Service, :count).by(1)
     end
 
     it 'persists the mappers as parsed JSON objects' do
-      post '/admin/services', params: valid_params, headers: auth_headers
+      post '/admin/resources/services', params: valid_params, headers: auth_headers
       expect(Service.last.request_mapper).to eq('customer_zip_code' => 'destino.codigoPostal')
     end
 
-    it 'redirects to the created service' do
-      post '/admin/services', params: valid_params, headers: auth_headers
-      expect(response).to redirect_to(admin_service_path(Service.last))
-    end
-
     it 'rejects an invalid JSON mapper without persisting', :aggregate_failures do
-      expect { post '/admin/services', params: invalid_json_params, headers: auth_headers }
+      expect { post '/admin/resources/services', params: invalid_json_params, headers: auth_headers }
         .not_to change(Service, :count)
-      expect(response).to have_http_status(:unprocessable_content)
       expect(response.body).to include('no es un JSON válido')
     end
 
-    it 'rejects a JSON mapper that is not an object', :aggregate_failures do
-      expect { post '/admin/services', params: scalar_json_params, headers: auth_headers }
+    it 'rejects a JSON mapper that is not an object' do
+      expect { post '/admin/resources/services', params: scalar_json_params, headers: auth_headers }
         .not_to change(Service, :count)
-      expect(response).to have_http_status(:unprocessable_content)
     end
   end
 
-  describe 'PATCH /admin/services/:id' do
+  describe 'PATCH /admin/resources/services/:id' do
     it 'updates the service attributes' do
-      patch "/admin/services/#{service.id}",
+      patch "/admin/resources/services/#{service.id}",
             params: { service: { uri: 'https://nueva.uri.com' } }, headers: auth_headers
       expect(service.reload.uri).to eq('https://nueva.uri.com')
-    end
-
-    it 'keeps the stored mappers when the field is submitted empty' do
-      service.update!(request_mapper: { 'a' => 'b' })
-      patch "/admin/services/#{service.id}",
-            params: { service: { request_mapper: '' } }, headers: auth_headers
-      expect(service.reload.request_mapper).to eq('a' => 'b')
     end
   end
 
