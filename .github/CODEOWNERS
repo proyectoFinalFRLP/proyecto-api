@@ -1,0 +1,14 @@
+# Code owners — asignación automática de revisores en cada PR.
+#
+# GitHub pide review al team en cada pull request y excluye al autor
+# automáticamente. La resolución del team la hace GitHub del lado del servidor,
+# así que no depende de tokens ni de la visibilidad (pública/privada) de la
+# membresía en la organización.
+#
+# Onboarding: para sumar un revisor, agregá a la persona al team `team` de la
+# organización (que igual necesita para tener acceso al repo). No hay que tocar
+# el CI ni este archivo.
+#
+# Requisito: el team `team` debe tener acceso de escritura (push) al repositorio.
+
+* @proyectoFinalFRLP/team
