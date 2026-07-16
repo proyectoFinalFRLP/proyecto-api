@@ -28,5 +28,12 @@ module ProyectoApi
     # Middleware like session, flash, cookies can be added back manually.
     # Skip views, helpers and assets when generating a new resource.
     config.api_only = true
+
+    # Middlewares mínimos para el backoffice de /admin (Avo necesita sesión,
+    # cookies y flash). La API JWT sigue siendo stateless: no usa sesión.
+    config.middleware.use ActionDispatch::Cookies
+    config.middleware.use ActionDispatch::Session::CookieStore, key: '_proyecto_api_session'
+    config.middleware.use ActionDispatch::Flash
+    config.middleware.use Rack::MethodOverride
   end
 end
