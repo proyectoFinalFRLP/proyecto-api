@@ -18,18 +18,12 @@ Avo.configure do |config|
   end
 
   ## == Authentication ==
-  # config.current_user_method = :current_user
-  # El backoffice usa HTTP Basic independiente del JWT de la API: credenciales
-  # por ENV, admin/admin fuera de producción y fail-closed en producción.
+  # El backoffice usa el scope Devise admin_user (tabla admin_users), totalmente
+  # independiente del JWT de la API: login con sesión en /admin/sign_in.
+  config.current_user_method = :current_admin_user
+  config.sign_out_path_name = :destroy_admin_user_session_path
   config.authenticate_with do
-    authenticate_or_request_with_http_basic('Admin') do |username, password|
-      expected_username = ENV.fetch('ADMIN_USERNAME') { 'admin' unless Rails.env.production? }
-      expected_password = ENV.fetch('ADMIN_PASSWORD') { 'admin' unless Rails.env.production? }
-      next false if expected_username.blank? || expected_password.blank?
-
-      ActiveSupport::SecurityUtils.secure_compare(username, expected_username) &
-        ActiveSupport::SecurityUtils.secure_compare(password, expected_password)
-    end
+    redirect_to main_app.new_admin_user_session_path unless admin_user_signed_in?
   end
 
   ## == Authorization ==
