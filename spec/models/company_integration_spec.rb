@@ -24,6 +24,12 @@ RSpec.describe CompanyIntegration, type: :model do
     expect(described_class.reflect_on_association(:service).macro).to eq(:belongs_to)
   end
 
+  it 'round-trips credentials as a Hash' do
+    integration.credentials = { 'access_token' => 'abc' }
+    integration.save!
+    expect(integration.reload.credentials).to eq('access_token' => 'abc')
+  end
+
   it 'rejects a duplicate (company, service) pair via validation' do
     integration.save!
     expect(described_class.new(company: company, service: service)).not_to be_valid
