@@ -49,4 +49,17 @@ RSpec.describe CompanyScoped, type: :model do
       expect(warehouse.company_id).to eq(company_b.id)
     end
   end
+
+  describe 'company immutability on update' do
+    it 'rejects changing the company_id of an existing record', :aggregate_failures do
+      warehouse_a.company_id = company_b.id
+      expect(warehouse_a).not_to be_valid
+      expect(warehouse_a.errors[:company_id]).to include('cannot be changed')
+    end
+
+    it 'allows updating other attributes without touching the tenant' do
+      warehouse_a.update!(name: 'Renombrado')
+      expect(warehouse_a.reload.name).to eq('Renombrado')
+    end
+  end
 end
