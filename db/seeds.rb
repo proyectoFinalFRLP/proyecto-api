@@ -73,6 +73,14 @@ companies.each do |attrs|
 end
 
 # ---------------------------------------------------------------------------
+# TESIS-29 — Backoffice: administrador inicial del panel /admin
+# ---------------------------------------------------------------------------
+
+AdminUser.find_or_create_by!(email: 'admin@backoffice.com') do |admin|
+  admin.password = 'admin123'
+end
+
+# ---------------------------------------------------------------------------
 # TESIS-28 — Integraciones: Services (plantillas globales) + CompanyIntegrations
 # ---------------------------------------------------------------------------
 
@@ -117,4 +125,4 @@ end
 
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
-     "#{CompanyIntegration.count} integraciones."
+     "#{CompanyIntegration.count} integraciones, #{AdminUser.count} admins."
