@@ -80,6 +80,46 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
     end
   end
 
+  describe 'credential keys used as header names' do
+    def adapter_for(credentials)
+      integration.update!(credentials: credentials)
+      described_class.new(company_integration: integration,
+                          payload: { customer_zip_code: '1900' },
+                          uri_params: { order_id: 42 })
+    end
+
+    it 'rejects a credential key carrying CRLF (header injection)' do
+      expect { adapter_for({ "X-Evil\r\nX-Injected" => 'boom' }).call }
+        .to raise_error(Integrations::AdapterExecutionError, /invalid credential key/)
+    end
+
+    it 'rejects a credential key with a colon' do
+      expect { adapter_for({ 'X-Bad: value' => 'boom' }).call }
+        .to raise_error(Integrations::AdapterExecutionError, /invalid credential key/)
+    end
+
+    it 'rejects a blank credential key' do
+      expect { adapter_for({ '' => 'boom' }).call }
+        .to raise_error(Integrations::AdapterExecutionError, /invalid credential key/)
+    end
+
+    it 'does not reach the external API when a credential key is invalid' do
+      stub = stub_request(:post, 'https://api.andreani.com/envios/42')
+      suppress(Integrations::AdapterExecutionError) do
+        adapter_for({ "X-Evil\r\nX-Injected" => 'boom' }).call
+      end
+      expect(stub).not_to have_been_requested
+    end
+
+    it 'accepts valid RFC 9110 token header names' do
+      stub_request(:post, 'https://api.andreani.com/envios/42')
+        .to_return(status: 200, body: {}.to_json)
+      adapter_for({ 'X-Api-Key' => 'KEY-123' }).call
+      expect(WebMock).to have_requested(:post, 'https://api.andreani.com/envios/42')
+        .with(headers: { 'X-Api-Key' => 'KEY-123' })
+    end
+  end
+
   describe 'bodyless methods' do
     before do
       service.update!(http_method: 'GET', uri: 'https://api.andreani.com/envios/:order_id')

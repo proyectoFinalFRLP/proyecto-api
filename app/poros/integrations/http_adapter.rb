@@ -10,6 +10,10 @@ module Integrations
     OPEN_TIMEOUT = 10
     READ_TIMEOUT = 10
 
+    # Charset de nombre de header válido (RFC 9110 token). Net::HTTPHeader no
+    # valida la clave: un \r\n en el nombre parte la línea e inyecta headers.
+    HEADER_NAME = /\A[A-Za-z0-9!#$%&'*+\-.^_`|~]+\z/
+
     HTTP_METHODS = {
       'GET' => Net::HTTP::Get,
       'POST' => Net::HTTP::Post,
@@ -98,12 +102,22 @@ module Integrations
     def headers
       base = { 'Content-Type' => 'application/json', 'Accept' => 'application/json' }
       (@integration.credentials || {}).each_with_object(base) do |(key, value), result|
+        validate_header_name!(key)
+
         if key == 'access_token'
           result['Authorization'] = "Bearer #{value}"
         else
           result[key] = value.to_s
         end
       end
+    end
+
+    def validate_header_name!(key)
+      return if key.to_s.match?(HEADER_NAME)
+
+      raise AdapterExecutionError.new(
+        "#{@service.service_name} has an invalid credential key", payload: @payload
+      )
     end
 
     def interpolated_uri
