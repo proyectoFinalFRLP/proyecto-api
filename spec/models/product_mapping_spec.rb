@@ -1,0 +1,66 @@
+# frozen_string_literal: true
+
+require 'rails_helper'
+
+RSpec.describe ProductMapping, type: :model do
+  subject(:mapping) do
+    described_class.new(product: product, company_integration: integration,
+                        external_product_id: 'MLA-123')
+  end
+
+  let(:company) { Company.create!(name: 'Acme', tax_id: '20-12345678-9') }
+  let(:product) { Product.create!(company: company, sku: 'SKU-001', name: 'Widget Alpha') }
+  let(:service) do
+    Service.create!(service_name: 'Mercado Libre', type: 'ecommerce',
+                    uri: 'https://api.mercadolibre.com', http_method: 'GET')
+  end
+  let(:integration) do
+    CompanyIntegration.create!(company: company, service: service,
+                               credentials: { access_token: 'test' })
+  end
+
+  it 'is valid with required attributes' do
+    expect(mapping).to be_valid
+  end
+
+  it 'is invalid without a product' do
+    mapping.product = nil
+    expect(mapping).not_to be_valid
+  end
+
+  it 'is invalid without a company_integration' do
+    mapping.company_integration = nil
+    expect(mapping).not_to be_valid
+  end
+
+  it 'is invalid without external_product_id' do
+    mapping.external_product_id = nil
+    expect(mapping).not_to be_valid
+  end
+
+  it 'enforces uniqueness of product scoped to company_integration' do
+    mapping.save!
+    duplicate = described_class.new(product: product, company_integration: integration,
+                                    external_product_id: 'MLA-456')
+    expect(duplicate).not_to be_valid
+  end
+
+  it 'allows mapping the same product to different integrations' do
+    mapping.save!
+    other_service = Service.create!(service_name: 'Shopify', type: 'ecommerce',
+                                    uri: 'https://api.shopify.com', http_method: 'GET')
+    other_integration = CompanyIntegration.create!(company: company, service: other_service,
+                                                   credentials: { token: 'xyz' })
+    other_mapping = described_class.new(product: product, company_integration: other_integration,
+                                        external_product_id: 'shop-456')
+    expect(other_mapping).to be_valid
+  end
+
+  it 'belongs to a product' do
+    expect(described_class.reflect_on_association(:product).macro).to eq(:belongs_to)
+  end
+
+  it 'belongs to a company_integration' do
+    expect(described_class.reflect_on_association(:company_integration).macro).to eq(:belongs_to)
+  end
+end
