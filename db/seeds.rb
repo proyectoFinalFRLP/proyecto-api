@@ -123,6 +123,22 @@ if first_company && ml_service
   end
 end
 
+# ---------------------------------------------------------------------------
+# TESIS-36 — Webhooks: log crudo de eventos entrantes (auditoría)
+# ---------------------------------------------------------------------------
+
+demo_integration = CompanyIntegration.unscoped.first
+if demo_integration && WebhookLog.unscoped.none?
+  WebhookLog.create!(
+    company_id: demo_integration.company_id,
+    company_integration: demo_integration,
+    headers: { 'HTTP_USER_AGENT' => 'MercadoLibre-Webhook/1.0' },
+    payload: { 'topic' => 'orders_v2', 'resource' => '/orders/2000003508419013' },
+    status: 'pending'
+  )
+end
+
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
-     "#{CompanyIntegration.count} integraciones, #{AdminUser.count} admins."
+     "#{CompanyIntegration.count} integraciones, #{AdminUser.count} admins, " \
+     "#{WebhookLog.unscoped.count} webhook logs."
