@@ -51,8 +51,10 @@ app/
 │           └── [recurso]_controller.rb
 │
 ├── models/
-│   ├── application_record.rb        # Base: Global Default Scope (multi-tenancy)
+│   ├── application_record.rb        # Base abstracta (sin scope: ver concerns/company_scoped.rb)
 │   ├── current.rb                   # ActiveSupport::CurrentAttributes (company_id, user)
+│   ├── concerns/
+│   │   └── company_scoped.rb        # Multi-tenancy: default scope + company_id forzado e inmutable
 │   └── [entidad].rb
 │
 ├── poros/                           # Plain Old Ruby Objects — lógica de negocio
@@ -135,17 +137,40 @@ render json: ...
 
 ## 5. Multi-tenancy en detalle
 
-### 5.1 Global Default Scope
+### 5.1 Global Default Scope (concern `CompanyScoped`)
+
+> **Nota de diseño:** el enfoque original de este documento y del ADR-003 ponía el
+> `default_scope` directamente en `ApplicationRecord`. En TESIS-41 se cambió a un
+> concern **opt-in por modelo** (`CompanyScoped`), porque las tablas globales
+> (`companies`, `services`) no tienen columna `company_id` y un scope global las
+> rompería. `ApplicationRecord` queda sin scope: todo modelo nuevo con tenencia
+> **debe** incluir el concern.
 
 ```ruby
-# app/models/application_record.rb
-class ApplicationRecord < ActiveRecord::Base
-  primary_abstract_class
-  default_scope { where(company_id: Current.company_id) if Current.company_id }
+# app/models/concerns/company_scoped.rb
+module CompanyScoped
+  extend ActiveSupport::Concern
+
+  included do
+    default_scope { where(company_id: Current.company_id) if Current.company_id }
+
+    before_validation :assign_current_company, on: :create
+    validate :company_id_is_immutable, on: :update
+  end
+
+  private
+
+  def assign_current_company
+    self.company_id = Current.company_id if Current.company_id
+  end
+
+  def company_id_is_immutable
+    errors.add(:company_id, 'cannot be changed') if company_id_changed?
+  end
 end
 ```
 
-El scope se aplica automáticamente a toda query sobre modelos de dominio. `Order.all` es equivalente a `Order.where(company_id: Current.company_id)`.
+El scope se aplica automáticamente a toda query: `Order.all` es equivalente a `Order.where(company_id: Current.company_id)`. Al crear registros, el `company_id` del contexto se fuerza siempre, ignorando cualquier valor del payload; al actualizar, el `company_id` es **inmutable** (no se puede mover un registro de tenant). Las tablas globales (`companies`, `services`) no incluyen el concern. Los procesos que necesitan operar fuera del contexto de un tenant (workers, seeds, consola) usan `Model.unscoped`.
 
 ### 5.2 Inicialización del contexto
 

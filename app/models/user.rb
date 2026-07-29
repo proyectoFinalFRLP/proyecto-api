@@ -1,4 +1,6 @@
 class User < ApplicationRecord
+  include CompanyScoped
+
   belongs_to :company
 
   # Include default devise modules. Others available are:

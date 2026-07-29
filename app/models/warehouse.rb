@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class Warehouse < ApplicationRecord
+  include CompanyScoped
+
   belongs_to :company
 
   validates :name, presence: true
