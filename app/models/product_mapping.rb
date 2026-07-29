@@ -7,7 +7,5 @@ class ProductMapping < ApplicationRecord
   belongs_to :company_integration
 
   validates :external_product_id, presence: true
-  validates :company_integration_id,
-            uniqueness: { scope: :product_id,
-                          message: 'already has a mapping for this product' }
+  validates :company_integration_id, uniqueness: { scope: :product_id }
 end

@@ -16,8 +16,7 @@ RSpec.describe Stock, type: :model do
   end
 
   it 'defaults quantity to 0' do
-    stock.quantity = nil
-    expect(stock.quantity).to be_nil
+    expect(described_class.new.quantity).to eq(0)
   end
 
   it 'is invalid without a product' do
