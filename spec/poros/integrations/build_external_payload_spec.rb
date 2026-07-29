@@ -35,4 +35,34 @@ RSpec.describe Integrations::BuildExternalPayload, type: :poro do
     result = described_class.new(service: service, payload: { hacker_field: 'x' }).call
     expect(result).to eq({})
   end
+
+  describe 'array segments in the mapper path' do
+    let(:collection_service) do
+      Service.create!(service_name: 'Andreani', type: 'courier',
+                      uri: 'https://api.andreani.com', http_method: 'POST',
+                      request_mapper: { 'bultos.0.sku' => 'sku', 'bultos.0.kilos' => 'weight' })
+    end
+
+    it 'builds an Array when the next path segment is a numeric index' do
+      result = described_class.new(service: collection_service, payload: { sku: 'ABC' }).call
+      expect(result).to eq('bultos' => [{ 'sku' => 'ABC' }])
+    end
+
+    it 'merges sibling fields into the same array element' do
+      result = described_class.new(service: collection_service,
+                                   payload: { sku: 'ABC', weight: 2 }).call
+      expect(result).to eq('bultos' => [{ 'sku' => 'ABC', 'kilos' => 2 }])
+    end
+
+    it 'serializes the array as a JSON list, not as an object with numeric keys' do
+      result = described_class.new(service: collection_service, payload: { sku: 'ABC' }).call
+      expect(result.to_json).to eq('{"bultos":[{"sku":"ABC"}]}')
+    end
+
+    it 'supports a numeric index as the last segment' do
+      collection_service.update!(request_mapper: { 'tags.0' => 'tag' })
+      result = described_class.new(service: collection_service, payload: { tag: 'urgente' }).call
+      expect(result).to eq('tags' => ['urgente'])
+    end
+  end
 end
