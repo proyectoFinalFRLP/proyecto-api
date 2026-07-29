@@ -19,6 +19,13 @@ RSpec.describe ProductMapping, type: :model do
                                credentials: { access_token: 'test' })
   end
 
+  let(:other_integration) do
+    other_service = Service.create!(service_name: 'Shopify', type: 'ecommerce',
+                                    uri: 'https://api.shopify.com', http_method: 'GET')
+    CompanyIntegration.create!(company: company, service: other_service,
+                               credentials: { token: 'xyz' })
+  end
+
   it 'is valid with required attributes' do
     expect(mapping).to be_valid
   end
@@ -47,10 +54,6 @@ RSpec.describe ProductMapping, type: :model do
 
   it 'allows mapping the same product to different integrations' do
     mapping.save!
-    other_service = Service.create!(service_name: 'Shopify', type: 'ecommerce',
-                                    uri: 'https://api.shopify.com', http_method: 'GET')
-    other_integration = CompanyIntegration.create!(company: company, service: other_service,
-                                                   credentials: { token: 'xyz' })
     other_mapping = described_class.new(product: product, company_integration: other_integration,
                                         external_product_id: 'shop-456')
     expect(other_mapping).to be_valid
