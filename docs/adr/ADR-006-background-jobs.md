@@ -35,7 +35,13 @@ end
 Catalog::SyncStockJob.perform_later(product.id, Current.company_id)
 ```
 
-**Cronjobs** se configuran en `config/solid_queue.yml` usando la funcionalidad de recurring tasks de Solid Queue.
+**Cronjobs** se configuran en `config/recurring.yml` usando la funcionalidad de recurring tasks de Solid Queue.
+
+**Colas por prioridad** (TESIS-37): `realtime` (eventos entrantes), `default` (negocio no interactivo) y `low` (sync saliente, reintentos, cronjobs). Declaradas en `config/queue.yml` y expuestas en `ApplicationJob::QUEUES`. El pool de `database.yml` debe cubrir la suma de threads de los workers o `bin/jobs` no arranca.
+
+**Aislamiento entre jobs** (TESIS-37): los workers reutilizan threads, así que `ApplicationJob` limpia `Current` con un `around_perform` después de cada job. Sin ese reset, un job heredaría el tenant del anterior y podría leer datos de otra empresa. El tenant se activa con el helper `with_tenant(company_id)`.
+
+**Reintentos** (TESIS-37): sólo se reintentan los fallos transitorios de APIs externas (`Integrations::AdapterExecutionError`) con `wait: :polynomially_longer` y 5 intentos. El resto de las excepciones no se reintenta.
 
 ## Alternativas consideradas
 
@@ -67,3 +73,4 @@ Catalog::SyncStockJob.perform_later(product.id, Current.company_id)
 - ✅ Fácil de operar: la cola y los jobs son visibles en la misma DB que los datos
 - ⚠️ Para volúmenes muy altos (> miles de jobs/seg), Redis-backed Sidekiq sería más performante
 - ⚠️ Los jobs deben setear `Current.company_id` manualmente — el contexto HTTP no está disponible en background
+- ⚠️ `bin/jobs` no arranca en Windows (el supervisor registra `SIGQUIT`, señal inexistente en la plataforma). Para desarrollo local en Windows hay que instanciar un `SolidQueue::Worker` a mano, usar WSL/Docker, o dejar la verificación de workers al CI/deploy
