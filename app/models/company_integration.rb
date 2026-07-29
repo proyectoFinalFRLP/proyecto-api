@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class CompanyIntegration < ApplicationRecord
+  include CompanyScoped
+
   belongs_to :company
   belongs_to :service
 

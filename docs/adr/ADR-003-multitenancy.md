@@ -15,13 +15,37 @@ Se implementa **row-level multi-tenancy**: todas las empresas comparten la misma
 
 1. **`company_id NOT NULL`** en todas las tablas de dominio, con FK a la tabla `companies`.
 2. **`ActiveSupport::CurrentAttributes`**: la clase `Current` expone `Current.company_id`, que se setea al inicio de cada request desde el payload del JWT.
-3. **Global Default Scope en `ApplicationRecord`**: todas las queries de dominio incluyen automáticamente `WHERE company_id = Current.company_id`.
+3. **Concern `CompanyScoped`**: los modelos con tenencia (poseen `company_id`) incluyen un concern que agrega el Global Default Scope, fuerza el `company_id` del contexto al crear registros (ignorando cualquier valor provisto en el payload) y lo vuelve inmutable en updates. Las tablas globales (`companies`, `services`) no lo incluyen porque no tienen columna `company_id`. *(Nota: la versión original de este ADR ubicaba el scope directamente en `ApplicationRecord`; se cambió al concern opt-in en TESIS-41 precisamente por esas tablas globales.)*
 
 ```ruby
-# app/models/application_record.rb
-class ApplicationRecord < ActiveRecord::Base
-  primary_abstract_class
-  default_scope { where(company_id: Current.company_id) if Current.company_id }
+# app/models/concerns/company_scoped.rb
+module CompanyScoped
+  extend ActiveSupport::Concern
+
+  included do
+    default_scope { where(company_id: Current.company_id) if Current.company_id }
+
+    before_validation :assign_current_company, on: :create
+    validate :company_id_is_immutable, on: :update
+  end
+
+  private
+
+  def assign_current_company
+    self.company_id = Current.company_id if Current.company_id
+  end
+
+  def company_id_is_immutable
+    errors.add(:company_id, 'cannot be changed') if company_id_changed?
+  end
+end
+```
+
+```ruby
+# app/models/warehouse.rb
+class Warehouse < ApplicationRecord
+  include CompanyScoped
+  # ...
 end
 ```
 
