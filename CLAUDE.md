@@ -112,11 +112,12 @@ El sistema implementa **row-level multi-tenancy**: todas las empresas comparten 
 
 1. El JWT del usuario contiene `company_id` en su payload.
 2. El `ApplicationController` extrae `company_id` del token y lo setea en `Current.company_id` (via `ActiveSupport::CurrentAttributes`).
-3. El `ApplicationRecord` define un **Global Default Scope** que filtra automáticamente todas las queries: `where(company_id: Current.company_id)`.
+3. El concern **`CompanyScoped`** (`app/models/concerns/company_scoped.rb`) define el **Global Default Scope** que filtra automáticamente todas las queries (`where(company_id: Current.company_id)`), fuerza el `company_id` del contexto al crear registros y lo vuelve inmutable en updates. *(Ojo: originalmente el scope iba en `ApplicationRecord`; se cambió al concern opt-in en TESIS-41 porque las tablas globales `companies` y `services` no tienen `company_id`.)*
 4. Resultado: `Order.all` devuelve solo las órdenes de la empresa del usuario autenticado, sin código adicional en cada controller.
 
 **Reglas:**
 - Toda tabla de dominio debe tener `company_id NOT NULL` con FK a `companies`.
+- **Todo modelo nuevo con `company_id` debe incluir `CompanyScoped`** (las tablas globales como `services` no lo incluyen).
 - Los workers de background deben setear `Current.company_id` manualmente al inicio de cada job.
 - Un usuario que intenta acceder a un recurso de otro tenant recibe **404** (no 403), para no confirmar la existencia del recurso.
 
@@ -149,6 +150,8 @@ end
 ```ruby
 # app/models/product.rb
 class Product < ApplicationRecord
+  include CompanyScoped
+
   belongs_to :company
 
   validates :sku, presence: true, uniqueness: { scope: :company_id }

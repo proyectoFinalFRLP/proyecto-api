@@ -35,7 +35,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_22_120000) do
   create_table "company_integrations", force: :cascade do |t|
     t.bigint "company_id", null: false
     t.datetime "created_at", null: false
-    t.jsonb "credentials", default: {}, null: false
+    t.text "credentials", default: "{}", null: false
     t.boolean "is_active", default: true, null: false
     t.bigint "service_id", null: false
     t.datetime "updated_at", null: false
