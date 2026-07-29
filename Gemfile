@@ -60,6 +60,11 @@ group :development, :test do
   gem 'rspec-rails'
 end
 
+group :test do
+  # Stubs de HTTP para testear el adaptador de integraciones sin red real.
+  gem 'webmock'
+end
+
 gem 'devise', '~> 5.0'
 
 gem 'devise-jwt', '~> 0.13.0'

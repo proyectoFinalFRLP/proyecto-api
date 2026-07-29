@@ -90,7 +90,7 @@ services = [
     type: 'ecommerce',
     uri: 'https://api.mercadolibre.com/orders',
     http_method: 'GET',
-    request_mapper: { 'customer_address' => 'destination.street' },
+    request_mapper: { 'destination.street' => 'customer_address' },
     response_mapper: { 'tracking.number' => 'tracking_number' },
     request_value_mapper: {},
     response_value_mapper: { 'pagado' => 'paid', 'paid' => 'paid' }
@@ -100,7 +100,7 @@ services = [
     type: 'courier',
     uri: 'https://apis.andreani.com/v2/ordenes-de-envio',
     http_method: 'POST',
-    request_mapper: { 'customer_zip_code' => 'destino.postal.codigoPostal' },
+    request_mapper: { 'destino.postal.codigoPostal' => 'customer_zip_code' },
     response_mapper: { 'bulto.0.numeroDeEnvio' => 'tracking_number' },
     request_value_mapper: {},
     response_value_mapper: { 'EnDistribucion' => 'in_transit', 'Entregado' => 'delivered' }
