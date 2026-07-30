@@ -33,6 +33,8 @@ bin/setup                   # Setup completo (requiere PostgreSQL corriendo)
 
 bin/rails server            # Servidor de desarrollo en localhost:3000
 
+bin/jobs                    # Workers de Solid Queue (no arranca en Windows: ver docs/guidelines/architecture.md §8.3)
+
 bundle exec rspec           # Suite completa de tests
 bundle exec rspec spec/requests/api/v1/orders_spec.rb  # Archivo específico
 
