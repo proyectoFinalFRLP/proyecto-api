@@ -71,6 +71,13 @@ RSpec.describe ProductMapping, type: :model do
     expect(mapping.errors[:base]).to include('product and integration must belong to the same company')
   end
 
+  it 'is queryable within a tenant context' do
+    Current.company_id = company.id
+    expect { described_class.count }.not_to raise_error
+  ensure
+    Current.reset
+  end
+
   it 'belongs to a product' do
     expect(described_class.reflect_on_association(:product).macro).to eq(:belongs_to)
   end
