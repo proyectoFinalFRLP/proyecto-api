@@ -13,5 +13,7 @@ class CreateProductMappings < ActiveRecord::Migration[8.1]
 
     add_index :product_mappings, %i[company_integration_id external_product_id], unique: true,
               name: 'index_product_mappings_on_integration_and_external_id'
+    add_index :product_mappings, %i[product_id company_integration_id], unique: true,
+              name: 'index_product_mappings_on_product_and_integration'
   end
 end

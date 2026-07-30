@@ -10,11 +10,9 @@ RSpec.describe ProductMapping, type: :model do
 
   let(:company) { Company.create!(name: 'Acme', tax_id: '20-12345678-9') }
   let(:product) { Product.create!(company: company, sku: 'SKU-001', name: 'Widget Alpha') }
-  let(:service) do
-    Service.create!(service_name: 'Mercado Libre', type: 'ecommerce',
-                    uri: 'https://api.mercadolibre.com', http_method: 'GET')
-  end
   let(:integration) do
+    service = Service.create!(service_name: 'Mercado Libre', type: 'ecommerce',
+                              uri: 'https://api.mercadolibre.com', http_method: 'GET')
     CompanyIntegration.create!(company: company, service: service,
                                credentials: { access_token: 'test' })
   end
@@ -24,6 +22,14 @@ RSpec.describe ProductMapping, type: :model do
                                     uri: 'https://api.shopify.com', http_method: 'GET')
     CompanyIntegration.create!(company: company, service: other_service,
                                credentials: { token: 'xyz' })
+  end
+
+  let(:other_integration_other_co) do
+    other_company = Company.create!(name: 'Other Corp', tax_id: '30-99999999-9')
+    other_service = Service.create!(service_name: 'WooCommerce', type: 'ecommerce',
+                                    uri: 'https://api.woo.com', http_method: 'GET')
+    CompanyIntegration.create!(company: other_company, service: other_service,
+                               credentials: { token: 'abc' })
   end
 
   it 'is valid with required attributes' do
@@ -57,6 +63,12 @@ RSpec.describe ProductMapping, type: :model do
     other_mapping = described_class.new(product: product, company_integration: other_integration,
                                         external_product_id: 'shop-456')
     expect(other_mapping).to be_valid
+  end
+
+  it 'rejects a product and integration from different companies', :aggregate_failures do
+    mapping.company_integration = other_integration_other_co
+    expect(mapping).not_to be_valid
+    expect(mapping.errors[:base]).to include('product and integration must belong to the same company')
   end
 
   it 'belongs to a product' do
