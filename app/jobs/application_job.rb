@@ -24,7 +24,13 @@ class ApplicationJob < ActiveJob::Base
 
   # Los jobs no tienen contexto HTTP: el tenant se pasa explícito y se activa
   # sólo durante el bloque.
+  #
+  # Falla si el company_id viene vacío en lugar de continuar: con Current.company_id
+  # en nil el default_scope de CompanyScoped no se aplica y el job leería datos de
+  # todas las empresas creyendo estar aislado.
   def with_tenant(company_id)
+    raise ArgumentError, 'company_id is required to run inside a tenant' if company_id.blank?
+
     Current.company_id = company_id
     yield
   end

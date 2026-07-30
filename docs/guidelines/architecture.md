@@ -340,3 +340,21 @@ Alternativas: WSL, Docker, o dejar la verificación de workers al CI/deploy (Lin
 ### 8.4 Tareas programadas
 
 `config/recurring.yml` declara los cronjobs (formato de recurring tasks de Solid Queue). Hoy sólo la limpieza de jobs terminados en producción; el sweeper de webhooks atascados llega con TESIS-39.
+
+### 8.5 La base de datos de la cola
+
+Solid Queue guarda sus jobs en una base aparte (`queue`), declarada en `config/database.yml` para desarrollo y producción. Conviene tener claro cómo se crea y actualiza, porque **no se maneja con las migraciones del proyecto**:
+
+- El esquema de la cola vive en **`db/queue_schema.rb`**, que provee la propia gema. No hay migraciones nuestras para esas tablas: `db/queue_migrate/` está declarado en `database.yml` (viene del scaffold de Rails) pero no existe ni hace falta.
+- `bin/rails db:migrate` corre **sólo las migraciones de negocio** (`db/migrate/`). No toca la base de la cola.
+- `bin/rails db:prepare` crea ambas bases y carga el esquema de la cola. Es el comando a usar en un entorno nuevo.
+- Si `db:prepare` falla al crear la base (pasa en algunos PostgreSQL locales, donde la conexión de mantenimiento no está disponible), se crea a mano y se carga el esquema:
+
+```bash
+bin/rails runner "ActiveRecord::Base.connection.execute('CREATE DATABASE proyecto_api_development_queue')"
+bin/rails db:schema:load:queue
+```
+
+Rails expone tareas por base con el sufijo `:queue` (`db:create:queue`, `db:drop:queue`, `db:migrate:queue`, etc.) para operar sobre ella sin afectar la principal.
+
+En **test** no hay base de cola: el adaptador `:test` encola en memoria, así que el CI funciona con una sola base y un único `DATABASE_URL`.

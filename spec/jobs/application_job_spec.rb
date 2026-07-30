@@ -57,6 +57,16 @@ RSpec.describe ApplicationJob, type: :job do
       suppress(RuntimeError) { TenantAwareTestJob.perform_now(fail_with: 'runtime') }
       expect(Current.company_id).to be_nil
     end
+
+    it 'refuses to run without a tenant instead of silently skipping the scope' do
+      expect { TenantAwareTestJob.perform_now(company_id: nil) }
+        .to raise_error(ArgumentError, /company_id is required/)
+    end
+
+    it 'refuses to run with a blank tenant' do
+      expect { TenantAwareTestJob.perform_now(company_id: '') }
+        .to raise_error(ArgumentError, /company_id is required/)
+    end
   end
 
   describe 'retries' do
