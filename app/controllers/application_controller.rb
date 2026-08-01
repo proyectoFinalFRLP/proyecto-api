@@ -1,4 +1,6 @@
 class ApplicationController < ActionController::API
+  include Pundit::Authorization
+
   before_action :authenticate_user!
   before_action :set_current_tenant
 
