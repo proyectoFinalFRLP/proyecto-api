@@ -17,7 +17,14 @@ module Api
                                         .offset((page - 1) * per_page)
                                         .limit(per_page)
 
-        render json: ProductListSerializer.render(products)
+        # total se cuenta sobre el scope sin with_total_stock: al estar agrupado,
+        # .count sobre el scope con with_total_stock devolvería un Hash, no entero.
+        total = policy_scope(Product).count
+
+        render json: {
+          data: ProductListSerializer.render_as_hash(products),
+          meta: { page: page, per_page: per_page, total: total }
+        }
       end
 
       def show

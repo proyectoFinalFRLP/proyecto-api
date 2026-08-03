@@ -47,12 +47,12 @@ RSpec.describe 'Products API', type: :request do
 
       it 'returns only the products of the current company', :aggregate_failures do
         body = response.parsed_body
-        expect(body.length).to eq(2)
-        expect(body.pluck('sku')).to match_array(%w[A-001 A-002])
+        expect(body['data'].length).to eq(2)
+        expect(body['data'].pluck('sku')).to match_array(%w[A-001 A-002])
       end
 
       it 'includes total_stock calculated via SQL aggregation', :aggregate_failures do
-        body = response.parsed_body
+        body = response.parsed_body['data']
         alpha = body.find { |p| p['sku'] == 'A-001' }
         beta  = body.find { |p| p['sku'] == 'A-002' }
         expect(alpha['total_stock']).to eq(10)
@@ -60,8 +60,25 @@ RSpec.describe 'Products API', type: :request do
       end
 
       it 'includes product fields' do
-        body = response.parsed_body
+        body = response.parsed_body['data']
         expect(body.first.keys).to include('id', 'sku', 'name', 'total_stock')
+      end
+
+      it 'includes pagination metadata', :aggregate_failures do
+        meta = response.parsed_body['meta']
+        expect(meta['page']).to eq(1)
+        expect(meta['per_page']).to eq(20)
+        expect(meta['total']).to eq(2)
+      end
+
+      it 'honours page and per_page params' do
+        get '/api/v1/products', params: { page: 1, per_page: 1 }, headers: headers
+
+        body = response.parsed_body
+        expect(body['data'].length).to eq(1)
+        expect(body['meta']['page']).to eq(1)
+        expect(body['meta']['per_page']).to eq(1)
+        expect(body['meta']['total']).to eq(2)
       end
 
       it 'computes total_stock in a single aggregation query (no N+1)' do
