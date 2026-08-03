@@ -78,9 +78,7 @@ module Api
 
         # Si stocks viene presente pero no es un array (ej. un objeto), es un
         # payload inválido: rechazarlo con 422 en vez de descartarlo en silencio.
-        unless raw_stocks.is_a?(Array)
-          raise ActiveRecord::RecordNotSaved, 'stocks must be an array'
-        end
+        raise ActiveRecord::RecordNotSaved, 'stocks must be an array' unless raw_stocks.is_a?(Array)
 
         raw_stocks.map do |s|
           # Cada elemento debe ser un objeto con warehouse_id/quantity.

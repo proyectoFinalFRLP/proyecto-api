@@ -9,8 +9,12 @@ class ApplicationController < ActionController::API
 
   # Las acciones index usan policy_scope; el resto deben llamar authorize.
   # Si una acción futura olvida el authorize, falla en vez de pasar sin ruido.
+  # `index` se define en las subclases, no en esta clase: el cop
+  # Rails/LexicallyScopedActionFilter no puede resolverla y se excluye acá.
+  # rubocop:disable Rails/LexicallyScopedActionFilter
   after_action :verify_authorized, except: :index
   after_action :verify_policy_scoped, only: :index
+  # rubocop:enable Rails/LexicallyScopedActionFilter
 
   private
 
