@@ -109,6 +109,16 @@ RSpec.describe 'Products API', type: :request do
       get "/api/v1/products/#{other_product.id}", headers: headers
       expect(response).to have_http_status(:not_found)
     end
+
+    it 'returns 403 when the policy denies access' do
+      # Permite probar el rescue de Pundit::NotAuthorizedError: con CompanyScoped
+      # el 404 por tenant suele ganarle al authorize, así que se fuerza la negación.
+      allow_any_instance_of(ProductPolicy).to receive(:show?).and_return(false) # rubocop:disable RSpec/AnyInstance
+
+      get "/api/v1/products/#{product.id}", headers: headers
+
+      expect(response).to have_http_status(:forbidden)
+    end
   end
 
   describe 'POST /api/v1/products' do

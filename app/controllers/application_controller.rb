@@ -5,6 +5,12 @@ class ApplicationController < ActionController::API
   before_action :set_current_tenant
 
   rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
+  rescue_from Pundit::NotAuthorizedError, with: :render_forbidden
+
+  # Las acciones index usan policy_scope; el resto deben llamar authorize.
+  # Si una acción futura olvida el authorize, falla en vez de pasar sin ruido.
+  after_action :verify_authorized, except: :index
+  after_action :verify_policy_scoped, only: :index
 
   private
 
@@ -15,5 +21,9 @@ class ApplicationController < ActionController::API
 
   def render_not_found
     render json: { error: 'Not found' }, status: :not_found
+  end
+
+  def render_forbidden
+    render json: { error: 'Forbidden' }, status: :forbidden
   end
 end
