@@ -100,5 +100,14 @@ RSpec.describe 'Webhooks gateway', type: :request do
         expect(WebhookLog.unscoped.last.company_id).to eq(other_integration.company_id)
       end
     end
+
+    context 'when the integration disappears between the lookup and the insert' do
+      before { allow(WebhookLog).to receive(:create!).and_raise(ActiveRecord::InvalidForeignKey) }
+
+      it 'returns 404 instead of a 500' do
+        post_webhook
+        expect(response).to have_http_status(:not_found)
+      end
+    end
   end
 end

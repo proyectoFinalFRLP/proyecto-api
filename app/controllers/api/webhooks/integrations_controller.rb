@@ -12,6 +12,17 @@ module Api
       skip_before_action :authenticate_user!
       skip_before_action :set_current_tenant
 
+      # Endpoint público sin Pundit: no hay usuario que autorizar, el tenant sale
+      # de la integración. TESIS-33 agrega los verify_* de Pundit en
+      # ApplicationController; `raise: false` deja este skip válido tanto antes
+      # como después de ese merge, sin depender del orden en que entren.
+      skip_after_action :verify_authorized, :verify_policy_scoped, raise: false
+
+      # Si la integración se borra entre el find y el insert, el FK falla. Vale
+      # el mismo 404 que si no existiera: no se persistió nada y el proveedor
+      # tiene que dejar de mandar eventos a esa integración.
+      rescue_from ActiveRecord::InvalidForeignKey, with: :render_not_found
+
       # El payload se lee del body crudo por dos razones: ParamsWrapper envolvería
       # el JSON bajo la clave del controller, y tocar `params` dispararía el parseo
       # del body en el middleware, que responde 400 ante un JSON malformado antes
@@ -20,13 +31,25 @@ module Api
       wrap_parameters false
 
       def create
-        integration = CompanyIntegration.find(request.path_parameters[:company_integration_id])
-        WebhookLog.create!(
-          company_id: integration.company_id,
-          company_integration: integration,
-          headers: request_headers,
-          payload: request_payload
-        )
+        # El tenant sale de la integración, nunca de Current (que acá no se
+        # setea). `unscoped` deja explícita la búsqueda cross-tenant y la blinda
+        # si más adelante alguien setea Current antes de esta acción.
+        integration = CompanyIntegration.unscoped
+                                        .find(request.path_parameters[:company_integration_id])
+
+        # Current queda explícitamente en nil durante el insert: si algún día
+        # llegara con valor, el assign_current_company de CompanyScoped pisaría
+        # el company_id derivado de la integración y el log terminaría en el
+        # tenant equivocado. Acá el tenant lo manda la integración, punto.
+        Current.set(company_id: nil) do
+          WebhookLog.create!(
+            company_id: integration.company_id,
+            company_integration: integration,
+            headers: request_headers,
+            payload: request_payload
+          )
+        end
+
         head :accepted
       end
 

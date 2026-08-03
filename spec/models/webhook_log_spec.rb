@@ -32,6 +32,23 @@ RSpec.describe WebhookLog, type: :model do
     expect(webhook_log).not_to be_valid
   end
 
+  it 'is invalid when the integration belongs to another company' do
+    webhook_log.company = Company.create!(name: 'Otra', tax_id: '30-99999999-9')
+    expect(webhook_log).not_to be_valid
+  end
+
+  # Sin esta validación, un Current heredado haría que assign_current_company
+  # pisara el company_id explícito y el log terminara en el tenant equivocado
+  # en silencio. Acá falla fuerte en vez de escribir mal.
+  it 'refuses to write under a leaked tenant instead of doing it silently' do
+    integration
+    Current.company_id = Company.create!(name: 'Intruso', tax_id: '30-88888888-8').id
+
+    log = described_class.new(company_id: company.id, company_integration: integration)
+
+    expect(log).not_to be_valid
+  end
+
   it 'rejects an unknown status at the database level' do
     webhook_log.save!
     sql = "UPDATE webhook_logs SET status = 'nope' WHERE id = #{webhook_log.id}"
