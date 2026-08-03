@@ -66,6 +66,12 @@ RSpec.configure do |config|
   # To enable this behaviour uncomment the line below.
   # config.infer_spec_type_from_file_location!
 
+  # Current es thread-local y no se resetea solo entre ejemplos: si un test
+  # deja Current.company_id seteado, el siguiente puede crear fixtures en el
+  # tenant equivocado. Resetearlo después de cada ejemplo evita esa clase
+  # entera de order-dependence en specs multi-tenant.
+  config.after(:each) { Current.reset }
+
   # Helpers de Devise (sign_in/sign_out) para request specs del backoffice.
   config.include Devise::Test::IntegrationHelpers, type: :request
 

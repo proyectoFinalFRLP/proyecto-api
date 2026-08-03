@@ -17,7 +17,12 @@ RSpec.describe 'Products API', type: :request do
   end
 
   def other_product
-    @other_product ||= Product.create!(company: other_company, sku: 'B-001', name: 'Other')
+    # assign_current_company pisa el company: manual cuando Current.company_id
+    # está seteado (puede quedar de un request previo), así que se fuerza nil
+    # para que el fixture nazca SIEMPRE en la otra empresa.
+    @other_product ||= Current.set(company_id: nil) do
+      Product.create!(company: other_company, sku: 'B-001', name: 'Other')
+    end
   end
 
   def stocks_for(warehouse_id, quantity:)
@@ -40,7 +45,9 @@ RSpec.describe 'Products API', type: :request do
         p2 = Product.create!(company: company, sku: 'A-002', name: 'Beta')
         Stock.create!(product: p1, warehouse: warehouse, quantity: 10)
         Stock.create!(product: p2, warehouse: warehouse, quantity: 5)
-        Product.create!(company: other_company, sku: 'B-001', name: 'Other')
+        Current.set(company_id: nil) do
+          Product.create!(company: other_company, sku: 'B-001', name: 'Other')
+        end
 
         get '/api/v1/products', headers: headers
       end
@@ -123,6 +130,7 @@ RSpec.describe 'Products API', type: :request do
     end
 
     it 'returns 404 for a product from another company' do
+      expect(other_product.company_id).to eq(other_company.id)
       get "/api/v1/products/#{other_product.id}", headers: headers
       expect(response).to have_http_status(:not_found)
     end
@@ -194,8 +202,10 @@ RSpec.describe 'Products API', type: :request do
     end
 
     it 'rejects a warehouse from another company' do
-      other_wh = Warehouse.create!(company: other_company, name: 'Other',
-                                   zip_code: '2000', address: 'Otra')
+      other_wh = Current.set(company_id: nil) do
+        Warehouse.create!(company: other_company, name: 'Other',
+                          zip_code: '2000', address: 'Otra')
+      end
       params = { product: product_attrs.merge(stocks: stocks_for(other_wh.id, quantity: 5)) }
       post '/api/v1/products', params: params, headers: headers, as: :json
       expect(response).to have_http_status(:unprocessable_content)
@@ -265,8 +275,10 @@ RSpec.describe 'Products API', type: :request do
     end
 
     it 'rejects stocks with a warehouse from another company' do
-      other_wh = Warehouse.create!(company: other_company, name: 'Other',
-                                   zip_code: '2000', address: 'Otra')
+      other_wh = Current.set(company_id: nil) do
+        Warehouse.create!(company: other_company, name: 'Other',
+                          zip_code: '2000', address: 'Otra')
+      end
       params = { product: { stocks: stocks_for(other_wh.id, quantity: 5) } }
       put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json
       expect(response).to have_http_status(:unprocessable_content)
