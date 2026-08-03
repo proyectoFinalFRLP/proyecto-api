@@ -3,10 +3,22 @@ default: &default
     - polling_interval: 1
       batch_size: 500
   workers:
-    - queues: "*"
-      threads: 3
+    # realtime: eventos que la plataforma externa o el usuario esperan ver
+    # reflejados cuanto antes (procesamiento de webhooks entrantes).
+    - queues: realtime
+      threads: 5
       processes: <%= ENV.fetch("JOB_CONCURRENCY", 1) %>
       polling_interval: 0.1
+    # default: trabajo de negocio no interactivo.
+    - queues: default
+      threads: 3
+      processes: <%= ENV.fetch("JOB_CONCURRENCY", 1) %>
+      polling_interval: 0.5
+    # low: sincronizaciones salientes, reintentos y tareas programadas.
+    - queues: low
+      threads: 2
+      processes: 1
+      polling_interval: 2
 
 development:
   <<: *default

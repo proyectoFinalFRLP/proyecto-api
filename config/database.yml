@@ -15,15 +15,24 @@
 default: &default
   adapter: postgresql
   encoding: unicode
-  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  # El pool debe cubrir los threads de los workers de Solid Queue (ver
+  # config/queue.yml): con un pool menor, `bin/jobs` se niega a arrancar.
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 15 } %>
   username: postgres
   password: admin
-  host: localhost
+  # 127.0.0.1 explícito: con "localhost" Windows resuelve primero a ::1 y la
+  # conexión falla al crear bases nuevas.
+  host: <%= ENV.fetch('PROYECTO_API_DATABASE_HOST', '127.0.0.1') %>
 
 
 development:
-  <<: *default
-  database: proyecto_api_development
+  primary:
+    <<: *default
+    database: proyecto_api_development
+  queue:
+    <<: *default
+    database: proyecto_api_development_queue
+    migrations_paths: db/queue_migrate
 
   # The specified database role being used to connect to PostgreSQL.
   # To create additional roles in PostgreSQL see `$ createuser --help`.
@@ -55,6 +64,8 @@ development:
 # Warning: The database defined as "test" will be erased and
 # re-generated from your development database when you run "rake".
 # Do not set this db to the same as development or production.
+# En test Active Job usa el adaptador :test (jobs en memoria), así que no hace
+# falta la base de la cola: una sola base mantiene el CI con un único DATABASE_URL.
 test:
   <<: *default
   database: proyecto_api_test

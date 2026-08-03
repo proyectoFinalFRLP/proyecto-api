@@ -124,6 +124,94 @@ if first_company && ml_service
 end
 
 # ---------------------------------------------------------------------------
+# TESIS-32 — Catalog: Products, Stock, ProductMappings
+# ---------------------------------------------------------------------------
+
+norte_company = Company.find_by(tax_id: '30-11111111-1')
+sur_company = Company.find_by(tax_id: '30-22222222-2')
+
+if norte_company
+  # Products de Distribuidora Norte
+  celular = Product.find_or_create_by!(sku: 'NOR-001', company: norte_company) do |p|
+    p.name = 'Celular Samsung Galaxy A14'
+    p.description = 'Smartphone gama media con 128GB de almacenamiento'
+    p.weight = 0.200
+    p.dimensions = '16.5x7.8x0.9'
+  end
+
+  notebook = Product.find_or_create_by!(sku: 'NOR-002', company: norte_company) do |p|
+    p.name = 'Notebook Lenovo ThinkPad'
+    p.description = 'Notebook empresarial con 16GB RAM y 512GB SSD'
+    p.weight = 1.500
+    p.dimensions = '32x22x1.8'
+  end
+
+  mouse = Product.find_or_create_by!(sku: 'NOR-003', company: norte_company) do |p|
+    p.name = 'Mouse Inalámbrico Logitech'
+    p.description = 'Mouse ergonómico con sensor óptico'
+    p.weight = 0.100
+    p.dimensions = '10x6x3'
+  end
+
+  # Stock en depósitos de Norte
+  central = Warehouse.find_by(company: norte_company, name: 'Depósito Central')
+  satelite = Warehouse.find_by(company: norte_company, name: 'Depósito Satélite Norte')
+
+  if central
+    Stock.find_or_create_by!(product: celular, warehouse: central) { |s| s.quantity = 50 }
+    Stock.find_or_create_by!(product: notebook, warehouse: central) { |s| s.quantity = 20 }
+    Stock.find_or_create_by!(product: mouse, warehouse: central) { |s| s.quantity = 100 }
+  end
+
+  if satelite
+    Stock.find_or_create_by!(product: celular, warehouse: satelite) { |s| s.quantity = 15 }
+    Stock.find_or_create_by!(product: mouse, warehouse: satelite) { |s| s.quantity = 30 }
+  end
+
+  # Identity Mapping: vincula productos de Norte con Mercado Libre
+  ml_integration = CompanyIntegration.find_by(company: norte_company, service: ml_service)
+  if ml_integration
+    ProductMapping.find_or_create_by!(
+      product: celular, company_integration: ml_integration
+    ) do |pm|
+      pm.external_product_id = 'MLA123456789'
+      pm.external_price = 149_999.99
+    end
+
+    ProductMapping.find_or_create_by!(
+      product: notebook, company_integration: ml_integration
+    ) do |pm|
+      pm.external_product_id = 'MLA987654321'
+      pm.external_price = 699_999.50
+    end
+  end
+end
+
+if sur_company
+  # Products de Comercial Sur
+  taladro = Product.find_or_create_by!(sku: 'SUR-001', company: sur_company) do |p|
+    p.name = 'Taladro Percutor Inalámbrico'
+    p.description = 'Taladro a batería 20V con maletín'
+    p.weight = 2.300
+    p.dimensions = '25x20x8'
+  end
+
+  amoladora = Product.find_or_create_by!(sku: 'SUR-002', company: sur_company) do |p|
+    p.name = 'Amoladora Angular 4 1/2"'
+    p.description = 'Amoladora 800W con disco de corte'
+    p.weight = 1.800
+    p.dimensions = '30x12x10'
+  end
+
+  # Stock en depósito de Sur
+  deposito_sur = Warehouse.find_by(company: sur_company, name: 'Depósito Sur')
+  if deposito_sur
+    Stock.find_or_create_by!(product: taladro, warehouse: deposito_sur) { |s| s.quantity = 10 }
+    Stock.find_or_create_by!(product: amoladora, warehouse: deposito_sur) { |s| s.quantity = 25 }
+  end
+end
+
+# ---------------------------------------------------------------------------
 # TESIS-36 — Webhooks: log crudo de eventos entrantes (auditoría)
 # ---------------------------------------------------------------------------
 
@@ -141,4 +229,6 @@ end
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
      "#{CompanyIntegration.count} integraciones, #{AdminUser.count} admins, " \
+     "#{Product.count} productos, #{Stock.count} stocks, " \
+     "#{ProductMapping.count} mappings, " \
      "#{WebhookLog.unscoped.count} webhook logs."
