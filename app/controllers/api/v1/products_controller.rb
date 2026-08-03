@@ -55,7 +55,8 @@ module Api
       private
 
       def set_product
-        @product = Product.find(params.expect(:id))
+        # Eager load de stocks y sus warehouses para evitar N+1 en el detalle.
+        @product = Product.includes(stocks: :warehouse).find(params.expect(:id))
         authorize @product
       end
 

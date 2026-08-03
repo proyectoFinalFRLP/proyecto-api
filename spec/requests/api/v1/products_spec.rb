@@ -119,6 +119,26 @@ RSpec.describe 'Products API', type: :request do
 
       expect(response).to have_http_status(:forbidden)
     end
+
+    it 'loads stock warehouses in a single query (no N+1)' do
+      wh2 = Warehouse.create!(company: company, name: 'North', zip_code: '1901', address: 'Calle 2')
+      wh3 = Warehouse.create!(company: company, name: 'South', zip_code: '1902', address: 'Calle 3')
+      Stock.create!(product: product, warehouse: wh2, quantity: 2)
+      Stock.create!(product: product, warehouse: wh3, quantity: 3)
+
+      auth = headers
+      warehouse_queries = 0
+      counter = lambda do |_name, _started, _finished, _id, payload|
+        warehouse_queries += 1 if payload[:sql].to_s.include?('FROM "warehouses"')
+      end
+
+      ActiveSupport::Notifications.subscribed(counter, 'sql.active_record') do
+        get "/api/v1/products/#{product.id}", headers: auth
+      end
+
+      expect(response).to have_http_status(:ok)
+      expect(warehouse_queries).to eq(1)
+    end
   end
 
   describe 'POST /api/v1/products' do
