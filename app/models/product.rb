@@ -17,9 +17,12 @@ class Product < ApplicationRecord
       .select('products.*', 'COALESCE(SUM(stocks.quantity), 0) AS total_stock')
   }
 
-  # Retorna el stock total consolidado usando SUM en la DB.
-  # Para colecciones usar el scope with_total_stock para evitar N+1.
+  # Retorna el stock total consolidado. Si la fila fue cargada con el scope
+  # with_total_stock, el alias SQL `total_stock` ya trae el agregado calculado
+  # por la DB: hay que leerlo con has_attribute? porque un método definido en
+  # la clase tiene precedencia sobre el atributo del SELECT. Si la fila no
+  # viene del scope, se suma por asociación (caso de detalle/creación).
   def total_stock
-    stocks.sum(:quantity)
+    has_attribute?(:total_stock) ? self[:total_stock].to_i : stocks.sum(:quantity)
   end
 end

@@ -63,6 +63,26 @@ RSpec.describe 'Products API', type: :request do
         body = response.parsed_body
         expect(body.first.keys).to include('id', 'sku', 'name', 'total_stock')
       end
+
+      it 'computes total_stock in a single aggregation query (no N+1)' do
+        10.times do |i|
+          p = Product.create!(company: company, sku: "N1-#{i}", name: "N1-#{i}")
+          Stock.create!(product: p, warehouse: warehouse, quantity: i)
+        end
+
+        auth = headers
+        queries = 0
+        counter = lambda do |_name, _started, _finished, _id, payload|
+          queries += 1 if payload[:sql].to_s.match?(/SUM.*stocks/i)
+        end
+
+        ActiveSupport::Notifications.subscribed(counter, 'sql.active_record') do
+          get '/api/v1/products', headers: auth
+        end
+
+        expect(response).to have_http_status(:ok)
+        expect(queries).to eq(1)
+      end
     end
   end
 
