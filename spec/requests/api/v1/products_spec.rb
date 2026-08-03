@@ -188,6 +188,13 @@ RSpec.describe 'Products API', type: :request do
       expect(response).to have_http_status(:created)
     end
 
+    it 'serializes weight as a JSON number, not a string' do
+      post '/api/v1/products', params: { product: product_attrs }, headers: headers, as: :json
+
+      expect(response.parsed_body['weight']).to eq(0.5)
+      expect(response.parsed_body['weight']).to be_a(Numeric)
+    end
+
     it 'assigns the company from the JWT, ignoring any company_id in the body' do
       post '/api/v1/products',
            params: { product: product_attrs.merge(company_id: other_company.id) },
