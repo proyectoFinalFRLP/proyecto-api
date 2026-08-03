@@ -2,12 +2,13 @@
 
 module Products
   class UpdateProduct < ApplicationPoro
-    def initialize(product:, params:, stocks:, company:)
+    include Concerns::WarehouseValidation
+
+    def initialize(product:, params:, stocks:)
       super()
       @product = product
       @params = params
       @stocks_params = stocks
-      @company = company
     end
 
     def call
@@ -24,18 +25,6 @@ module Products
     end
 
     private
-
-    def validate_warehouses_belong_to_company!
-      # rubocop:disable Rails/Pluck
-      warehouse_ids = @stocks_params.map { |s| s[:warehouse_id] }.uniq
-      # rubocop:enable Rails/Pluck
-      owned = Warehouse.where(id: warehouse_ids, company: @company).pluck(:id)
-      return if owned.sort == warehouse_ids.sort
-
-      missing = warehouse_ids - owned
-      raise ActiveRecord::RecordNotSaved,
-            "Warehouse(s) #{missing.join(', ')} do not belong to this company"
-    end
 
     def upsert_stocks_for_product!
       @stocks_params.each do |stock_attrs|

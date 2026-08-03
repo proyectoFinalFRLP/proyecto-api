@@ -47,8 +47,7 @@ module Api
         product = Products::UpdateProduct.new(
           product: @product,
           params: product_params,
-          stocks: stock_params,
-          company: current_company
+          stocks: stock_params
         ).call
 
         render json: ProductSerializer.render(product), status: :ok
