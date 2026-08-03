@@ -29,6 +29,40 @@ RSpec.describe 'Products API', type: :request do
     [{ warehouse_id: warehouse_id, quantity: quantity }]
   end
 
+  def other_warehouse
+    # Mismo motivo que other_product: Current.company_id puede quedar seteado
+    # de un request previo y pisaría el company: manual.
+    @other_warehouse ||= Current.set(company_id: nil) do
+      Warehouse.create!(company: other_company, name: 'Other',
+                        zip_code: '2000', address: 'Otra')
+    end
+  end
+
+  def create_products_with_stock(total)
+    total.times do |i|
+      product = Product.create!(company: company, sku: "N1-#{i}", name: "N1-#{i}")
+      Stock.create!(product: product, warehouse: warehouse, quantity: i)
+    end
+  end
+
+  def add_extra_stocks(product)
+    north = Warehouse.create!(company: company, name: 'North', zip_code: '1901', address: 'Calle 2')
+    south = Warehouse.create!(company: company, name: 'South', zip_code: '1902', address: 'Calle 3')
+    Stock.create!(product: product, warehouse: north, quantity: 2)
+    Stock.create!(product: product, warehouse: south, quantity: 3)
+  end
+
+  def count_queries(matching:, &block)
+    count = 0
+    counter = lambda do |_name, _started, _finished, _id, payload|
+      count += 1 if payload[:sql].to_s.match?(matching)
+    end
+
+    ActiveSupport::Notifications.subscribed(counter, 'sql.active_record', &block)
+
+    count
+  end
+
   describe 'GET /api/v1/products' do
     let(:warehouse) do
       Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
@@ -78,31 +112,15 @@ RSpec.describe 'Products API', type: :request do
         expect(meta['total']).to eq(2)
       end
 
-      it 'honours page and per_page params' do
+      it 'honours page and per_page params', :aggregate_failures do
         get '/api/v1/products', params: { page: 1, per_page: 1 }, headers: headers
-
-        body = response.parsed_body
-        expect(body['data'].length).to eq(1)
-        expect(body['meta']['page']).to eq(1)
-        expect(body['meta']['per_page']).to eq(1)
-        expect(body['meta']['total']).to eq(2)
+        expect(response.parsed_body['data'].length).to eq(1)
+        expect(response.parsed_body['meta']).to include('page' => 1, 'per_page' => 1, 'total' => 2)
       end
 
-      it 'computes total_stock in a single aggregation query (no N+1)' do
-        10.times do |i|
-          p = Product.create!(company: company, sku: "N1-#{i}", name: "N1-#{i}")
-          Stock.create!(product: p, warehouse: warehouse, quantity: i)
-        end
-
-        auth = headers
-        queries = 0
-        counter = lambda do |_name, _started, _finished, _id, payload|
-          queries += 1 if payload[:sql].to_s.match?(/SUM.*stocks/i)
-        end
-
-        ActiveSupport::Notifications.subscribed(counter, 'sql.active_record') do
-          get '/api/v1/products', headers: auth
-        end
+      it 'computes total_stock in a single aggregation query (no N+1)', :aggregate_failures do
+        create_products_with_stock(10)
+        queries = count_queries(matching: /SUM.*stocks/i) { get '/api/v1/products', headers: headers }
 
         expect(response).to have_http_status(:ok)
         expect(queries).to eq(1)
@@ -129,7 +147,7 @@ RSpec.describe 'Products API', type: :request do
       expect(response.parsed_body['total_stock']).to eq(7)
     end
 
-    it 'returns 404 for a product from another company' do
+    it 'returns 404 for a product from another company', :aggregate_failures do
       expect(other_product.company_id).to eq(other_company.id)
       get "/api/v1/products/#{other_product.id}", headers: headers
       expect(response).to have_http_status(:not_found)
@@ -145,24 +163,12 @@ RSpec.describe 'Products API', type: :request do
       expect(response).to have_http_status(:forbidden)
     end
 
-    it 'loads stock warehouses in a single query (no N+1)' do
-      wh2 = Warehouse.create!(company: company, name: 'North', zip_code: '1901', address: 'Calle 2')
-      wh3 = Warehouse.create!(company: company, name: 'South', zip_code: '1902', address: 'Calle 3')
-      Stock.create!(product: product, warehouse: wh2, quantity: 2)
-      Stock.create!(product: product, warehouse: wh3, quantity: 3)
-
-      auth = headers
-      warehouse_queries = 0
-      counter = lambda do |_name, _started, _finished, _id, payload|
-        warehouse_queries += 1 if payload[:sql].to_s.include?('FROM "warehouses"')
-      end
-
-      ActiveSupport::Notifications.subscribed(counter, 'sql.active_record') do
-        get "/api/v1/products/#{product.id}", headers: auth
-      end
+    it 'loads stock warehouses in a single query (no N+1)', :aggregate_failures do
+      add_extra_stocks(product)
+      queries = count_queries(matching: /FROM "warehouses"/) { get "/api/v1/products/#{product.id}", headers: headers }
 
       expect(response).to have_http_status(:ok)
-      expect(warehouse_queries).to eq(1)
+      expect(queries).to eq(1)
     end
   end
 
@@ -188,7 +194,7 @@ RSpec.describe 'Products API', type: :request do
       expect(response).to have_http_status(:created)
     end
 
-    it 'serializes weight as a JSON number, not a string' do
+    it 'serializes weight as a JSON number, not a string', :aggregate_failures do
       post '/api/v1/products', params: { product: product_attrs }, headers: headers, as: :json
 
       expect(response.parsed_body['weight']).to eq(0.5)
@@ -209,16 +215,12 @@ RSpec.describe 'Products API', type: :request do
     end
 
     it 'rejects a warehouse from another company' do
-      other_wh = Current.set(company_id: nil) do
-        Warehouse.create!(company: other_company, name: 'Other',
-                          zip_code: '2000', address: 'Otra')
-      end
-      params = { product: product_attrs.merge(stocks: stocks_for(other_wh.id, quantity: 5)) }
+      params = { product: product_attrs.merge(stocks: stocks_for(other_warehouse.id, quantity: 5)) }
       post '/api/v1/products', params: params, headers: headers, as: :json
       expect(response).to have_http_status(:unprocessable_content)
     end
 
-    it 'returns 422 when stocks is an object instead of an array' do
+    it 'returns 422 when stocks is an object instead of an array', :aggregate_failures do
       params = { product: product_attrs.merge(stocks: { warehouse_id: 1, quantity: 5 }) }
 
       expect do
@@ -236,7 +238,7 @@ RSpec.describe 'Products API', type: :request do
       end.not_to change(Product, :count)
     end
 
-    it 'returns 422 when a stock element is not an object' do
+    it 'returns 422 when a stock element is not an object', :aggregate_failures do
       params = { product: product_attrs.merge(stocks: ['string']) }
 
       expect do
@@ -282,11 +284,7 @@ RSpec.describe 'Products API', type: :request do
     end
 
     it 'rejects stocks with a warehouse from another company' do
-      other_wh = Current.set(company_id: nil) do
-        Warehouse.create!(company: other_company, name: 'Other',
-                          zip_code: '2000', address: 'Otra')
-      end
-      params = { product: { stocks: stocks_for(other_wh.id, quantity: 5) } }
+      params = { product: { stocks: stocks_for(other_warehouse.id, quantity: 5) } }
       put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json
       expect(response).to have_http_status(:unprocessable_content)
     end

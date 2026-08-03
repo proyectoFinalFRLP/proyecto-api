@@ -70,7 +70,7 @@ RSpec.configure do |config|
   # deja Current.company_id seteado, el siguiente puede crear fixtures en el
   # tenant equivocado. Resetearlo después de cada ejemplo evita esa clase
   # entera de order-dependence en specs multi-tenant.
-  config.after(:each) { Current.reset }
+  config.after { Current.reset }
 
   # Helpers de Devise (sign_in/sign_out) para request specs del backoffice.
   config.include Devise::Test::IntegrationHelpers, type: :request
