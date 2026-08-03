@@ -164,6 +164,34 @@ RSpec.describe 'Products API', type: :request do
       expect(response).to have_http_status(:unprocessable_content)
     end
 
+    it 'returns 422 when stocks is an object instead of an array' do
+      params = { product: product_attrs.merge(stocks: { warehouse_id: 1, quantity: 5 }) }
+
+      expect do
+        post '/api/v1/products', params: params, headers: headers, as: :json
+      end.not_to change(Stock, :count)
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it 'does not create the product when stocks is malformed' do
+      params = { product: product_attrs.merge(stocks: { warehouse_id: 1, quantity: 5 }) }
+
+      expect do
+        post '/api/v1/products', params: params, headers: headers, as: :json
+      end.not_to change(Product, :count)
+    end
+
+    it 'returns 422 when a stock element is not an object' do
+      params = { product: product_attrs.merge(stocks: ['string']) }
+
+      expect do
+        post '/api/v1/products', params: params, headers: headers, as: :json
+      end.not_to change(Stock, :count)
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
     it 'returns 422 when SKU is duplicated' do
       Product.create!(company: company, sku: 'PROD-001', name: 'Existing')
       post '/api/v1/products', params: { product: product_attrs }, headers: headers, as: :json
@@ -215,6 +243,22 @@ RSpec.describe 'Products API', type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(product.stocks.find_by(warehouse: warehouse).quantity).to eq(20)
+    end
+
+    it 'returns 422 when stocks is an object instead of an array' do
+      params = { product: { stocks: { warehouse_id: 1, quantity: 5 } } }
+
+      put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it 'returns 422 when a stock element is not an object' do
+      params = { product: { stocks: ['string'] } }
+
+      put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
     end
   end
 

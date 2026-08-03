@@ -66,9 +66,22 @@ module Api
       end
 
       def stock_params
-        return [] unless params[:product][:stocks].is_a?(Array)
+        raw_stocks = params[:product][:stocks]
+        return [] if raw_stocks.nil?
 
-        params[:product][:stocks].map do |s|
+        # Si stocks viene presente pero no es un array (ej. un objeto), es un
+        # payload inválido: rechazarlo con 422 en vez de descartarlo en silencio.
+        unless raw_stocks.is_a?(Array)
+          raise ActiveRecord::RecordNotSaved, 'stocks must be an array'
+        end
+
+        raw_stocks.map do |s|
+          # Cada elemento debe ser un objeto con warehouse_id/quantity.
+          unless s.respond_to?(:permit)
+            raise ActiveRecord::RecordNotSaved,
+                  'each stock must be an object with warehouse_id and quantity'
+          end
+
           s.permit(:warehouse_id, :quantity).to_h.symbolize_keys
         end
       end
