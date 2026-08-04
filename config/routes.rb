@@ -13,5 +13,10 @@ Rails.application.routes.draw do
       resources :integrations, only: %i[index update], param: :service_id
       resources :products, only: %i[index show create update destroy]
     end
+
+    # Ruta pública: la consumen las plataformas externas, no el frontend.
+    namespace :webhooks do
+      post 'integrations/:company_integration_id', to: 'integrations#create'
+    end
   end
 end
