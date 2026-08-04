@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_22_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_30_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -44,6 +44,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_22_120000) do
     t.index ["service_id"], name: "index_company_integrations_on_service_id"
   end
 
+  create_table "failed_events", force: :cascade do |t|
+    t.integer "attempts", default: 0, null: false
+    t.bigint "company_id", null: false
+    t.bigint "company_integration_id"
+    t.datetime "created_at", null: false
+    t.string "direction", default: "outbound", null: false
+    t.string "event_type", null: false
+    t.text "last_error"
+    t.text "last_response_body"
+    t.integer "last_response_status"
+    t.integer "max_attempts", default: 5, null: false
+    t.datetime "next_retry_at"
+    t.jsonb "payload", default: {}, null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id", "status"], name: "index_failed_events_on_company_id_and_status"
+    t.index ["company_id"], name: "index_failed_events_on_company_id"
+    t.index ["company_integration_id"], name: "index_failed_events_on_company_integration_id"
+    t.index ["status", "next_retry_at"], name: "index_failed_events_on_status_and_next_retry_at"
+    t.check_constraint "direction::text = ANY (ARRAY['inbound'::character varying::text, 'outbound'::character varying::text])", name: "failed_events_direction_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'processing'::character varying::text, 'succeeded'::character varying::text, 'dead'::character varying::text, 'discarded'::character varying::text])", name: "failed_events_status_check"
+  end
+
   create_table "services", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "http_method", null: false
@@ -56,7 +79,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_22_120000) do
     t.datetime "updated_at", null: false
     t.string "uri", null: false
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
-    t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
+    t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying::text, 'courier'::character varying::text])", name: "services_type_check"
   end
 
   create_table "users", force: :cascade do |t|
@@ -85,6 +108,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_22_120000) do
 
   add_foreign_key "company_integrations", "companies", on_delete: :cascade
   add_foreign_key "company_integrations", "services", on_delete: :restrict
+  add_foreign_key "failed_events", "companies", on_delete: :cascade
+  add_foreign_key "failed_events", "company_integrations", on_delete: :nullify
   add_foreign_key "users", "companies", on_delete: :cascade
   add_foreign_key "warehouses", "companies", on_delete: :cascade
 end

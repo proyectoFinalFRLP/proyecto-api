@@ -11,6 +11,13 @@ Rails.application.routes.draw do
       post 'auth/login', to: 'auth/sessions#create'
 
       resources :integrations, only: %i[index update], param: :service_id
+
+      resources :failed_events, path: 'failed-events', only: %i[index] do
+        member do
+          post :retry, action: :requeue
+          post :discard
+        end
+      end
     end
   end
 end
