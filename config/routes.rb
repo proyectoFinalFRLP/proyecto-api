@@ -11,6 +11,7 @@ Rails.application.routes.draw do
       post 'auth/login', to: 'auth/sessions#create'
 
       resources :integrations, only: %i[index update], param: :service_id
+      resources :products, only: %i[index show create update destroy]
     end
 
     # Ruta pública: la consumen las plataformas externas, no el frontend.
