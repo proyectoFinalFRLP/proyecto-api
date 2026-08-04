@@ -164,19 +164,14 @@ RSpec.describe 'Warehouses API', type: :request do
       expect(response).to have_http_status(:not_found)
     end
 
-    # El spec de 403 (policy denegada) requiere que ApplicationController tenga
-    # rescue_from Pundit::NotAuthorizedError, que llegó con TESIS-33. Al hacer
-    # rebase sobre master, habilitar este spec:
-    #
-    # Disable RSpec/AnyInstance — el spec 403 requiere el rescue_from
-    # Pundit::NotAuthorizedError que llega con TESIS-33. Al hacer rebase
-    # sobre master, descomentar este bloque:
-    #
-    #   it 'returns 403 when the policy denies access' do
-    #     allow_any_instance_of(WarehousePolicy).to receive(:destroy?).and_return(false)
-    #     delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
-    #     expect(response).to have_http_status(:forbidden)
-    #   end
+    it 'returns 403 when the policy denies access' do
+      # Permite probar el rescue de Pundit::NotAuthorizedError: con CompanyScoped
+      # el 404 por tenant suele ganarle al authorize, así que se fuerza la negación.
+      allow_any_instance_of(WarehousePolicy).to receive(:destroy?).and_return(false) # rubocop:disable RSpec/AnyInstance
+
+      delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+      expect(response).to have_http_status(:forbidden)
+    end
   end
 end
-
