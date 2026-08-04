@@ -17,8 +17,13 @@ RSpec.describe 'Warehouses API', type: :request do
   end
 
   def other_warehouse
-    @other_warehouse ||= Warehouse.create!(company: other_company, name: 'Otra',
-                                           zip_code: '2000', address: 'Otra calle')
+    # Current.company_id puede quedar seteado de un request previo y pisaría el
+    # company: manual (CompanyScoped#assign_current_company). Forzar nil evita
+    # que el fixture nazca en el tenant equivocado.
+    @other_warehouse ||= Current.set(company_id: nil) do
+      Warehouse.create!(company: other_company, name: 'Otra',
+                        zip_code: '2000', address: 'Otra calle')
+    end
   end
 
   def warehouse_attrs
@@ -33,9 +38,11 @@ RSpec.describe 'Warehouses API', type: :request do
 
     context 'when authenticated' do
       before do
+        Current.set(company_id: nil) do
+          Warehouse.create!(company: other_company, name: 'Otra', zip_code: '2000', address: 'Otra calle')
+        end
         Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
         Warehouse.create!(company: company, name: 'Satélite', zip_code: '1602', address: 'Calle 2')
-        Warehouse.create!(company: other_company, name: 'Otra', zip_code: '2000', address: 'Otra calle')
 
         get '/api/v1/warehouses', headers: headers
       end
@@ -156,5 +163,20 @@ RSpec.describe 'Warehouses API', type: :request do
       delete "/api/v1/warehouses/#{other_warehouse.id}", headers: headers
       expect(response).to have_http_status(:not_found)
     end
+
+    # El spec de 403 (policy denegada) requiere que ApplicationController tenga
+    # rescue_from Pundit::NotAuthorizedError, que llegó con TESIS-33. Al hacer
+    # rebase sobre master, habilitar este spec:
+    #
+    # Disable RSpec/AnyInstance — el spec 403 requiere el rescue_from
+    # Pundit::NotAuthorizedError que llega con TESIS-33. Al hacer rebase
+    # sobre master, descomentar este bloque:
+    #
+    #   it 'returns 403 when the policy denies access' do
+    #     allow_any_instance_of(WarehousePolicy).to receive(:destroy?).and_return(false)
+    #     delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+    #     expect(response).to have_http_status(:forbidden)
+    #   end
   end
 end
+
