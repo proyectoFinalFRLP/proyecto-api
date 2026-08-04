@@ -3,6 +3,8 @@
 module Api
   module V1
     class IntegrationsController < ApplicationController
+      skip_after_action :verify_authorized, :verify_policy_scoped
+
       def index
         integrations = current_company.company_integrations.index_by(&:service_id)
         render json: IntegrationStatusSerializer.render(

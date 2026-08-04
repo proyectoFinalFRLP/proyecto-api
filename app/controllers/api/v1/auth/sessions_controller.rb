@@ -5,6 +5,7 @@ module Api
     module Auth
       class SessionsController < ApplicationController
         skip_before_action :authenticate_user!
+        skip_after_action :verify_authorized, :verify_policy_scoped
 
         def create
           token = ::Auth::AuthenticateUser.new(

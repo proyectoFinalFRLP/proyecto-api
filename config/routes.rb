@@ -12,6 +12,7 @@ Rails.application.routes.draw do
 
       resources :integrations, only: %i[index update], param: :service_id
       resources :warehouses, only: %i[index show create update destroy]
+      resources :products, only: %i[index show create update destroy]
     end
   end
 end
