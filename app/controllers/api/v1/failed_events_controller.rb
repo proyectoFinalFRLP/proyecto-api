@@ -8,7 +8,6 @@ module Api
       before_action :set_failed_event, only: %i[requeue discard]
 
       def index
-        authorize FailedEvent
         render json: FailedEventSerializer.render(scoped_events)
       end
 
@@ -28,7 +27,7 @@ module Api
       private
 
       def scoped_events
-        events = FailedEvent.order(created_at: :desc).limit(MAX_PAGE_SIZE)
+        events = policy_scope(FailedEvent).order(created_at: :desc).limit(MAX_PAGE_SIZE)
         events = events.where(status: params[:status]) if valid_status?
         events = events.where(event_type: params[:event_type]) if params[:event_type].present?
         events

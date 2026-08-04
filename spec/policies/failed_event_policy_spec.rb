@@ -34,6 +34,15 @@ RSpec.describe FailedEventPolicy, type: :policy do
     end
   end
 
+  describe 'Scope' do
+    it 'resolves only the events of the company of the user' do
+      other = Company.create!(name: 'Tenant B', tax_id: '30-22222222-2')
+      FailedEvent.create!(company: other, event_type: 'integrations.http_request')
+
+      expect(described_class::Scope.new(user, FailedEvent).resolve).to contain_exactly(event)
+    end
+  end
+
   context 'without a user' do
     let(:user) { nil }
 

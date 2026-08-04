@@ -9,6 +9,12 @@ class FailedEventPolicy < ApplicationPolicy
   def requeue? = same_company?
   def discard? = same_company?
 
+  class Scope < ApplicationPolicy::Scope
+    def resolve
+      scope.where(company_id: user.company_id)
+    end
+  end
+
   private
 
   def same_company? = user.present? && record.company_id == user.company_id

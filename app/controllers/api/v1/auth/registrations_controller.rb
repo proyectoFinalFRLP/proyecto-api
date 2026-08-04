@@ -5,6 +5,7 @@ module Api
     module Auth
       class RegistrationsController < ApplicationController
         skip_before_action :authenticate_user!
+        skip_after_action :verify_authorized, :verify_policy_scoped
 
         def create
           user = ::Auth::RegisterUser.new(params: user_params).call

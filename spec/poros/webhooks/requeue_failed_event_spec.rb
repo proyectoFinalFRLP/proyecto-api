@@ -9,16 +9,7 @@ RSpec.describe Webhooks::RequeueFailedEvent, type: :poro do
                         status: :dead, attempts: 5, next_retry_at: nil)
   end
 
-  around do |example|
-    original = ActiveJob::Base.queue_adapter
-    ActiveJob::Base.queue_adapter = :test
-    example.run
-    ActiveJob::Base.queue_adapter = original
-  end
-
   before { Current.company_id = company.id }
-
-  after { Current.reset }
 
   it 'brings a dead event back to the queue with a fresh budget', :aggregate_failures do
     described_class.new(failed_event: event).call
@@ -28,9 +19,8 @@ RSpec.describe Webhooks::RequeueFailedEvent, type: :poro do
   end
 
   it 'enqueues the retry immediately instead of waiting for the cronjob' do
-    described_class.new(failed_event: event).call
-
-    expect(enqueued_retries).to contain_exactly([event.id, company.id])
+    expect { described_class.new(failed_event: event).call }
+      .to have_enqueued_job(Webhooks::RetryFailedEventJob).with(event.id, company.id)
   end
 
   it 'requeues a discarded event' do
@@ -51,11 +41,5 @@ RSpec.describe Webhooks::RequeueFailedEvent, type: :poro do
 
     expect { described_class.new(failed_event: event).call }
       .to raise_error(described_class::NotRequeueable)
-  end
-
-  def enqueued_retries
-    ActiveJob::Base.queue_adapter.enqueued_jobs
-                   .select { |job| job[:job] == Webhooks::RetryFailedEventJob }
-                   .map { |job| job[:args] }
   end
 end

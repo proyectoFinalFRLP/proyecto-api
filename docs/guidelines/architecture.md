@@ -195,15 +195,24 @@ Las tablas de configuración del sistema (sin datos de tenant) como `services` (
 
 ### 5.4 Workers y cronjobs
 
-Los jobs deben inicializar el contexto manualmente:
+Los jobs no tienen contexto HTTP: el tenant viaja como argumento y se activa con el helper `with_tenant` de `ApplicationJob`, que además limpia `Current` al terminar (los workers reutilizan threads: sin el reset, un job heredaría el tenant del anterior).
 
 ```ruby
-def perform(product_id, company_id)
-  Current.company_id = company_id
-  product = Product.find(product_id)  # El scope ya filtra por company_id
-  # ...
+module Catalog
+  class SyncStockJob < ApplicationJob
+    queue_as :low
+
+    def perform(product_id, company_id)
+      with_tenant(company_id) do
+        product = Product.find(product_id)  # El scope ya filtra por company_id
+        # ...
+      end
+    end
+  end
 end
 ```
+
+Ver detalle de colas y reintentos en la sección 8.
 
 ---
 
@@ -282,3 +291,70 @@ module Integrations
   end
 end
 ```
+
+---
+
+## 8. Background jobs y colas (Solid Queue)
+
+El broker es **Solid Queue sobre PostgreSQL** (ver [ADR-006](../adr/ADR-006-background-jobs.md)): no hay Redis ni RabbitMQ en el stack. Los jobs viven en una base separada (`queue`), configurada en `config/database.yml` y activa en desarrollo y producción; en test se usa el adaptador `:test`, que encola en memoria sin ejecutar.
+
+### 8.1 Colas por prioridad
+
+Definidas en `config/queue.yml` y expuestas en `ApplicationJob::QUEUES`:
+
+| Cola       | Uso                                                        | Threads |
+| ---------- | ---------------------------------------------------------- | ------- |
+| `realtime` | Eventos entrantes que se esperan reflejados cuanto antes   | 5       |
+| `default`  | Trabajo de negocio no interactivo                          | 3       |
+| `low`      | Sincronizaciones salientes, reintentos, tareas programadas | 2       |
+
+Cada job declara la suya con `queue_as :realtime`.
+
+> **El pool de conexiones debe cubrir la suma de threads de los workers.** Con un pool menor, `bin/jobs` se niega a arrancar con el mensaje `Solid Queue is configured to use N threads but the database connection pool is M`. De ahí el default de `pool: 15` en `database.yml`.
+
+### 8.2 Reintentos
+
+`ApplicationJob` reintenta con espera creciente (`wait: :polynomially_longer`, 5 intentos) **solo** los fallos de APIs externas (`Integrations::AdapterExecutionError`), que son transitorios. Cualquier otra excepción sube y el job queda fallido — no se reintenta un bug. La cola de reintentos persistente y el barrido de eventos atascados corresponden a TESIS-39 (DLQ).
+
+`discard_on ActiveJob::DeserializationError`: si el registro asociado ya no existe, el job perdió sentido.
+
+### 8.3 Correr los workers
+
+```bash
+bin/jobs                      # Supervisor con todas las colas (Linux/macOS, producción)
+bin/jobs --queues=realtime    # Sólo una cola
+```
+
+⚠️ **En Windows `bin/jobs` no arranca**: el supervisor de Solid Queue registra `SIGQUIT`, señal que no existe en la plataforma. Para probar un worker localmente en Windows:
+
+```ruby
+# bundle exec rails runner "..."
+worker = SolidQueue::Worker.new(queues: 'realtime', threads: 1, polling_interval: 0.2)
+Thread.new { worker.start }
+sleep 5
+worker.stop
+```
+
+Alternativas: WSL, Docker, o dejar la verificación de workers al CI/deploy (Linux).
+
+### 8.4 Tareas programadas
+
+`config/recurring.yml` declara los cronjobs (formato de recurring tasks de Solid Queue). Hoy sólo la limpieza de jobs terminados en producción; el sweeper de webhooks atascados llega con TESIS-39.
+
+### 8.5 La base de datos de la cola
+
+Solid Queue guarda sus jobs en una base aparte (`queue`), declarada en `config/database.yml` para desarrollo y producción. Conviene tener claro cómo se crea y actualiza, porque **no se maneja con las migraciones del proyecto**:
+
+- El esquema de la cola vive en **`db/queue_schema.rb`**, que provee la propia gema. No hay migraciones nuestras para esas tablas: `db/queue_migrate/` está declarado en `database.yml` (viene del scaffold de Rails) pero no existe ni hace falta.
+- `bin/rails db:migrate` corre **sólo las migraciones de negocio** (`db/migrate/`). No toca la base de la cola.
+- `bin/rails db:prepare` crea ambas bases y carga el esquema de la cola. Es el comando a usar en un entorno nuevo.
+- Si `db:prepare` falla al crear la base (pasa en algunos PostgreSQL locales, donde la conexión de mantenimiento no está disponible), se crea a mano y se carga el esquema:
+
+```bash
+bin/rails runner "ActiveRecord::Base.connection.execute('CREATE DATABASE proyecto_api_development_queue')"
+bin/rails db:schema:load:queue
+```
+
+Rails expone tareas por base con el sufijo `:queue` (`db:create:queue`, `db:drop:queue`, `db:migrate:queue`, etc.) para operar sobre ella sin afectar la principal.
+
+En **test** no hay base de cola: el adaptador `:test` encola en memoria, así que el CI funciona con una sola base y un único `DATABASE_URL`.

@@ -63,8 +63,34 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_30_120000) do
     t.index ["company_id"], name: "index_failed_events_on_company_id"
     t.index ["company_integration_id"], name: "index_failed_events_on_company_integration_id"
     t.index ["status", "next_retry_at"], name: "index_failed_events_on_status_and_next_retry_at"
-    t.check_constraint "direction::text = ANY (ARRAY['inbound'::character varying::text, 'outbound'::character varying::text])", name: "failed_events_direction_check"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'processing'::character varying::text, 'succeeded'::character varying::text, 'dead'::character varying::text, 'discarded'::character varying::text])", name: "failed_events_status_check"
+    t.check_constraint "direction::text = ANY (ARRAY['inbound'::character varying, 'outbound'::character varying]::text[])", name: "failed_events_direction_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'succeeded'::character varying, 'dead'::character varying, 'discarded'::character varying]::text[])", name: "failed_events_status_check"
+  end
+
+  create_table "product_mappings", force: :cascade do |t|
+    t.bigint "company_integration_id", null: false
+    t.datetime "created_at", null: false
+    t.decimal "external_price", precision: 10, scale: 2
+    t.string "external_product_id", null: false
+    t.bigint "product_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_integration_id", "external_product_id"], name: "index_product_mappings_on_integration_and_external_id", unique: true
+    t.index ["company_integration_id"], name: "index_product_mappings_on_company_integration_id"
+    t.index ["product_id", "company_integration_id"], name: "index_product_mappings_on_product_and_integration", unique: true
+    t.index ["product_id"], name: "index_product_mappings_on_product_id"
+  end
+
+  create_table "products", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "dimensions"
+    t.string "name", null: false
+    t.string "sku", null: false
+    t.datetime "updated_at", null: false
+    t.decimal "weight", precision: 10, scale: 2, default: "0.0"
+    t.index ["company_id", "sku"], name: "index_products_on_company_id_and_sku", unique: true
+    t.index ["company_id"], name: "index_products_on_company_id"
   end
 
   create_table "services", force: :cascade do |t|
@@ -80,6 +106,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_30_120000) do
     t.string "uri", null: false
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
     t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying::text, 'courier'::character varying::text])", name: "services_type_check"
+  end
+
+  create_table "stocks", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "product_id", null: false
+    t.integer "quantity", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.bigint "warehouse_id", null: false
+    t.index ["product_id", "warehouse_id"], name: "index_stocks_on_product_id_and_warehouse_id", unique: true
+    t.index ["product_id"], name: "index_stocks_on_product_id"
+    t.index ["warehouse_id"], name: "index_stocks_on_warehouse_id"
   end
 
   create_table "users", force: :cascade do |t|
@@ -110,6 +147,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_30_120000) do
   add_foreign_key "company_integrations", "services", on_delete: :restrict
   add_foreign_key "failed_events", "companies", on_delete: :cascade
   add_foreign_key "failed_events", "company_integrations", on_delete: :nullify
+  add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade
+  add_foreign_key "product_mappings", "products", on_delete: :cascade
+  add_foreign_key "products", "companies", on_delete: :cascade
+  add_foreign_key "stocks", "products", on_delete: :cascade
+  add_foreign_key "stocks", "warehouses", on_delete: :restrict
   add_foreign_key "users", "companies", on_delete: :cascade
   add_foreign_key "warehouses", "companies", on_delete: :cascade
 end

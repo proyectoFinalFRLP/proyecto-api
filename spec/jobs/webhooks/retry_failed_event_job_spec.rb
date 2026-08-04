@@ -12,8 +12,6 @@ RSpec.describe Webhooks::RetryFailedEventJob, type: :job do
 
   before { allow(Webhooks::RetryFailedEvent).to receive(:new).and_return(retrier) }
 
-  after { Current.reset }
-
   def run = described_class.new.perform(event.id, company.id)
 
   it 'claims the event so no other worker picks it up' do

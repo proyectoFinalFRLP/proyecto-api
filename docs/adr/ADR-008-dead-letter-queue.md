@@ -17,6 +17,8 @@ Se implementa una **Dead Letter Queue persistida en PostgreSQL** (tabla `failed_
 
 **Por qué en tabla propia y no con el `retry_on` de Active Job:** los reintentos de Active Job viven en el proceso del worker y con backoffs largos ocupan la cola; además, un evento que agota sus reintentos desaparece en el log. Una tabla propia hace el estado consultable por API, sobrevive a reinicios y permite reintento manual.
 
+**Relación con el `retry_on` de `ApplicationJob`** (definido en TESIS-37 para `Integrations::AdapterExecutionError`): los dos mecanismos no se pisan porque la DLQ **rescata antes**. `ExecuteIntegrationRequest` captura el `AdapterExecutionError` y lo persiste, y `RetryFailedEvent` nunca propaga la excepción de un reintento. Un fallo que pasa por la DLQ no vuelve a contar como fallo del job. El `retry_on` sigue cubriendo las llamadas salientes que todavía no pasan por acá.
+
 ### Ciclo de vida
 
 ```
@@ -41,6 +43,8 @@ pending ──(cron encola)──> processing ──(éxito)────> succee
 | `Webhooks::ReplayRegistry`              | Mapea `event_type` → PORO que sabe reprocesar              |
 | `Api::V1::FailedEventsController`       | Inspección, reintento manual y descarte                    |
 
+Ambos jobs corren en la cola `low` ([ADR-006](ADR-006-background-jobs.md)): reintentos y tareas programadas no compiten con los eventos entrantes de `realtime`.
+
 ### Backoff
 
 Exponencial con jitter: `1m, 2m, 4m, 8m, 16m` (+ hasta 30s de dispersión), 5 intentos por defecto (`FailedEvent::DEFAULT_MAX_ATTEMPTS`). El jitter evita que un lote de eventos que falló junto —típico de una caída de proveedor— reintente todo en el mismo tick.
@@ -51,7 +55,7 @@ El cron encola y el worker reclama: `UPDATE ... WHERE id = ? AND status = 'pendi
 
 ### Multi-tenancy
 
-`failed_events` tiene `company_id NOT NULL` e incluye `CompanyScoped`. El cronjob corre **sin** contexto de tenant y usa `unscoped` para barrer todas las empresas; le pasa el `company_id` a cada job, que lo setea en `Current` antes de tocar la base.
+`failed_events` tiene `company_id NOT NULL` e incluye `CompanyScoped`. El cronjob es el único job que corre **sin** contexto de tenant: usa `unscoped` para barrer todas las empresas y le pasa el `company_id` a cada job, que lo activa con el helper `with_tenant` de `ApplicationJob` antes de tocar la base.
 
 ### Extensibilidad
 

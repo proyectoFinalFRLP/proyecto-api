@@ -24,8 +24,6 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
 
   before { Current.company_id = company.id }
 
-  after { Current.reset }
-
   def url = 'https://api.andreani.com/envios/42'
 
   def retry_event = described_class.new(failed_event: event).call

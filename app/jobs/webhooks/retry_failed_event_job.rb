@@ -4,13 +4,14 @@ module Webhooks
   # Procesa un único FailedEvent. El claim es atómico (pending -> processing) para
   # que dos workers que reciban el mismo evento no lo reintenten dos veces.
   class RetryFailedEventJob < ApplicationJob
-    queue_as :default
+    queue_as :low
 
     def perform(failed_event_id, company_id)
-      Current.company_id = company_id
-      return unless claimed?(failed_event_id)
+      with_tenant(company_id) do
+        next unless claimed?(failed_event_id)
 
-      RetryFailedEvent.new(failed_event: FailedEvent.find(failed_event_id)).call
+        RetryFailedEvent.new(failed_event: FailedEvent.find(failed_event_id)).call
+      end
     end
 
     private

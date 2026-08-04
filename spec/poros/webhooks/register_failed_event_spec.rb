@@ -20,8 +20,6 @@ RSpec.describe Webhooks::RegisterFailedEvent, type: :poro do
 
   before { Current.company_id = company.id }
 
-  after { Current.reset }
-
   def register(attributes = {})
     described_class.new(event_type: 'integrations.http_request',
                         payload: { 'payload' => { 'zip' => '1900' } },

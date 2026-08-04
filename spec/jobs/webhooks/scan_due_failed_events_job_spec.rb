@@ -8,8 +8,6 @@ RSpec.describe Webhooks::ScanDueFailedEventsJob, type: :job do
   let!(:due_a) { create_event(company_a, next_retry_at: 1.minute.ago) }
   let!(:due_b) { create_event(company_b, next_retry_at: 1.hour.ago) }
 
-  after { Current.reset }
-
   def create_event(company, attributes)
     FailedEvent.create!({ company: company,
                           event_type: 'integrations.http_request' }.merge(attributes))

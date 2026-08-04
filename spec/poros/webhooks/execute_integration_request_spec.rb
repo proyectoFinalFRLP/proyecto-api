@@ -16,8 +16,6 @@ RSpec.describe Webhooks::ExecuteIntegrationRequest, type: :poro do
 
   before { Current.company_id = company.id }
 
-  after { Current.reset }
-
   def url = 'https://api.andreani.com/envios/42'
 
   def execute

@@ -5,8 +5,6 @@ require 'rails_helper'
 RSpec.describe FailedEvent, type: :model do
   let(:company) { Company.create!(name: 'Acme', tax_id: '20-12345678-9') }
 
-  after { Current.reset }
-
   def build_event(attributes = {})
     described_class.new({ company: company, event_type: 'integrations.http_request' }
                           .merge(attributes))

@@ -9,13 +9,6 @@ RSpec.describe 'Failed events API', type: :request do
   let(:other_company) { Company.create!(name: 'Tenant B', tax_id: '30-22222222-2') }
   let!(:event) { create_event(company, status: :dead, attempts: 5) }
 
-  around do |example|
-    original = ActiveJob::Base.queue_adapter
-    ActiveJob::Base.queue_adapter = :test
-    example.run
-    ActiveJob::Base.queue_adapter = original
-  end
-
   describe 'GET /api/v1/failed-events' do
     it 'returns 401 without a token' do
       get '/api/v1/failed-events'
