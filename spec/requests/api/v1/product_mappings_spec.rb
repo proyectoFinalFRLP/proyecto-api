@@ -81,29 +81,40 @@ RSpec.describe 'Product Mappings API', type: :request do
       expect(response).to have_http_status(:unauthorized)
     end
 
+    # Misma envoltura que GET /api/v1/products (TESIS-33): el front no tiene que
+    # tratar dos shapes distintas en endpoints vecinos del mismo árbol.
+    it 'wraps the collection in a data key', :aggregate_failures do
+      mapping_for(product, meli_integration, 'MLA-123')
+      get mappings_url(product.id), headers: headers
+
+      expect(response.parsed_body).to be_a(Hash)
+      expect(response.parsed_body.keys).to eq(['data'])
+      expect(response.parsed_body['data']).to be_an(Array)
+    end
+
     it 'returns the mappings of the product', :aggregate_failures do
       mapping_for(product, meli_integration, 'MLA-123')
       get mappings_url(product.id), headers: headers
 
       expect(response).to have_http_status(:ok)
-      expect(response.parsed_body.length).to eq(1)
-      expect(response.parsed_body.first['external_product_id']).to eq('MLA-123')
+      expect(response.parsed_body['data'].length).to eq(1)
+      expect(response.parsed_body['data'].first['external_product_id']).to eq('MLA-123')
     end
 
     it 'includes the external service so the front can label the channel', :aggregate_failures do
       mapping_for(product, meli_integration, 'MLA-123')
       get mappings_url(product.id), headers: headers
 
-      expect(response.parsed_body.first['service_name']).to eq('Mercado Libre')
-      expect(response.parsed_body.first['service_id']).to eq(meli_integration.service_id)
+      expect(response.parsed_body['data'].first['service_name']).to eq('Mercado Libre')
+      expect(response.parsed_body['data'].first['service_id']).to eq(meli_integration.service_id)
     end
 
     it 'exposes external_price as a JSON number, not a string', :aggregate_failures do
       mapping_for(product, meli_integration, 'MLA-123', price: 1500.5)
       get mappings_url(product.id), headers: headers
 
-      expect(response.parsed_body.first['external_price']).to eq(1500.5)
-      expect(response.parsed_body.first['external_price']).to be_a(Numeric)
+      expect(response.parsed_body['data'].first['external_price']).to eq(1500.5)
+      expect(response.parsed_body['data'].first['external_price']).to be_a(Numeric)
     end
 
     it 'does not return the mappings of other products' do
@@ -112,7 +123,7 @@ RSpec.describe 'Product Mappings API', type: :request do
                   meli_integration, 'MLA-999')
 
       get mappings_url(product.id), headers: headers
-      expect(response.parsed_body.pluck('external_product_id')).to eq(['MLA-123'])
+      expect(response.parsed_body['data'].pluck('external_product_id')).to eq(['MLA-123'])
     end
 
     it 'returns 404 for a product from another company' do
@@ -131,13 +142,33 @@ RSpec.describe 'Product Mappings API', type: :request do
   end
 
   describe 'POST /api/v1/products/:product_id/mappings' do
+    # El body va anidado bajo `product_mapping`, mismo contrato que
+    # POST /api/v1/products, que espera todo bajo `product`.
     let(:valid_params) do
-      { company_integration_id: meli_integration.id, external_product_id: 'MLA-123' }
+      { product_mapping: { company_integration_id: meli_integration.id,
+                           external_product_id: 'MLA-123' } }
+    end
+
+    def post_mapping(product_id: product.id, **attrs)
+      post mappings_url(product_id), params: { product_mapping: attrs }, headers: headers, as: :json
     end
 
     it 'returns 401 without a token' do
       post mappings_url(product.id), params: valid_params, as: :json
       expect(response).to have_http_status(:unauthorized)
+    end
+
+    # ParamsWrapper (activo por defecto en ActionController::API para JSON)
+    # envuelve el body plano bajo la key del recurso, así que pedir el anidado
+    # no rompe a quien mande plano: las dos formas terminan en el mismo lugar.
+    # Antes era al revés — el anidado fallaba con "company_integration_id is
+    # required", que apuntaba al parámetro equivocado.
+    it 'also accepts the flat payload thanks to ParamsWrapper', :aggregate_failures do
+      params = { company_integration_id: meli_integration.id, external_product_id: 'MLA-123' }
+
+      expect { post mappings_url(product.id), params: params, headers: headers, as: :json }
+        .to change(ProductMapping, :count).by(1)
+      expect(response).to have_http_status(:created)
     end
 
     it 'creates the mapping and returns 201', :aggregate_failures do
@@ -157,18 +188,18 @@ RSpec.describe 'Product Mappings API', type: :request do
     end
 
     it 'stores the optional external_price', :aggregate_failures do
-      params = valid_params.merge(external_price: 2999.99)
-      post mappings_url(product.id), params: params, headers: headers, as: :json
+      post_mapping(company_integration_id: meli_integration.id,
+                   external_product_id: 'MLA-123', external_price: 2999.99)
 
       expect(response).to have_http_status(:created)
       expect(ProductMapping.last.external_price).to eq(2999.99)
     end
 
     it 'returns 404 when the integration belongs to another company', :aggregate_failures do
-      params = { company_integration_id: other_integration.id, external_product_id: 'MLA-999' }
-
-      expect { post mappings_url(product.id), params: params, headers: headers, as: :json }
-        .not_to change(ProductMapping, :count)
+      expect do
+        post_mapping(company_integration_id: other_integration.id,
+                     external_product_id: 'MLA-999')
+      end.not_to change(ProductMapping, :count)
       expect(response).to have_http_status(:not_found)
     end
 
@@ -201,18 +232,60 @@ RSpec.describe 'Product Mappings API', type: :request do
     end
 
     it 'returns 422 when external_product_id is missing' do
-      params = { company_integration_id: meli_integration.id }
-      post mappings_url(product.id), params: params, headers: headers, as: :json
+      post_mapping(company_integration_id: meli_integration.id)
 
       expect(response).to have_http_status(:unprocessable_content)
     end
 
     it 'returns 422 when company_integration_id is missing', :aggregate_failures do
-      params = { external_product_id: 'MLA-123' }
-      post mappings_url(product.id), params: params, headers: headers, as: :json
+      post_mapping(external_product_id: 'MLA-123')
 
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body['error']).to include('company_integration_id')
+    end
+
+    # external_price es decimal(10,2): sin validación, cualquiera de estos tres
+    # casos terminaba en un 500 (RangeError) o en un precio silenciosamente
+    # equivocado guardado en la DB.
+    describe 'external_price validation' do
+      def post_price(price)
+        post_mapping(company_integration_id: meli_integration.id,
+                     external_product_id: 'MLA-123', external_price: price)
+      end
+
+      it 'accepts the largest price the column can hold', :aggregate_failures do
+        post_price(99_999_999.99)
+
+        expect(response).to have_http_status(:created)
+        expect(ProductMapping.last.external_price).to eq(99_999_999.99)
+      end
+
+      it 'returns 422 instead of 500 when the price overflows the column', :aggregate_failures do
+        expect { post_price(100_000_000) }.not_to change(ProductMapping, :count)
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
+      it 'returns 422 when the price would round past the column limit', :aggregate_failures do
+        expect { post_price(99_999_999.999) }.not_to change(ProductMapping, :count)
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
+      it 'returns 422 instead of storing 0.0 for a non-numeric price', :aggregate_failures do
+        expect { post_price('abc') }.not_to change(ProductMapping, :count)
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
+      it 'returns 422 for a negative price', :aggregate_failures do
+        expect { post_price(-50) }.not_to change(ProductMapping, :count)
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
+      it 'still accepts a mapping without price', :aggregate_failures do
+        post_price(nil)
+
+        expect(response).to have_http_status(:created)
+        expect(ProductMapping.last.external_price).to be_nil
+      end
     end
   end
 

@@ -18,7 +18,10 @@ module Api
                    .includes(company_integration: :service)
                    .order(:created_at)
 
-        render json: ProductMappingSerializer.render(mappings)
+        # Se envuelve en `data` para que el front trate una sola shape en todo
+        # el árbol de /products. No lleva `meta` como el index de productos:
+        # los mappings son tantos como canales de venta y no se paginan.
+        render json: { data: ProductMappingSerializer.render_as_hash(mappings) }
       end
 
       def create
@@ -49,7 +52,9 @@ module Api
       # nunca llega a tocar el mapping.
       def set_product
         @product = Product.find(params.expect(:product_id))
-        authorize @product, :show?
+        # index sólo lee; create y destroy agregan o quitan un vínculo del
+        # producto, así que se autorizan como una modificación de éste.
+        authorize @product, action_name == 'index' ? :show? : :update?
       end
 
       # La integración viene del body: es el vector de ataque que menciona la
@@ -63,8 +68,13 @@ module Api
         CompanyIntegration.find(integration_id)
       end
 
+      # El body va anidado bajo `product_mapping`, igual que `product` en
+      # ProductsController: los dos endpoints del mismo árbol comparten contrato.
       def mapping_params
-        params.permit(:company_integration_id, :external_product_id, :external_price)
+        # rubocop:disable Rails/StrongParametersExpect
+        params.require(:product_mapping)
+              .permit(:company_integration_id, :external_product_id, :external_price)
+        # rubocop:enable Rails/StrongParametersExpect
       end
 
       def render_unprocessable(exception)
