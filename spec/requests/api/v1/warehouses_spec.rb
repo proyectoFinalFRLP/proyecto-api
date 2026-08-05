@@ -49,12 +49,12 @@ RSpec.describe 'Warehouses API', type: :request do
 
       it 'returns only the warehouses of the current company', :aggregate_failures do
         body = response.parsed_body
-        expect(body.length).to eq(2)
-        expect(body.pluck('name')).to match_array(%w[Central Satélite])
+        expect(body['data'].length).to eq(2)
+        expect(body['data'].pluck('name')).to match_array(%w[Central Satélite])
       end
 
-      it 'includes warehouse fields' do
-        body = response.parsed_body
+      it 'includes warehouse fields inside the data envelope' do
+        body = response.parsed_body['data']
         expect(body.first.keys).to include('id', 'name', 'zip_code', 'address')
       end
     end
@@ -110,6 +110,11 @@ RSpec.describe 'Warehouses API', type: :request do
                                  headers: headers, as: :json
       expect(response).to have_http_status(:unprocessable_content)
     end
+
+    it 'returns 400 when the warehouse key is missing' do
+      post '/api/v1/warehouses', params: {}, headers: headers, as: :json
+      expect(response).to have_http_status(:bad_request)
+    end
   end
 
   describe 'PUT /api/v1/warehouses/:id' do
@@ -138,6 +143,15 @@ RSpec.describe 'Warehouses API', type: :request do
           headers: headers, as: :json
 
       expect(response).to have_http_status(:not_found)
+    end
+
+    it 'updates via PATCH as well', :aggregate_failures do
+      patch "/api/v1/warehouses/#{warehouse.id}",
+            params: { warehouse: { name: 'Actualizado' } },
+            headers: headers, as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(warehouse.reload.name).to eq('Actualizado')
     end
   end
 
