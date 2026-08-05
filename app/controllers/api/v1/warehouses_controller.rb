@@ -4,6 +4,7 @@ module Api
   module V1
     class WarehousesController < ApplicationController
       before_action :set_warehouse, only: %i[show update destroy]
+      rescue_from ActiveRecord::RecordNotDestroyed, with: :render_conflict
       rescue_from ActiveRecord::RecordInvalid, with: :render_unprocessable
 
       def index
@@ -54,6 +55,11 @@ module Api
 
       def render_unprocessable(exception)
         render json: { error: exception.message }, status: :unprocessable_content
+      end
+
+      def render_conflict(_exception)
+        render json: { error: 'Cannot delete warehouse with existing stock' },
+               status: :conflict
       end
     end
   end

@@ -173,5 +173,20 @@ RSpec.describe 'Warehouses API', type: :request do
 
       expect(response).to have_http_status(:forbidden)
     end
+
+    it 'returns 409 and keeps the stock when the warehouse has stock', :aggregate_failures do
+      create_warehouse_with_stock
+
+      delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+      expect(response).to have_http_status(:conflict)
+      expect(Stock.count).to eq(1)
+      expect(Warehouse.find_by(id: warehouse.id)).to be_present
+    end
+  end
+
+  def create_warehouse_with_stock
+    product = Product.create!(company: company, sku: 'SKU-1', name: 'Producto')
+    Stock.create!(product: product, warehouse: warehouse, quantity: 10)
   end
 end
