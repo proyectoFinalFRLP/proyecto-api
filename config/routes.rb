@@ -11,6 +11,7 @@ Rails.application.routes.draw do
       post 'auth/login', to: 'auth/sessions#create'
 
       resources :integrations, only: %i[index update], param: :service_id
+      resources :warehouses, only: %i[index show create update destroy]
       resources :products, only: %i[index show create update destroy]
     end
 

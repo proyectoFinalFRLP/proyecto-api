@@ -5,6 +5,7 @@ class ApplicationController < ActionController::API
   before_action :set_current_tenant
 
   rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
+  rescue_from ActiveRecord::RecordInvalid, with: :render_unprocessable
   rescue_from Pundit::NotAuthorizedError, with: :render_forbidden
 
   # Las acciones index usan policy_scope; el resto deben llamar authorize.
@@ -23,11 +24,21 @@ class ApplicationController < ActionController::API
     Current.user = current_user
   end
 
+  # Compartido por los controllers de la API v1 (integrations, products,
+  # warehouses): el tenant siempre sale del JWT, nunca del body.
+  def current_company
+    current_user.company
+  end
+
   def render_not_found
     render json: { error: 'Not found' }, status: :not_found
   end
 
   def render_forbidden
     render json: { error: 'Forbidden' }, status: :forbidden
+  end
+
+  def render_unprocessable(exception)
+    render json: { error: exception.message }, status: :unprocessable_content
   end
 end
