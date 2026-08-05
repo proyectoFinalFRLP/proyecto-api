@@ -15,5 +15,10 @@ Rails.application.routes.draw do
         resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
       end
     end
+
+    # Ruta pública: la consumen las plataformas externas, no el frontend.
+    namespace :webhooks do
+      post 'integrations/:company_integration_id', to: 'integrations#create'
+    end
   end
 end
