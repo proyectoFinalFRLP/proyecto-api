@@ -4,6 +4,8 @@ class CreateOrders < ActiveRecord::Migration[8.1]
   def change
     create_table :orders do |t|
       t.references :company, null: false, foreign_key: { on_delete: :cascade }
+      # nullify (no cascade como webhook_logs): las órdenes son historia financiera
+      # y no deben borrarse si se elimina la integración que las originó.
       t.references :company_integration, foreign_key: { on_delete: :nullify }
       t.string :external_order_id
       t.string :customer_name, null: false

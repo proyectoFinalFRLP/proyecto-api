@@ -6,6 +6,9 @@ class Product < ApplicationRecord
   belongs_to :company
   has_many :stocks, dependent: :destroy
   has_many :product_mappings, dependent: :destroy
+  # Bloquea el borrado si hay ítems de órdenes: son registros financieros y no
+  # deben evaporarse por un DELETE. destroy! levanta RecordNotDestroyed -> 409 (API).
+  has_many :order_items, dependent: :restrict_with_error
 
   validates :sku, presence: true, uniqueness: { scope: :company_id }
   validates :name, presence: true

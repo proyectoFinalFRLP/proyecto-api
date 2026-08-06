@@ -5,6 +5,7 @@ class Company < ApplicationRecord
   has_many :warehouses, dependent: :destroy
   has_many :company_integrations, dependent: :destroy
   has_many :products, dependent: :destroy
+  has_many :orders, dependent: :destroy
 
   validates :name, presence: true
   validates :tax_id, presence: true, uniqueness: true
