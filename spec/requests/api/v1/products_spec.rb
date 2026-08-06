@@ -299,6 +299,16 @@ RSpec.describe 'Products API', type: :request do
       expect(product.stocks.find_by(warehouse: warehouse).quantity).to eq(20)
     end
 
+    # El ABM no habla con las plataformas externas: sólo encola. La propagación
+    # HTTP corre en background (TESIS-35).
+    it 'enqueues the outbound sync when the stock changes' do
+      Stock.create!(product: product, warehouse: warehouse, quantity: 5)
+      params = { product: { stocks: stocks_for(warehouse.id, quantity: 20) } }
+
+      expect { put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json }
+        .to have_enqueued_job(Catalog::SyncStockToChannelJob).with(product.id, company.id)
+    end
+
     it 'returns 422 when stocks is an object instead of an array' do
       params = { product: { stocks: { warehouse_id: 1, quantity: 5 } } }
 

@@ -43,6 +43,10 @@ Catalog::SyncStockJob.perform_later(product.id, Current.company_id)
 
 **Reintentos** (TESIS-37): sólo se reintentan los fallos transitorios de APIs externas (`Integrations::AdapterExecutionError`) con `wait: :polynomially_longer` y 5 intentos. El resto de las excepciones no se reintenta.
 
+**Disparo del sync saliente** (TESIS-35): el encolado de `Catalog::SyncStockToChannelJob` vive en un `after_commit` del modelo `Stock`, no en los POROs del ABM. La condición del negocio es "cambió la tabla `stocks`", no "alguien usó tal endpoint": desde el modelo quedan cubiertos por construcción todos los caminos que escriben stock (ABM, descuento por venta, importaciones, consola) sin depender de que cada uno se acuerde de encolar. Es la excepción deliberada a la regla de `code-conventions.md` de no poner lógica en callbacks — el callback sólo encola; la lógica vive en el PORO `Catalog::OutboundSync`. Costo asumido: un update que toca N depósitos encola N jobs del mismo producto, que son idempotentes porque cada uno recalcula y publica el total vigente al ejecutarse.
+
+**Fallos parciales entre canales** (TESIS-35): `Catalog::OutboundSync` intenta con todos los canales del producto y recién al final levanta un `AdapterExecutionError` agregado con los que fallaron. Una plataforma caída no impide que las demás reciban el stock, y el job igual queda fallido para que el reintento lo vuelva a intentar. El reintento repite el envío a todos los canales, incluidos los que habían salido bien: la operación es idempotente (se publica una cantidad absoluta, no un delta).
+
 ## Alternativas consideradas
 
 ### Sidekiq
