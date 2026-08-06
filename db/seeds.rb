@@ -96,6 +96,19 @@ services = [
     response_value_mapper: { 'pagado' => 'paid', 'paid' => 'paid' }
   },
   {
+    # Plantilla de actualización de stock: es la que consume el sync saliente
+    # (TESIS-35). El id externo del ProductMapping se interpola en la URI y el
+    # request_mapper traduce la clave interna available_quantity.
+    service_name: 'Tiendanube',
+    type: 'ecommerce',
+    uri: 'https://api.tiendanube.com/v1/products/:external_id/variants',
+    http_method: 'PUT',
+    request_mapper: { 'stock' => 'available_quantity' },
+    response_mapper: { 'id' => 'external_product_id' },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  {
     service_name: 'Andreani',
     type: 'courier',
     uri: 'https://apis.andreani.com/v2/ordenes-de-envio',
@@ -126,6 +139,12 @@ end
 # ---------------------------------------------------------------------------
 # TESIS-32 — Catalog: Products, Stock, ProductMappings
 # ---------------------------------------------------------------------------
+
+# Cada fila de stock que se crea acá dispara el sync saliente (TESIS-35). Sobre
+# datos de demo no hay nada que propagar —las URLs de los servicios son
+# ficticias— y encolar exigiría tener creada la base de la cola, que no todos
+# los entornos tienen al correr los seeds: se descartan los encolados.
+ActiveJob::Base.queue_adapter = :test
 
 norte_company = Company.find_by(tax_id: '30-11111111-1')
 sur_company = Company.find_by(tax_id: '30-22222222-2')
@@ -183,6 +202,33 @@ if norte_company
     ) do |pm|
       pm.external_product_id = 'MLA987654321'
       pm.external_price = 699_999.50
+    end
+  end
+
+  # Segundo canal para los mismos productos: un cambio de stock del celular
+  # dispara dos llamadas salientes (una por canal), que es el escenario que
+  # ejercita el sync de TESIS-35.
+  tn_service = Service.find_by(service_name: 'Tiendanube')
+  if tn_service
+    tn_integration = CompanyIntegration.find_or_create_by!(
+      company: norte_company, service: tn_service
+    ) do |ci|
+      ci.credentials = { 'access_token' => 'DEMO-TOKEN-TN' }
+      ci.is_active = true
+    end
+
+    ProductMapping.find_or_create_by!(
+      product: celular, company_integration: tn_integration
+    ) do |pm|
+      pm.external_product_id = 'TN-55501'
+      pm.external_price = 152_999.99
+    end
+
+    ProductMapping.find_or_create_by!(
+      product: notebook, company_integration: tn_integration
+    ) do |pm|
+      pm.external_product_id = 'TN-55502'
+      pm.external_price = 705_000.00
     end
   end
 end
