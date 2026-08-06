@@ -12,7 +12,9 @@ Rails.application.routes.draw do
 
       resources :integrations, only: %i[index update], param: :service_id
       resources :warehouses, only: %i[index show create update destroy]
-      resources :products, only: %i[index show create update destroy]
+      resources :products, only: %i[index show create update destroy] do
+        resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
+      end
     end
 
     # Ruta pública: la consumen las plataformas externas, no el frontend.
