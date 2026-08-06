@@ -226,9 +226,74 @@ if demo_integration && WebhookLog.unscoped.none?
   )
 end
 
+# ---------------------------------------------------------------------------
+# TESIS-40 — Orders & OrderItems (base de la épica TESIS-23)
+# ---------------------------------------------------------------------------
+
+# Venta manual (offline) de Distribuidora Norte: sin external_order_id (no
+# proviene de ningún canal), status 'paid' y cliente con datos completos.
+if norte_company
+  # Clave de búsqueda alineada al índice único (company_id, external_order_id):
+  # external_order_id: nil desambigua órdenes manuales de las de webhook.
+  manual_order = Order.find_or_create_by!(
+    company: norte_company, external_order_id: nil, customer_name: 'Cliente Mayorista Norte'
+  ) do |o|
+    o.customer_document = '20-30123456-7'
+    o.customer_address = 'Calle 7 N° 890, La Plata'
+    o.customer_zip_code = '1900'
+    o.status = 'paid'
+  end
+
+  # Orden originada por webhook (ver TESIS-36): external_order_id presente,
+  # vincula la integración de Mercado Libre y sigue 'pending'.
+  webhook_order = Order.find_or_create_by!(
+    company: norte_company, external_order_id: 'ML-2000003508419013'
+  ) do |o|
+    o.company_integration = ml_integration if ml_integration
+    o.customer_name = 'Comprador Mercado Libre'
+    o.customer_document = '20-40234567-8'
+    o.customer_address = 'Av. Rivadavia 1234, CABA'
+    o.customer_zip_code = '1406'
+    o.status = 'pending'
+  end
+
+  # Ítems de la venta manual: celular y mouse con unit_price snapshot.
+  OrderItem.find_or_create_by!(order: manual_order, product: celular) do |i|
+    i.quantity = 2
+    i.unit_price = 149_999.99
+  end
+  OrderItem.find_or_create_by!(order: manual_order, product: mouse) do |i|
+    i.quantity = 5
+    i.unit_price = 12_500.00
+  end
+
+  # Ítems de la orden de webhook: notebook (solo ejemplo, sin mapeo real).
+  OrderItem.find_or_create_by!(order: webhook_order, product: notebook) do |i|
+    i.quantity = 1
+    i.unit_price = 699_999.50
+  end
+end
+
+if sur_company
+  # Venta manual de Comercial Sur: cubre el caso borde de una orden sin
+  # dirección de envío (retiro en sucursal) y con status 'cancelled'.
+  sur_order = Order.find_or_create_by!(
+    company: sur_company, external_order_id: nil, customer_name: 'Cliente Minorista Sur'
+  ) do |o|
+    o.customer_document = '23-40345678-9'
+    o.status = 'cancelled'
+  end
+
+  OrderItem.find_or_create_by!(order: sur_order, product: taladro) do |i|
+    i.quantity = 1
+    i.unit_price = 89_999.00
+  end
+end
+
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
      "#{CompanyIntegration.count} integraciones, #{AdminUser.count} admins, " \
      "#{Product.count} productos, #{Stock.count} stocks, " \
      "#{ProductMapping.count} mappings, " \
-     "#{WebhookLog.unscoped.count} webhook logs."
+     "#{WebhookLog.unscoped.count} webhook logs, " \
+     "#{Order.unscoped.count} órdenes, #{OrderItem.unscoped.count} ítems."
