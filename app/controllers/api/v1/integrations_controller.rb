@@ -24,10 +24,6 @@ module Api
 
       private
 
-      def current_company
-        current_user.company
-      end
-
       def credentials_params
         raw = params.require(:credentials)
         unless raw.is_a?(ActionController::Parameters)

@@ -8,7 +8,6 @@ module Api
 
       before_action :set_product
 
-      rescue_from ActiveRecord::RecordInvalid, with: :render_unprocessable
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
 
@@ -75,10 +74,6 @@ module Api
         params.require(:product_mapping)
               .permit(:company_integration_id, :external_product_id, :external_price)
         # rubocop:enable Rails/StrongParametersExpect
-      end
-
-      def render_unprocessable(exception)
-        render json: { error: exception.message }, status: :unprocessable_content
       end
 
       # El índice único (company_integration_id, external_product_id) no tiene
