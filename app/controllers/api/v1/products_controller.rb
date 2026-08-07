@@ -4,7 +4,6 @@ module Api
   module V1
     class ProductsController < ApplicationController
       before_action :set_product, only: %i[show update destroy]
-      rescue_from ActiveRecord::RecordInvalid, with: :render_unprocessable
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
 
@@ -67,6 +66,9 @@ module Api
       end
 
       def product_params
+        # permit (no expect) es intencional y load-bearing: expect usa
+        # on_unpermitted: :raise, así que un body con company_id daría 400 en
+        # vez de ignorarlo — rompiendo el requisito de la card.
         # rubocop:disable Rails/StrongParametersExpect
         params.require(:product).permit(:sku, :name, :description, :weight, :dimensions)
         # rubocop:enable Rails/StrongParametersExpect
@@ -89,14 +91,6 @@ module Api
 
           s.permit(:warehouse_id, :quantity).to_h.symbolize_keys
         end
-      end
-
-      def current_company
-        current_user.company
-      end
-
-      def render_unprocessable(exception)
-        render json: { error: exception.message }, status: :unprocessable_content
       end
 
       def render_conflict(_exception)

@@ -65,6 +65,42 @@ RSpec.describe ProductMapping, type: :model do
     expect(other_mapping).to be_valid
   end
 
+  describe 'external_price' do
+    # La columna es decimal(10,2): sin validación, un valor mayor al tope
+    # explota con ActiveRecord::RangeError (500) y un string no numérico se
+    # castea a 0.0 sin avisar.
+    it 'is valid when absent' do
+      mapping.external_price = nil
+      expect(mapping).to be_valid
+    end
+
+    it 'accepts the largest value the column can hold' do
+      mapping.external_price = 99_999_999.99
+      expect(mapping).to be_valid
+    end
+
+    it 'rejects a value above the column limit' do
+      mapping.external_price = 100_000_000
+      expect(mapping).not_to be_valid
+    end
+
+    it 'rejects a value that would round past the column limit' do
+      mapping.external_price = 99_999_999.999
+      expect(mapping).not_to be_valid
+    end
+
+    it 'rejects a non-numeric value instead of casting it to zero', :aggregate_failures do
+      mapping.external_price = 'abc'
+      expect(mapping).not_to be_valid
+      expect(mapping.errors[:external_price]).to include('is not a number')
+    end
+
+    it 'rejects a negative value' do
+      mapping.external_price = -50
+      expect(mapping).not_to be_valid
+    end
+  end
+
   it 'rejects a product and integration from different companies', :aggregate_failures do
     mapping.company_integration = other_integration_other_co
     expect(mapping).not_to be_valid

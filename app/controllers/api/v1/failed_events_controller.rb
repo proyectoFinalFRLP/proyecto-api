@@ -13,9 +13,9 @@ module Api
 
       # POST /api/v1/failed-events/:id/retry (`retry` es palabra reservada en Ruby)
       def requeue
-        event = Webhooks::RequeueFailedEvent.new(failed_event: @failed_event).call
+        event = ::Webhooks::RequeueFailedEvent.new(failed_event: @failed_event).call
         render json: FailedEventSerializer.render(event), status: :ok
-      rescue Webhooks::RequeueFailedEvent::NotRequeueable => e
+      rescue ::Webhooks::RequeueFailedEvent::NotRequeueable => e
         render json: { error: e.message }, status: :unprocessable_content
       end
 
