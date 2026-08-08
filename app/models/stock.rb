@@ -32,7 +32,7 @@ class Stock < ApplicationRecord
     # de dónde sacar el tenant.
     return if product.nil? || product.destroyed?
 
-    Catalog::SyncStockToChannelJob.perform_later(product_id, product.company_id)
+    Catalog::SyncStockToChannelsJob.perform_later(product_id, product.company_id)
   end
 
   # Un update que no movió la cantidad (sólo updated_at, por ejemplo) no le

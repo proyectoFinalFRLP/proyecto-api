@@ -306,7 +306,7 @@ RSpec.describe 'Products API', type: :request do
       params = { product: { stocks: stocks_for(warehouse.id, quantity: 20) } }
 
       expect { put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json }
-        .to have_enqueued_job(Catalog::SyncStockToChannelJob).with(product.id, company.id)
+        .to have_enqueued_job(Catalog::SyncStockToChannelsJob).with(product.id, company.id)
     end
 
     it 'returns 422 when stocks is an object instead of an array' do

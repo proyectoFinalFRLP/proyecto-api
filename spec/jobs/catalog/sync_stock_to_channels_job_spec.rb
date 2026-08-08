@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe Catalog::SyncStockToChannelJob, type: :job do
+RSpec.describe Catalog::SyncStockToChannelsJob, type: :job do
   let(:company) { Company.create!(name: 'Acme', tax_id: '20-12345678-9') }
   let(:product) { Product.create!(company: company, sku: 'SKU-001', name: 'Celular') }
   let(:channel) do

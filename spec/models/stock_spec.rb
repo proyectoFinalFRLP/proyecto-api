@@ -63,7 +63,7 @@ RSpec.describe Stock, type: :model do
   end
 
   describe 'outbound sync trigger' do
-    let(:sync_job) { Catalog::SyncStockToChannelJob }
+    let(:sync_job) { Catalog::SyncStockToChannelsJob }
 
     it 'enqueues the outbound sync when the stock is created' do
       expect { stock.save! }.to have_enqueued_job(sync_job).with(product.id, company.id)

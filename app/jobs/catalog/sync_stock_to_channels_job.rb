@@ -7,7 +7,7 @@ module Catalog
   #
   # Si el HttpAdapter falla, la excepción sube y ApplicationJob la reintenta con
   # espera creciente (sólo AdapterExecutionError; ver ADR-006).
-  class SyncStockToChannelJob < ApplicationJob
+  class SyncStockToChannelsJob < ApplicationJob
     queue_as :low
 
     def perform(product_id, company_id)
