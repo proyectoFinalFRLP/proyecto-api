@@ -86,6 +86,9 @@ end
 
 services = [
   {
+    # Plantilla de órdenes entrantes: GET sin body, no transmite stock. El
+    # sync saliente (TESIS-35) para los productos mapeados en este canal usa
+    # la plantilla 'Mercado Libre - Stock' de abajo, no ésta.
     service_name: 'Mercado Libre',
     type: 'ecommerce',
     uri: 'https://api.mercadolibre.com/orders',
@@ -94,6 +97,19 @@ services = [
     response_mapper: { 'tracking.number' => 'tracking_number' },
     request_value_mapper: {},
     response_value_mapper: { 'pagado' => 'paid', 'paid' => 'paid' }
+  },
+  {
+    # Plantilla de actualización de stock de Mercado Libre: es la que consume
+    # el sync saliente (TESIS-35) para los productos mapeados en este canal.
+    # PUT /items/:item_id es la forma real de la API de ML para stock.
+    service_name: 'Mercado Libre - Stock',
+    type: 'ecommerce',
+    uri: 'https://api.mercadolibre.com/items/:external_id',
+    http_method: 'PUT',
+    request_mapper: { 'available_quantity' => 'available_quantity' },
+    response_mapper: {},
+    request_value_mapper: {},
+    response_value_mapper: {}
   },
   {
     # Plantilla de actualización de stock: es la que consume el sync saliente
@@ -187,18 +203,26 @@ if norte_company
     Stock.find_or_create_by!(product: mouse, warehouse: satelite) { |s| s.quantity = 30 }
   end
 
-  # Identity Mapping: vincula productos de Norte con Mercado Libre
-  ml_integration = CompanyIntegration.find_by(company: norte_company, service: ml_service)
-  if ml_integration
+  # Identity Mapping: vincula productos de Norte con Mercado Libre, usando la
+  # integración de la plantilla de stock (la de órdenes no transmite stock).
+  ml_stock_service = Service.find_by(service_name: 'Mercado Libre - Stock')
+  if ml_stock_service
+    ml_stock_integration = CompanyIntegration.find_or_create_by!(
+      company: norte_company, service: ml_stock_service
+    ) do |ci|
+      ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
+      ci.is_active = true
+    end
+
     ProductMapping.find_or_create_by!(
-      product: celular, company_integration: ml_integration
+      product: celular, company_integration: ml_stock_integration
     ) do |pm|
       pm.external_product_id = 'MLA123456789'
       pm.external_price = 149_999.99
     end
 
     ProductMapping.find_or_create_by!(
-      product: notebook, company_integration: ml_integration
+      product: notebook, company_integration: ml_stock_integration
     ) do |pm|
       pm.external_product_id = 'MLA987654321'
       pm.external_price = 699_999.50
