@@ -118,6 +118,10 @@ RSpec.describe Catalog::OutboundSync, type: :poro do
       expect { sync.call }.to raise_error(Integrations::AdapterExecutionError, /Mercado Libre/)
     end
 
+    it 'includes the response status of the failing channel in the error' do
+      expect { sync.call }.to raise_error(Integrations::AdapterExecutionError, /status 500/)
+    end
+
     it 'aggregates every failing channel when they all fail' do
       stub_channel('api.tn.test', 'TN-2', status: 503)
       expect { sync.call }.to raise_error(Integrations::AdapterExecutionError, /2 of 2 channels/)

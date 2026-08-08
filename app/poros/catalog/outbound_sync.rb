@@ -59,9 +59,17 @@ module Catalog
     def raise_aggregated(failures)
       raise Integrations::AdapterExecutionError.new(
         "outbound sync failed for #{failures.size} of #{mappings.size} channels: " \
-        "#{failures.map(&:message).join('; ')}",
+        "#{failures.map { |failure| failure_detail(failure) }.join('; ')}",
         payload: { product_id: @product.id, available_quantity: total_stock }
       )
+    end
+
+    # response_status es nil para fallos de red (timeout, conexión rechazada);
+    # se agrega al mensaje sólo cuando la plataforma respondió con un código.
+    def failure_detail(failure)
+      return failure.message unless failure.response_status
+
+      "#{failure.message} (status #{failure.response_status})"
     end
   end
 end
