@@ -274,19 +274,19 @@ app/jobs/
 ### 7.4 Nueva llamada HTTP a API externa
 
 ```ruby
-# ✅ Siempre dentro de un PORO, nunca en controllers ni models
-module Integrations
-  class SyncProductToChannel < ApplicationPoro
-    def initialize(product:, company_integration:)
-      @product = product
-      @integration = company_integration
-    end
-
+# ✅ Siempre dentro de un PORO, nunca en controllers ni models, y siempre
+# ejecutado desde un job: la API externa puede tardar o estar caída.
+# Ejemplo real: app/poros/catalog/outbound_sync.rb
+module Catalog
+  class OutboundSync < ApplicationPoro
     def call
-      HttpAdapter.new(@integration).call(
-        endpoint: :update_stock,
-        payload: { external_id: mapping.external_id, stock: @product.stock }
-      )
+      Integrations::HttpAdapter.new(
+        company_integration: mapping.company_integration,
+        # payload: claves internas; el request_mapper del Service las traduce
+        payload: { external_id: mapping.external_product_id, available_quantity: total_stock },
+        # uri_params: interpola los :placeholders de la URI de la plantilla
+        uri_params: { external_id: mapping.external_product_id }
+      ).call
     end
   end
 end

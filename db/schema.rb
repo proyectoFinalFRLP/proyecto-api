@@ -121,6 +121,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_10_120000) do
     t.index ["company_id"], name: "index_warehouses_on_company_id"
   end
 
+  create_table "webhook_logs", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.bigint "company_integration_id", null: false
+    t.datetime "created_at", null: false
+    t.text "error_message"
+    t.jsonb "headers", default: {}, null: false
+    t.jsonb "payload", default: {}, null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id"], name: "index_webhook_logs_on_company_id"
+    t.index ["company_integration_id"], name: "index_webhook_logs_on_company_integration_id"
+    t.index ["status", "created_at"], name: "index_webhook_logs_on_status_and_created_at"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processed'::character varying, 'failed'::character varying]::text[])", name: "webhook_logs_status_check"
+  end
+
   add_foreign_key "company_integrations", "companies", on_delete: :cascade
   add_foreign_key "company_integrations", "services", on_delete: :restrict
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade
@@ -130,4 +145,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_10_120000) do
   add_foreign_key "stocks", "warehouses", on_delete: :restrict
   add_foreign_key "users", "companies", on_delete: :cascade
   add_foreign_key "warehouses", "companies", on_delete: :cascade
+  add_foreign_key "webhook_logs", "companies", on_delete: :cascade
+  add_foreign_key "webhook_logs", "company_integrations", on_delete: :cascade
 end

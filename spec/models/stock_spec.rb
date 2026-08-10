@@ -62,6 +62,34 @@ RSpec.describe Stock, type: :model do
     Current.reset
   end
 
+  describe 'outbound sync trigger' do
+    let(:sync_job) { Catalog::SyncStockToChannelsJob }
+
+    it 'enqueues the outbound sync when the stock is created' do
+      expect { stock.save! }.to have_enqueued_job(sync_job).with(product.id, company.id)
+    end
+
+    it 'enqueues the outbound sync when the quantity changes' do
+      stock.save!
+      expect { stock.update!(quantity: 3) }.to have_enqueued_job(sync_job)
+    end
+
+    it 'enqueues the outbound sync when the stock is deleted' do
+      stock.save!
+      expect { stock.destroy! }.to have_enqueued_job(sync_job)
+    end
+
+    it 'does not enqueue when the update leaves the quantity untouched' do
+      stock.save!
+      expect { stock.update!(quantity: stock.quantity) }.not_to have_enqueued_job(sync_job)
+    end
+
+    it 'does not enqueue when the stock is deleted along with its product' do
+      stock.save!
+      expect { product.destroy! }.not_to have_enqueued_job(sync_job)
+    end
+  end
+
   it 'belongs to a product' do
     expect(described_class.reflect_on_association(:product).macro).to eq(:belongs_to)
   end

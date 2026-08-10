@@ -86,6 +86,9 @@ end
 
 services = [
   {
+    # Plantilla de órdenes entrantes: GET sin body, no transmite stock. El
+    # sync saliente (TESIS-35) para los productos mapeados en este canal usa
+    # la plantilla 'Mercado Libre - Stock' de abajo, no ésta.
     service_name: 'Mercado Libre',
     type: 'ecommerce',
     uri: 'https://api.mercadolibre.com/orders',
@@ -94,6 +97,32 @@ services = [
     response_mapper: { 'tracking.number' => 'tracking_number' },
     request_value_mapper: {},
     response_value_mapper: { 'pagado' => 'paid', 'paid' => 'paid' }
+  },
+  {
+    # Plantilla de actualización de stock de Mercado Libre: es la que consume
+    # el sync saliente (TESIS-35) para los productos mapeados en este canal.
+    # PUT /items/:item_id es la forma real de la API de ML para stock.
+    service_name: 'Mercado Libre - Stock',
+    type: 'ecommerce',
+    uri: 'https://api.mercadolibre.com/items/:external_id',
+    http_method: 'PUT',
+    request_mapper: { 'available_quantity' => 'available_quantity' },
+    response_mapper: {},
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  {
+    # Plantilla de actualización de stock: es la que consume el sync saliente
+    # (TESIS-35). El id externo del ProductMapping se interpola en la URI y el
+    # request_mapper traduce la clave interna available_quantity.
+    service_name: 'Tiendanube',
+    type: 'ecommerce',
+    uri: 'https://api.tiendanube.com/v1/products/:external_id/variants',
+    http_method: 'PUT',
+    request_mapper: { 'stock' => 'available_quantity' },
+    response_mapper: { 'id' => 'external_product_id' },
+    request_value_mapper: {},
+    response_value_mapper: {}
   },
   {
     service_name: 'Andreani',
@@ -126,6 +155,12 @@ end
 # ---------------------------------------------------------------------------
 # TESIS-32 — Catalog: Products, Stock, ProductMappings
 # ---------------------------------------------------------------------------
+
+# Cada fila de stock que se crea acá dispara el sync saliente (TESIS-35). Sobre
+# datos de demo no hay nada que propagar —las URLs de los servicios son
+# ficticias— y encolar exigiría tener creada la base de la cola, que no todos
+# los entornos tienen al correr los seeds: se descartan los encolados.
+ActiveJob::Base.queue_adapter = :test
 
 norte_company = Company.find_by(tax_id: '30-11111111-1')
 sur_company = Company.find_by(tax_id: '30-22222222-2')
@@ -168,21 +203,64 @@ if norte_company
     Stock.find_or_create_by!(product: mouse, warehouse: satelite) { |s| s.quantity = 30 }
   end
 
-  # Identity Mapping: vincula productos de Norte con Mercado Libre
-  ml_integration = CompanyIntegration.find_by(company: norte_company, service: ml_service)
-  if ml_integration
+  # Identity Mapping: vincula productos de Norte con Mercado Libre, usando la
+  # integración de la plantilla de stock (la de órdenes no transmite stock).
+  ml_stock_service = Service.find_by(service_name: 'Mercado Libre - Stock')
+  if ml_stock_service
+    ml_stock_integration = CompanyIntegration.find_or_create_by!(
+      company: norte_company, service: ml_stock_service
+    ) do |ci|
+      ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
+      ci.is_active = true
+    end
+
+    # Una base que corrió estas seeds antes de este cambio tiene el mapping
+    # viejo apuntando a la integración de órdenes (el síntoma del 🟡-1): se
+    # descarta antes de crear el de la integración de stock, para no dejar el
+    # producto publicado en dos canales de ML ni duplicar el mapping.
+    ProductMapping.joins(:company_integration)
+                 .where(company_integrations: { service: ml_service }, product: [celular, notebook])
+                 .destroy_all
+
     ProductMapping.find_or_create_by!(
-      product: celular, company_integration: ml_integration
+      product: celular, company_integration: ml_stock_integration
     ) do |pm|
       pm.external_product_id = 'MLA123456789'
       pm.external_price = 149_999.99
     end
 
     ProductMapping.find_or_create_by!(
-      product: notebook, company_integration: ml_integration
+      product: notebook, company_integration: ml_stock_integration
     ) do |pm|
       pm.external_product_id = 'MLA987654321'
       pm.external_price = 699_999.50
+    end
+  end
+
+  # Segundo canal para los mismos productos: un cambio de stock del celular
+  # dispara dos llamadas salientes (una por canal), que es el escenario que
+  # ejercita el sync de TESIS-35.
+  tn_service = Service.find_by(service_name: 'Tiendanube')
+  if tn_service
+    tn_integration = CompanyIntegration.find_or_create_by!(
+      company: norte_company, service: tn_service
+    ) do |ci|
+      ci.credentials = { 'access_token' => 'DEMO-TOKEN-TN' }
+      ci.is_active = true
+    end
+
+    ProductMapping.find_or_create_by!(
+      product: celular, company_integration: tn_integration
+    ) do |pm|
+      pm.external_product_id = 'TN-55501'
+      pm.external_price = 152_999.99
+    end
+
+    ProductMapping.find_or_create_by!(
+      product: notebook, company_integration: tn_integration
+    ) do |pm|
+      pm.external_product_id = 'TN-55502'
+      pm.external_price = 705_000.00
     end
   end
 end
@@ -211,8 +289,24 @@ if sur_company
   end
 end
 
+# ---------------------------------------------------------------------------
+# TESIS-36 — Webhooks: log crudo de eventos entrantes (auditoría)
+# ---------------------------------------------------------------------------
+
+demo_integration = CompanyIntegration.unscoped.first
+if demo_integration && WebhookLog.unscoped.none?
+  WebhookLog.create!(
+    company_id: demo_integration.company_id,
+    company_integration: demo_integration,
+    headers: { 'HTTP_USER_AGENT' => 'MercadoLibre-Webhook/1.0' },
+    payload: { 'topic' => 'orders_v2', 'resource' => '/orders/2000003508419013' },
+    status: 'pending'
+  )
+end
+
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
      "#{CompanyIntegration.count} integraciones, #{AdminUser.count} admins, " \
      "#{Product.count} productos, #{Stock.count} stocks, " \
-     "#{ProductMapping.count} mappings."
+     "#{ProductMapping.count} mappings, " \
+     "#{WebhookLog.unscoped.count} webhook logs."
