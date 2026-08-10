@@ -214,6 +214,14 @@ if norte_company
       ci.is_active = true
     end
 
+    # Una base que corrió estas seeds antes de este cambio tiene el mapping
+    # viejo apuntando a la integración de órdenes (el síntoma del 🟡-1): se
+    # descarta antes de crear el de la integración de stock, para no dejar el
+    # producto publicado en dos canales de ML ni duplicar el mapping.
+    ProductMapping.joins(:company_integration)
+                 .where(company_integrations: { service: ml_service }, product: [celular, notebook])
+                 .destroy_all
+
     ProductMapping.find_or_create_by!(
       product: celular, company_integration: ml_stock_integration
     ) do |pm|
