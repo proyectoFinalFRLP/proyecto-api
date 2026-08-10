@@ -6,6 +6,12 @@ class ApplicationController < ActionController::API
 
   rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
   rescue_from Pundit::NotAuthorizedError, with: :render_forbidden
+  # El bloqueo de stock lo van a usar varios controllers (productos, órdenes),
+  # así que el mapeo vive acá y no en cada uno. ProductsController define su
+  # propio render_conflict con el mensaje de SKU duplicado, que no aplica a un
+  # lock ocupado: por eso este handler tiene su propio método.
+  rescue_from Shared::LockTimeoutError, with: :render_lock_conflict
+  rescue_from ActiveRecord::CheckViolation, with: :render_constraint_violation
 
   # Las acciones index usan policy_scope; el resto deben llamar authorize.
   # Si una acción futura olvida el authorize, falla en vez de pasar sin ruido.
@@ -29,5 +35,24 @@ class ApplicationController < ActionController::API
 
   def render_forbidden
     render json: { error: 'Forbidden' }, status: :forbidden
+  end
+
+  def render_lock_conflict(exception)
+    render json: { error: exception.message }, status: :conflict
+  end
+
+  # Última línea de defensa: en los caminos normales la validación de Stock ya
+  # devuelve 422 vía RecordInvalid, así que acá sólo llegan las escrituras que
+  # se saltean las validaciones del modelo (update_all, upsert_all, SQL crudo).
+  # Para el resto de los CHECK se responde genérico a propósito: el mensaje de
+  # PostgreSQL nombra tabla y restricción, y no hay por qué filtrarlo.
+  def render_constraint_violation(exception)
+    message = if exception.message.include?('stocks_quantity_non_negative')
+                'stock quantity cannot be negative'
+              else
+                'invalid data: a database constraint was violated'
+              end
+
+    render json: { error: message }, status: :unprocessable_content
   end
 end
