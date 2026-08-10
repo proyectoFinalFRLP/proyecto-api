@@ -276,8 +276,8 @@ end
 Verificar que el job setea `Current.company_id` antes de ejecutar la lógica.
 
 ```ruby
-# spec/jobs/catalog/sync_stock_to_channel_job_spec.rb
-RSpec.describe Catalog::SyncStockToChannelJob, type: :job do
+# spec/jobs/catalog/sync_stock_to_channels_job_spec.rb
+RSpec.describe Catalog::SyncStockToChannelsJob, type: :job do
   let(:company) { create(:company) }
   let(:product) { create(:product, company: company) }
 
