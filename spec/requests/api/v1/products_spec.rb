@@ -63,6 +63,30 @@ RSpec.describe 'Products API', type: :request do
     count
   end
 
+  # El lock se sostiene desde una conexión aparte, abierta a mano: con
+  # use_transactional_fixtures el pool queda pinneado a una sola conexión y
+  # un lock tomado desde otro thread sería reentrante — el endpoint no vería
+  # contención y el ejemplo pasaría por la razón equivocada.
+  def holding_advisory_lock_for(product)
+    key = Current.set(company_id: product.company_id) do
+      Shared::WithAdvisoryLock.new(product_id: product.id).lock_key
+    end
+    config = ActiveRecord::Base.connection_db_config.configuration_hash
+    holder = PG.connect(
+      host: config[:host],
+      port: config[:port],
+      dbname: config[:database],
+      user: config[:username],
+      password: config[:password]
+    )
+    holder.exec('BEGIN')
+    holder.exec("SELECT pg_advisory_xact_lock(#{key})")
+    yield
+  ensure
+    holder&.exec('ROLLBACK')
+    holder&.close
+  end
+
   describe 'GET /api/v1/products' do
     let(:warehouse) do
       Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
@@ -313,6 +337,74 @@ RSpec.describe 'Products API', type: :request do
       put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json
 
       expect(response).to have_http_status(:unprocessable_content)
+    end
+  end
+
+  describe 'PATCH /api/v1/products/:id' do
+    let!(:product) do
+      Product.create!(company: company, sku: 'PROD-001', name: 'Original')
+    end
+    let(:warehouse) do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+    end
+
+    context 'when another process holds the advisory lock for the product' do
+      it 'returns 409 with the lock-timeout error message', :aggregate_failures do
+        holding_advisory_lock_for(product) do
+          patch "/api/v1/products/#{product.id}", params: { product: { stocks: stocks_for(warehouse.id, quantity: 99) } }, headers: headers, as: :json
+        end
+
+        expect(response).to have_http_status(:conflict)
+        expect(response.parsed_body['error']).to eq(Shared::LockTimeoutError::DEFAULT_MESSAGE)
+      end
+
+      it 'does not change the stock quantity in the database' do
+        stock = Stock.create!(product: product, warehouse: warehouse, quantity: 5)
+
+        holding_advisory_lock_for(product) do
+          patch "/api/v1/products/#{product.id}", params: { product: { stocks: stocks_for(warehouse.id, quantity: 99) } }, headers: headers, as: :json
+        end
+
+        expect(stock.reload.quantity).to eq(5)
+      end
+
+      # El lock sólo envuelve la escritura de stocks (ver comentario en
+      # Products::UpdateProduct#write_stocks!): un PATCH que sólo cambia
+      # `name` no compite por él. Este ejemplo documenta esa decisión de
+      # diseño de no envolver todo el update en el advisory lock.
+      it 'still returns 200 for an update that does not touch stocks' do
+        holding_advisory_lock_for(product) do
+          patch "/api/v1/products/#{product.id}", params: { product: { name: 'Renamed while locked' } }, headers: headers, as: :json
+        end
+
+        expect(response).to have_http_status(:ok)
+      end
+    end
+
+    context 'when nobody holds the advisory lock' do
+      it 'returns 200 for the same request (control negativo del 409)' do
+        patch "/api/v1/products/#{product.id}", params: { product: { stocks: stocks_for(warehouse.id, quantity: 99) } }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:ok)
+      end
+    end
+
+    # La violación del CHECK es inalcanzable por HTTP en los caminos normales:
+    # la validación de Stock (`quantity >= 0`) siempre la ataja antes y
+    # devuelve 422 por RecordInvalid, no por CheckViolation. Se stubea el PORO
+    # para ejercitar el handler `render_constraint_violation` de
+    # ApplicationController con la excepción que dispararía PostgreSQL si esa
+    # validación no existiera.
+    context 'when the underlying update raises a database CHECK violation' do
+      it 'returns 422 with a stock-specific message', :aggregate_failures do
+        violation = ActiveRecord::CheckViolation.new('PG::CheckViolation: ERROR: new row for relation "stocks" violates check constraint "stocks_quantity_non_negative"')
+        allow(Products::UpdateProduct).to receive(:new).and_raise(violation)
+
+        patch "/api/v1/products/#{product.id}", params: { product: { stocks: stocks_for(warehouse.id, quantity: 5) } }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to eq('stock quantity cannot be negative')
+      end
     end
   end
 

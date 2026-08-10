@@ -69,4 +69,32 @@ RSpec.describe Stock, type: :model do
   it 'belongs to a warehouse' do
     expect(described_class.reflect_on_association(:warehouse).macro).to eq(:belongs_to)
   end
+
+  # La validación de ActiveRecord (numericality >= 0) es la primera línea de
+  # defensa, pero sólo corre en el ciclo de vida normal del modelo:
+  # operaciones que lo saltean (update_all, upsert_all, SQL crudo) nunca
+  # ejecutan validaciones. El CHECK constraint `stocks_quantity_non_negative`
+  # (ver db/migrate/20260810120000_add_quantity_check_constraint_to_stocks.rb)
+  # es la segunda línea de defensa, a nivel base de datos, para esos casos.
+  # El primer ejemplo no hace nada después del expect: el UPDATE que viola el
+  # CHECK deja abortada la transacción del ejemplo, así que no se puede
+  # seguir usando la conexión.
+  describe 'the quantity CHECK constraint at the database level' do
+    it 'rejects a negative quantity written via update_all, which skips model validations' do
+      stock.save!
+
+      # Saltear las validaciones es exactamente lo que este ejemplo necesita
+      # provocar: es el escenario contra el que existe el CHECK.
+      expect do
+        described_class.where(id: stock.id).update_all(quantity: -1) # rubocop:disable Rails/SkipsModelValidations
+      end.to raise_error(ActiveRecord::CheckViolation)
+    end
+
+    it 'still fails the model validation first, with the error on :quantity', :aggregate_failures do
+      invalid_stock = described_class.new(product: product, warehouse: warehouse, quantity: -1)
+
+      expect(invalid_stock).not_to be_valid
+      expect(invalid_stock.errors[:quantity]).to be_present
+    end
+  end
 end
