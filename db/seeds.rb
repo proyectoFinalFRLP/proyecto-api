@@ -143,10 +143,12 @@ services.each do |attrs|
 end
 
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
+# La variable ml_integration la consume la orden de webhook de la sección TESIS-40.
 first_company = Company.find_by(tax_id: '30-11111111-1')
 ml_service = Service.find_by(service_name: 'Mercado Libre')
+ml_integration = nil
 if first_company && ml_service
-  CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
+  ml_integration = CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
     ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
     ci.is_active = true
   end
