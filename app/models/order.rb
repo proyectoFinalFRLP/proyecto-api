@@ -8,6 +8,9 @@ class Order < ApplicationRecord
   belongs_to :company
   belongs_to :company_integration, optional: true
   has_many :order_items, dependent: :destroy
+  # Restricción MVP 1 orden = 1 envío (TESIS-45), garantizada por el índice
+  # único sobre order_id en shipments.
+  has_one :shipment, dependent: :destroy
 
   validates :customer_name, presence: true
   validates :status, presence: true, inclusion: { in: STATUSES }
