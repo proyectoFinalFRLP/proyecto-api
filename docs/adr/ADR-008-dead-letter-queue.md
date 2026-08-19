@@ -1,4 +1,4 @@
-# ADR-009: Motor de reintentos con Dead Letter Queue
+# ADR-008: Motor de reintentos con Dead Letter Queue
 
 **Fecha:** 2026-07-30  
 **Estado:** Aceptado
