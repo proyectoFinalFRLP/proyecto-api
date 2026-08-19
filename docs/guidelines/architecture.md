@@ -274,19 +274,19 @@ app/jobs/
 ### 7.4 Nueva llamada HTTP a API externa
 
 ```ruby
-# ✅ Siempre dentro de un PORO, nunca en controllers ni models
-module Integrations
-  class SyncProductToChannel < ApplicationPoro
-    def initialize(product:, company_integration:)
-      @product = product
-      @integration = company_integration
-    end
-
+# ✅ Siempre dentro de un PORO, nunca en controllers ni models, y siempre
+# ejecutado desde un job: la API externa puede tardar o estar caída.
+# Ejemplo real: app/poros/catalog/outbound_sync.rb
+module Catalog
+  class OutboundSync < ApplicationPoro
     def call
-      HttpAdapter.new(@integration).call(
-        endpoint: :update_stock,
-        payload: { external_id: mapping.external_id, stock: @product.stock }
-      )
+      Integrations::HttpAdapter.new(
+        company_integration: mapping.company_integration,
+        # payload: claves internas; el request_mapper del Service las traduce
+        payload: { external_id: mapping.external_product_id, available_quantity: total_stock },
+        # uri_params: interpola los :placeholders de la URI de la plantilla
+        uri_params: { external_id: mapping.external_product_id }
+      ).call
     end
   end
 end
@@ -358,3 +358,42 @@ bin/rails db:schema:load:queue
 Rails expone tareas por base con el sufijo `:queue` (`db:create:queue`, `db:drop:queue`, `db:migrate:queue`, etc.) para operar sobre ella sin afectar la principal.
 
 En **test** no hay base de cola: el adaptador `:test` encola en memoria, así que el CI funciona con una sola base y un único `DATABASE_URL`.
+
+---
+
+## 9. Control de concurrencia
+
+Las escrituras de stock tienen que quedar serializadas por producto a través de todos los procesos que puedan tocarlas: workers de Puma, workers de Solid Queue y, eventualmente, varias instancias desplegadas. La decisión completa y las alternativas descartadas están en [ADR-009](../adr/ADR-009-bloqueos-distribuidos.md); esta sección es la guía práctica de uso.
+
+### 9.1 Cuándo usar cada tipo de bloqueo
+
+| Mecanismo                                                      | Cuándo usarlo                                                                                                                        |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Advisory lock a nivel transacción (`Catalog::WithStockLock`) | La operación abarca varias filas de `stocks`, o puede crear una fila que todavía no existe                                            |
+| `SELECT ... FOR UPDATE` (`lock!`)                              | Alcanza con serializar una única fila que ya existe                                                                                  |
+| Restricción `CHECK` en la base                                 | Invariante que tiene que valer siempre, incluso ante escrituras que no pasen por los modelos (`update_all`, `upsert_all`, SQL crudo)  |
+| `limits_concurrency` de Solid Queue                            | Limitar cuántos jobs del mismo tipo corren a la vez — no reemplaza al advisory lock (ver 9.3)                                         |
+
+### 9.2 Uso del PORO
+
+```ruby
+Catalog::WithStockLock.new(product_id: product.id).call do
+  # sección crítica: escrituras de stock
+end
+```
+
+### 9.3 `wait: true` vs `wait: false`
+
+Por default el PORO espera el lock hasta que vence `lock_timeout` (`wait: true`, usa `pg_advisory_xact_lock`). Es el modo correcto para **jobs de background**: pueden permitirse esperar un momento y, si aun así fallan, confiar en el reintento de Active Job.
+
+```ruby
+Catalog::WithStockLock.new(product_id: product.id, wait: false).call { ... }
+```
+
+Con `wait: false` (`pg_try_advisory_xact_lock`) el PORO no espera: si el lock está tomado, falla al instante. Es el modo correcto para **requests HTTP interactivos** — no conviene dejar un thread de Puma colgado esperando un lock que puede tardar.
+
+En ambos modos, si no se puede garantizar exclusividad (venció el `lock_timeout`, o el lock estaba tomado en modo `wait: false`) se levanta `Catalog::LockTimeoutError`, que `ApplicationController` mapea a **409 Conflict**.
+
+### 9.4 `Current.company_id` es obligatorio
+
+La tabla `stocks` no tiene columna `company_id` propia (llega por `product`), así que la clave del lock se arma con el `company_id` activo en `Current`. Si viniera en `nil`, el lock dejaría de aislar empresas. El PORO levanta `ArgumentError` en ese caso, igual que `ApplicationJob#with_tenant` (ver sección 5.4).

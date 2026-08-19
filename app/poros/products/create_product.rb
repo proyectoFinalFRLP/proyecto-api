@@ -15,16 +15,30 @@ module Products
       Product.transaction do
         product = Product.create!(@params.merge(company: @company))
 
-        if @stocks_params.present?
-          validate_warehouses_belong_to_company!
-          create_stocks_for_product!(product)
-        end
+        write_stocks!(product) if @stocks_params.present?
 
         product
       end
     end
 
     private
+
+    # Acá todavía no puede haber contención: el producto nace en esta misma
+    # transacción y nadie más conoce su id. El lock se toma igual para que no
+    # quede ningún camino que escriba stocks sin serializar — si mañana este
+    # PORO acepta un producto existente, la protección ya está puesta — y
+    # porque un lock no contendido no cuesta nada.
+    #
+    # wait: false porque esto corre en el ciclo de un request HTTP: conviene
+    # devolver 409 enseguida (ApplicationController mapea el
+    # Catalog::LockTimeoutError) antes que colgar un thread de Puma esperando.
+    def write_stocks!(product)
+      validate_warehouses_belong_to_company!
+
+      Catalog::WithStockLock.new(product_id: product.id, wait: false).call do
+        create_stocks_for_product!(product)
+      end
+    end
 
     def create_stocks_for_product!(product)
       @stocks_params.each do |stock_attrs|
