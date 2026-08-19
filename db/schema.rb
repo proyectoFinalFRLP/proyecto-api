@@ -44,6 +44,34 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_10_120000) do
     t.index ["service_id"], name: "index_company_integrations_on_service_id"
   end
 
+  create_table "order_items", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "order_id", null: false
+    t.bigint "product_id", null: false
+    t.integer "quantity", default: 1, null: false
+    t.decimal "unit_price", precision: 10, scale: 2, null: false
+    t.datetime "updated_at", null: false
+    t.index ["order_id"], name: "index_order_items_on_order_id"
+    t.index ["product_id"], name: "index_order_items_on_product_id"
+  end
+
+  create_table "orders", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.bigint "company_integration_id"
+    t.datetime "created_at", null: false
+    t.string "customer_address"
+    t.string "customer_document"
+    t.string "customer_name", null: false
+    t.string "customer_zip_code"
+    t.string "external_order_id"
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id", "external_order_id"], name: "index_orders_on_company_id_and_external_order_id", unique: true
+    t.index ["company_id"], name: "index_orders_on_company_id"
+    t.index ["company_integration_id"], name: "index_orders_on_company_integration_id"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'paid'::character varying, 'cancelled'::character varying]::text[])", name: "orders_status_check"
+  end
+
   create_table "product_mappings", force: :cascade do |t|
     t.bigint "company_integration_id", null: false
     t.datetime "created_at", null: false
@@ -138,6 +166,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_10_120000) do
 
   add_foreign_key "company_integrations", "companies", on_delete: :cascade
   add_foreign_key "company_integrations", "services", on_delete: :restrict
+  add_foreign_key "order_items", "orders", on_delete: :cascade
+  add_foreign_key "order_items", "products", on_delete: :restrict
+  add_foreign_key "orders", "companies", on_delete: :cascade
+  add_foreign_key "orders", "company_integrations", on_delete: :nullify
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade
   add_foreign_key "product_mappings", "products", on_delete: :cascade
   add_foreign_key "products", "companies", on_delete: :cascade

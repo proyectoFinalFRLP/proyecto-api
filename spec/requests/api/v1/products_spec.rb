@@ -440,5 +440,23 @@ RSpec.describe 'Products API', type: :request do
       delete "/api/v1/products/#{other_product.id}", headers: headers
       expect(response).to have_http_status(:not_found)
     end
+
+    context 'when the product has order items' do
+      # Setup con side-effect (no memoizado): evita RSpec/LetSetup y suma menos
+      # helpers al grupo. product (del describe) y order comparten company, así
+      # que la validación cross-company del OrderItem pasa.
+      before do
+        order = Order.create!(company: company, customer_name: 'Cliente ACME')
+        OrderItem.create!(order: order, product: product, quantity: 1, unit_price: 10.00)
+      end
+
+      it 'returns 409 (restrict_with_error)', :aggregate_failures do
+        expect do
+          delete "/api/v1/products/#{product.id}", headers: headers
+        end.not_to change(Product, :count)
+
+        expect(response).to have_http_status(:conflict)
+      end
+    end
   end
 end

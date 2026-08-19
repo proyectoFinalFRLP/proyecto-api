@@ -6,6 +6,10 @@ class ApplicationController < ActionController::API
 
   rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
   rescue_from ActiveRecord::RecordInvalid, with: :render_unprocessable
+  # dependent: :restrict_with_error (ej. producto con order_items) -> 409. Los
+  # controllers que quieran un mensaje específico declaran su propio rescue_from
+  # (ej. warehouses_controller con su render_conflict).
+  rescue_from ActiveRecord::RecordNotDestroyed, with: :render_not_destroyable
   rescue_from Pundit::NotAuthorizedError, with: :render_forbidden
   # El bloqueo de stock lo van a usar varios controllers (productos, órdenes),
   # así que el mapeo vive acá y no en cada uno. ProductsController define su
@@ -65,5 +69,9 @@ class ApplicationController < ActionController::API
               end
 
     render json: { error: message }, status: :unprocessable_content
+  end
+
+  def render_not_destroyable
+    render json: { error: 'Cannot delete record with dependent data' }, status: :conflict
   end
 end
