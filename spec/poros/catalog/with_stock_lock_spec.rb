@@ -3,12 +3,12 @@
 require 'rails_helper'
 
 # rubocop:disable RSpec/ExampleLength, RSpec/MultipleExpectations
-RSpec.describe Shared::WithAdvisoryLock, type: :poro do
+RSpec.describe Catalog::WithStockLock, type: :poro do
   # Este describe cubre la parte que justifica la card entera: que el advisory
   # lock realmente serializa escrituras entre conexiones/threads distintos.
   # Para eso hace falta desactivar el wrapping transaccional de RSpec: si no,
   # los "threads" concurrentes viven dentro de la misma transacción de test y
-  # nunca compiten de verdad por el lock (ver ADR-008, sección Consecuencias).
+  # nunca compiten de verdad por el lock (ver ADR-009, sección Consecuencias).
   describe 'concurrencia real (sin transactional tests)' do
     self.use_transactional_tests = false
 
@@ -96,7 +96,7 @@ RSpec.describe Shared::WithAdvisoryLock, type: :poro do
       end
     end
 
-    it 'no bloquea entre dos empresas distintas, aunque sí aísla cada una por su clave' do
+    it 'no bloquea entre productos distintos, aunque sí choca contra la misma clave' do
       other_company = Current.set(company_id: nil) do
         Company.create!(name: 'Other Corp', tax_id: '30-99999999-9')
       end
@@ -129,21 +129,21 @@ RSpec.describe Shared::WithAdvisoryLock, type: :poro do
       begin
         holder_ready.pop
 
-        # Empresa B pide su propio lock (producto B) mientras empresa A sigue
-        # tomado: si el aislamiento por tenant funcionara mal, esto colgaría o
-        # levantaría LockTimeoutError.
+        # Otro producto (de otra empresa, para que el caso sea el real) pide su
+        # propio lock mientras el primero sigue tomado: la clave es distinta,
+        # así que no debería haber contención.
         Current.company_id = other_company.id
         expect do
           described_class.new(product_id: other_product.id, wait: false).call { 1 }
         end.not_to raise_error
 
-        # En cambio, pedir la MISMA clave (empresa A, producto A) sí choca:
-        # esto prueba que el aislamiento anterior viene de la clave del lock
-        # y no de que el lock no estuviera realmente tomado.
+        # En cambio, pedir la MISMA clave (el producto original) sí choca: esto
+        # prueba que lo anterior pasó por la clave del lock y no porque el lock
+        # no estuviera realmente tomado.
         Current.company_id = company.id
         expect do
           described_class.new(product_id: product.id, wait: false).call { 1 }
-        end.to raise_error(Shared::LockTimeoutError)
+        end.to raise_error(Catalog::LockTimeoutError)
       ensure
         release << true
         holder.join
@@ -174,7 +174,7 @@ RSpec.describe Shared::WithAdvisoryLock, type: :poro do
 
         expect do
           described_class.new(product_id: product.id, wait: false).call { 1 }
-        end.to raise_error(Shared::LockTimeoutError)
+        end.to raise_error(Catalog::LockTimeoutError)
       ensure
         release << true
         holder.join
@@ -206,7 +206,7 @@ RSpec.describe Shared::WithAdvisoryLock, type: :poro do
         started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         expect do
           described_class.new(product_id: product.id, timeout_ms: 300).call { 1 }
-        end.to raise_error(Shared::LockTimeoutError)
+        end.to raise_error(Catalog::LockTimeoutError)
         elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
 
         # Aserción laxa a propósito: sólo confirma que el timeout se respetó y
@@ -236,25 +236,31 @@ RSpec.describe Shared::WithAdvisoryLock, type: :poro do
         expect(result).to eq('block result')
       end
 
-      it 'levanta ArgumentError si Current.company_id es nil y no ejecuta el bloque' do
+      # La clave no depende del tenant, así que el lock se puede tomar desde
+      # una consola, una tarea de rake o un bloque unscoped, donde no hay
+      # Current.company_id que valga.
+      it 'funciona sin Current.company_id seteado' do
         Current.company_id = nil
         block_called = false
 
         expect do
           described_class.new(product_id: product.id).call { block_called = true }
-        end.to raise_error(ArgumentError)
-        expect(block_called).to be(false)
+        end.not_to raise_error
+        expect(block_called).to be(true)
       end
     end
 
     describe '#lock_key' do
-      it 'es determinista para la misma empresa y el mismo producto' do
+      it 'es determinista para el mismo producto' do
         key_a = described_class.new(product_id: product.id).lock_key
         key_b = described_class.new(product_id: product.id).lock_key
         expect(key_a).to eq(key_b)
       end
 
-      it 'cambia si cambia la empresa' do
+      # products.id es PK global: dos empresas nunca comparten un product_id,
+      # así que meter el tenant en la clave no aislaría nada que el product_id
+      # no aísle solo.
+      it 'no depende de la empresa activa' do
         base_key = described_class.new(product_id: product.id).lock_key
         other_company = Current.set(company_id: nil) do
           Company.create!(name: 'Other Corp', tax_id: '30-99999999-9')
@@ -263,7 +269,7 @@ RSpec.describe Shared::WithAdvisoryLock, type: :poro do
         Current.company_id = other_company.id
         other_key = described_class.new(product_id: product.id).lock_key
 
-        expect(other_key).not_to eq(base_key)
+        expect(other_key).to eq(base_key)
       end
 
       it 'cambia si cambia el producto' do

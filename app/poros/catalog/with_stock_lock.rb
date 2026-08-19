@@ -2,18 +2,25 @@
 
 require 'digest'
 
-module Shared
+module Catalog
   # Serializa toda mutación de stock de un producto con un advisory lock de
   # PostgreSQL. A diferencia del locking optimista de ActiveRecord (que sólo
   # detecta el conflicto después de que ya ocurrió), acá dos procesos que tocan
   # el mismo producto se serializan directamente en la base.
+  #
+  # Alcance: sirve para read-modify-write sobre el stock — leer la cantidad
+  # actual, calcular la nueva y escribirla — que es lo que va a hacer el
+  # descuento de stock al confirmar una orden. NO resuelve el "lost update" de
+  # dos ediciones concurrentes del ABM, porque ahí la cantidad llega absoluta
+  # desde el request y serializar no cambia cuál gana: eso pide detección
+  # (lock_version / If-Match), no exclusión mutua.
   #
   # Usamos la variante "xact" (pg_advisory_xact_lock) y no la de sesión
   # (pg_advisory_lock): el lock de sesión sobrevive al fin de la transacción y
   # hay que liberarlo a mano, lo que deja locks huérfanos si el proceso muere
   # entre la adquisición y el unlock (worker matado, crash, etc). El lock de
   # transacción se libera solo en COMMIT/ROLLBACK: no hay forma de dejarlo colgado.
-  class WithAdvisoryLock < ApplicationPoro
+  class WithStockLock < ApplicationPoro
     DEFAULT_TIMEOUT_MS = 3_000
     DEFAULT_NAMESPACE = 'stock'
 
@@ -31,34 +38,24 @@ module Shared
     # reutiliza acá y el lock se sostiene hasta que esa transacción externa
     # termine; eso es intencional, no un bug.
     def call
-      ensure_tenant!
-
       ActiveRecord::Base.transaction do
         @wait ? acquire_waiting! : acquire_immediately!
         yield
       end
     end
 
-    # Dos empresas nunca deben competir por el mismo entero de lock, aunque
-    # tengan productos con el mismo id: stocks no tiene company_id, así que sin
-    # mezclar el tenant en la clave el lock dejaría de aislar empresas. Usamos
-    # SHA-256 sobre "namespace:company_id:product_id" y nos quedamos con los
-    # primeros 8 bytes como entero con signo de 64 bits, que es el tipo que
-    # espera pg_advisory_xact_lock.
+    # La clave no lleva company_id: products.id es una PK global, así que dos
+    # empresas nunca comparten un product_id y el tenant no agregaría ningún
+    # aislamiento. El namespace deja lugar para futuros recursos bloqueables
+    # (por ejemplo la confirmación de una orden) sin colisionar con las claves
+    # de stock. SHA-256 sobre "namespace:product_id", primeros 8 bytes como
+    # entero con signo de 64 bits, que es el tipo que espera
+    # pg_advisory_xact_lock.
     def lock_key
       @lock_key ||= compute_lock_key
     end
 
     private
-
-    # Sin tenant la clave no podría incluir el company_id: dos empresas con el
-    # mismo product_id terminarían compitiendo (o bloqueándose) por el mismo
-    # lock sin ninguna razón de negocio real.
-    def ensure_tenant!
-      return if Current.company_id.present?
-
-      raise ArgumentError, 'Current.company_id is required to acquire a stock lock'
-    end
 
     # Modo pensado para jobs de background: vale la pena esperar unos segundos
     # a que se libere el lock antes de reintentar todo el job desde afuera.
@@ -97,8 +94,7 @@ module Shared
     end
 
     def compute_lock_key
-      digest = Digest::SHA256.digest("#{@namespace}:#{Current.company_id}:#{@product_id}")
-      digest.unpack1('q>')
+      Digest::SHA256.digest("#{@namespace}:#{@product_id}").unpack1('q>')
     end
 
     def connection

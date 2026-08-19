@@ -52,6 +52,12 @@ RSpec.describe 'Products API', type: :request do
     Stock.create!(product: product, warehouse: south, quantity: 3)
   end
 
+  def unique_violation(index)
+    ActiveRecord::RecordNotUnique.new(
+      "PG::UniqueViolation: ERROR: duplicate key value violates unique constraint \"#{index}\""
+    )
+  end
+
   def count_queries(matching:, &block)
     count = 0
     counter = lambda do |_name, _started, _finished, _id, payload|
@@ -69,7 +75,7 @@ RSpec.describe 'Products API', type: :request do
   # contención y el ejemplo pasaría por la razón equivocada.
   def holding_advisory_lock_for(product)
     key = Current.set(company_id: product.company_id) do
-      Shared::WithAdvisoryLock.new(product_id: product.id).lock_key
+      Catalog::WithStockLock.new(product_id: product.id).lock_key
     end
     config = ActiveRecord::Base.connection_db_config.configuration_hash
     holder = PG.connect(
@@ -323,6 +329,33 @@ RSpec.describe 'Products API', type: :request do
       expect(product.stocks.find_by(warehouse: warehouse).quantity).to eq(20)
     end
 
+    # find_or_initialize_by no reusa el objeto que set_product dejó precargado:
+    # emite su propio SELECT y devuelve otra instancia, así que la asociación
+    # cargada se quedaba con la cantidad vieja y el serializer la devolvía. El
+    # body salía contradiciéndose — total_stock nuevo (se calcula por SQL) y
+    # stocks[].quantity viejo. Verificar la DB no alcanza: hay que mirar la
+    # respuesta.
+    def put_stock(quantity)
+      params = { product: { stocks: stocks_for(warehouse.id, quantity: quantity) } }
+      put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json
+    end
+
+    it 'devuelve la cantidad nueva en el body al pisar una fila existente', :aggregate_failures do
+      Stock.create!(product: product, warehouse: warehouse, quantity: 5)
+
+      put_stock(20)
+
+      expect(response.parsed_body['stocks'].first['quantity']).to eq(20)
+      expect(response.parsed_body['total_stock']).to eq(20)
+    end
+
+    it 'devuelve la cantidad nueva en el body al crear la fila', :aggregate_failures do
+      put_stock(20)
+
+      expect(response.parsed_body['stocks'].first['quantity']).to eq(20)
+      expect(response.parsed_body['total_stock']).to eq(20)
+    end
+
     # El ABM no habla con las plataformas externas: sólo encola. La propagación
     # HTTP corre en background (TESIS-35).
     it 'enqueues the outbound sync when the stock changes' do
@@ -365,7 +398,7 @@ RSpec.describe 'Products API', type: :request do
         end
 
         expect(response).to have_http_status(:conflict)
-        expect(response.parsed_body['error']).to eq(Shared::LockTimeoutError::DEFAULT_MESSAGE)
+        expect(response.parsed_body['error']).to eq(Catalog::LockTimeoutError::DEFAULT_MESSAGE)
       end
 
       it 'does not change the stock quantity in the database' do
@@ -396,6 +429,35 @@ RSpec.describe 'Products API', type: :request do
         patch "/api/v1/products/#{product.id}", params: { product: { stocks: stocks_for(warehouse.id, quantity: 99) } }, headers: headers, as: :json
 
         expect(response).to have_http_status(:ok)
+      end
+    end
+
+    # Igual que el CHECK: por HTTP no se llega: la validación de unicidad de
+    # Stock ataja el caso antes y devuelve 422. RecordNotUnique sólo aparece si
+    # dos escrituras crean la misma fila a la vez. Se stubea para ejercitar que
+    # render_conflict distinga el índice de stocks del de sku, en vez de
+    # responder 'SKU already exists' a cualquier colisión.
+    context 'when a stock row collides at the database level' do
+      it 'returns 409 with a stock-specific message', :aggregate_failures do
+        allow(Products::UpdateProduct).to receive(:new)
+          .and_raise(unique_violation('index_stocks_on_product_id_and_warehouse_id'))
+
+        patch "/api/v1/products/#{product.id}", params: { product: { name: 'X' } }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:conflict)
+        expect(response.parsed_body['error']).to include('stock for this warehouse')
+      end
+    end
+
+    context 'when the sku collides at the database level' do
+      it 'still returns the sku message', :aggregate_failures do
+        allow(Products::UpdateProduct).to receive(:new)
+          .and_raise(unique_violation('index_products_on_company_id_and_sku'))
+
+        patch "/api/v1/products/#{product.id}", params: { product: { name: 'X' } }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:conflict)
+        expect(response.parsed_body['error']).to eq('SKU already exists')
       end
     end
 

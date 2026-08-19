@@ -13,9 +13,9 @@ class ApplicationController < ActionController::API
   rescue_from Pundit::NotAuthorizedError, with: :render_forbidden
   # El bloqueo de stock lo van a usar varios controllers (productos, órdenes),
   # así que el mapeo vive acá y no en cada uno. ProductsController define su
-  # propio render_conflict con el mensaje de SKU duplicado, que no aplica a un
-  # lock ocupado: por eso este handler tiene su propio método.
-  rescue_from Shared::LockTimeoutError, with: :render_lock_conflict
+  # propio render_conflict para RecordNotUnique, que es otra cosa: por eso
+  # este handler tiene su propio método.
+  rescue_from Catalog::LockTimeoutError, with: :render_lock_conflict
   rescue_from ActiveRecord::CheckViolation, with: :render_constraint_violation
 
   # Las acciones index usan policy_scope; el resto deben llamar authorize.

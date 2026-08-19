@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-module Shared
-  # Se levanta cuando WithAdvisoryLock no puede garantizar exclusividad sobre el
+module Catalog
+  # Se levanta cuando WithStockLock no puede garantizar exclusividad sobre el
   # stock de un producto: venció el lock_timeout esperando el lock (modo wait), o
   # pg_try_advisory_xact_lock encontró el lock ocupado y no quiso esperar (modo
   # try). En ambos casos es un estado transitorio, no un error de datos: el

@@ -31,11 +31,11 @@ module Products
     #
     # wait: false porque esto corre en el ciclo de un request HTTP: conviene
     # devolver 409 enseguida (ApplicationController mapea el
-    # Shared::LockTimeoutError) antes que colgar un thread de Puma esperando.
+    # Catalog::LockTimeoutError) antes que colgar un thread de Puma esperando.
     def write_stocks!(product)
       validate_warehouses_belong_to_company!
 
-      Shared::WithAdvisoryLock.new(product_id: product.id, wait: false).call do
+      Catalog::WithStockLock.new(product_id: product.id, wait: false).call do
         create_stocks_for_product!(product)
       end
     end
