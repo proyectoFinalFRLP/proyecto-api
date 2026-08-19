@@ -20,8 +20,8 @@ module Api
       end
 
       def discard
-        @failed_event.update!(status: :discarded, next_retry_at: nil)
-        render json: FailedEventSerializer.render(@failed_event), status: :ok
+        event = ::Webhooks::DiscardFailedEvent.new(failed_event: @failed_event).call
+        render json: FailedEventSerializer.render(event), status: :ok
       end
 
       private
