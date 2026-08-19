@@ -363,13 +363,13 @@ En **test** no hay base de cola: el adaptador `:test` encola en memoria, así qu
 
 ## 9. Control de concurrencia
 
-Las escrituras de stock tienen que quedar serializadas por producto a través de todos los procesos que puedan tocarlas: workers de Puma, workers de Solid Queue y, eventualmente, varias instancias desplegadas. La decisión completa y las alternativas descartadas están en [ADR-008](../adr/ADR-008-bloqueos-distribuidos.md); esta sección es la guía práctica de uso.
+Las escrituras de stock tienen que quedar serializadas por producto a través de todos los procesos que puedan tocarlas: workers de Puma, workers de Solid Queue y, eventualmente, varias instancias desplegadas. La decisión completa y las alternativas descartadas están en [ADR-009](../adr/ADR-009-bloqueos-distribuidos.md); esta sección es la guía práctica de uso.
 
 ### 9.1 Cuándo usar cada tipo de bloqueo
 
 | Mecanismo                                                      | Cuándo usarlo                                                                                                                        |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Advisory lock a nivel transacción (`Shared::WithAdvisoryLock`) | La operación abarca varias filas de `stocks`, o puede crear una fila que todavía no existe                                            |
+| Advisory lock a nivel transacción (`Catalog::WithStockLock`) | La operación abarca varias filas de `stocks`, o puede crear una fila que todavía no existe                                            |
 | `SELECT ... FOR UPDATE` (`lock!`)                              | Alcanza con serializar una única fila que ya existe                                                                                  |
 | Restricción `CHECK` en la base                                 | Invariante que tiene que valer siempre, incluso ante escrituras que no pasen por los modelos (`update_all`, `upsert_all`, SQL crudo)  |
 | `limits_concurrency` de Solid Queue                            | Limitar cuántos jobs del mismo tipo corren a la vez — no reemplaza al advisory lock (ver 9.3)                                         |
@@ -377,7 +377,7 @@ Las escrituras de stock tienen que quedar serializadas por producto a través de
 ### 9.2 Uso del PORO
 
 ```ruby
-Shared::WithAdvisoryLock.new(product_id: product.id).call do
+Catalog::WithStockLock.new(product_id: product.id).call do
   # sección crítica: escrituras de stock
 end
 ```
@@ -387,12 +387,12 @@ end
 Por default el PORO espera el lock hasta que vence `lock_timeout` (`wait: true`, usa `pg_advisory_xact_lock`). Es el modo correcto para **jobs de background**: pueden permitirse esperar un momento y, si aun así fallan, confiar en el reintento de Active Job.
 
 ```ruby
-Shared::WithAdvisoryLock.new(product_id: product.id, wait: false).call { ... }
+Catalog::WithStockLock.new(product_id: product.id, wait: false).call { ... }
 ```
 
 Con `wait: false` (`pg_try_advisory_xact_lock`) el PORO no espera: si el lock está tomado, falla al instante. Es el modo correcto para **requests HTTP interactivos** — no conviene dejar un thread de Puma colgado esperando un lock que puede tardar.
 
-En ambos modos, si no se puede garantizar exclusividad (venció el `lock_timeout`, o el lock estaba tomado en modo `wait: false`) se levanta `Shared::LockTimeoutError`, que `ApplicationController` mapea a **409 Conflict**.
+En ambos modos, si no se puede garantizar exclusividad (venció el `lock_timeout`, o el lock estaba tomado en modo `wait: false`) se levanta `Catalog::LockTimeoutError`, que `ApplicationController` mapea a **409 Conflict**.
 
 ### 9.4 `Current.company_id` es obligatorio
 
