@@ -89,12 +89,26 @@ services = [
     # Plantilla de órdenes entrantes: GET sin body, no transmite stock. El
     # sync saliente (TESIS-35) para los productos mapeados en este canal usa
     # la plantilla 'Mercado Libre - Stock' de abajo, no ésta.
+    #
+    # El response_mapper es el que usa la ingesta de webhooks (TESIS-43) para
+    # traducir la venta: las entradas con el marcador `[]` describen la lista de
+    # ítems ("por cada elemento de order_items, el id externo está en item.id").
     service_name: 'Mercado Libre',
     type: 'ecommerce',
     uri: 'https://api.mercadolibre.com/orders',
     http_method: 'GET',
     request_mapper: { 'destination.street' => 'customer_address' },
-    response_mapper: { 'tracking.number' => 'tracking_number' },
+    response_mapper: {
+      'id' => 'external_order_id',
+      'status' => 'status',
+      'buyer.nickname' => 'customer_name',
+      'buyer.billing_info.doc_number' => 'customer_document',
+      'shipping.receiver_address.address_line' => 'customer_address',
+      'shipping.receiver_address.zip_code' => 'customer_zip_code',
+      'order_items[].item.id' => 'external_product_id',
+      'order_items[].quantity' => 'quantity',
+      'order_items[].unit_price' => 'unit_price'
+    },
     request_value_mapper: {},
     response_value_mapper: { 'pagado' => 'paid', 'paid' => 'paid' }
   },
@@ -145,12 +159,15 @@ end
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
 first_company = Company.find_by(tax_id: '30-11111111-1')
 ml_service = Service.find_by(service_name: 'Mercado Libre')
-if first_company && ml_service
-  CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
-    ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
-    ci.is_active = true
+# La integración queda en una variable: la reusa la orden de webhook de TESIS-40
+# más abajo (sin esto, `db:seed` cortaba con NameError: undefined ml_integration).
+ml_integration =
+  if first_company && ml_service
+    CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
+      ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
+      ci.is_active = true
+    end
   end
-end
 
 # ---------------------------------------------------------------------------
 # TESIS-32 — Catalog: Products, Stock, ProductMappings
@@ -293,13 +310,35 @@ end
 # TESIS-36 — Webhooks: log crudo de eventos entrantes (auditoría)
 # ---------------------------------------------------------------------------
 
+# El payload imita una venta de Mercado Libre y es el que sabe traducir el
+# response_mapper de la plantilla. Queda en 'pending': las seeds no encolan
+# jobs (el adaptador de cola está en :test más arriba), así que el evento espera
+# a que se lo procese a mano —lo que sirve para probar la ingesta de TESIS-43:
+#
+#   Orders::ProcessWebhookEventJob.perform_now(WebhookLog.unscoped.last.id, <company_id>)
+#
+# Los ítems del ejemplo no están mapeados contra esta integración a propósito
+# (ver el ProductMapping.destroy_all de más arriba: publicar los productos en la
+# integración de órdenes le mandaría el stock a la plantilla equivocada), así que
+# ese procesamiento termina en 'failed' y en la DLQ. Para verlo terminar bien,
+# crear antes el ProductMapping del ítem contra esta integración.
 demo_integration = CompanyIntegration.unscoped.first
 if demo_integration && WebhookLog.unscoped.none?
   WebhookLog.create!(
     company_id: demo_integration.company_id,
     company_integration: demo_integration,
     headers: { 'HTTP_USER_AGENT' => 'MercadoLibre-Webhook/1.0' },
-    payload: { 'topic' => 'orders_v2', 'resource' => '/orders/2000003508419013' },
+    payload: {
+      'id' => '2000003508419013',
+      'status' => 'pagado',
+      'buyer' => { 'nickname' => 'COMPRADOR_DEMO',
+                   'billing_info' => { 'doc_number' => '20-40234567-8' } },
+      'shipping' => { 'receiver_address' => { 'address_line' => 'Av. Rivadavia 1234, CABA',
+                                              'zip_code' => '1406' } },
+      'order_items' => [
+        { 'item' => { 'id' => 'MLA123456789' }, 'quantity' => 1, 'unit_price' => 149_999.99 }
+      ]
+    },
     status: 'pending'
   )
 end
