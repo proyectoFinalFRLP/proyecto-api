@@ -3,7 +3,9 @@
 class Service < ApplicationRecord
   self.inheritance_column = nil
 
-  TYPES = %w[ecommerce courier].freeze
+  ECOMMERCE = 'ecommerce'
+  COURIER = 'courier'
+  TYPES = [ECOMMERCE, COURIER].freeze
   MAPPER_FIELDS = %w[request_mapper response_mapper request_value_mapper
                      response_value_mapper].freeze
 
@@ -14,6 +16,11 @@ class Service < ApplicationRecord
   validates :http_method, presence: true
   validates :type, presence: true, inclusion: { in: TYPES }
   validate :mappers_are_valid_json
+
+  # Sólo los canales de e-commerce generan ventas: el gateway lo usa para decidir
+  # si un webhook entrante va al procesador de órdenes (TESIS-43) o queda a la
+  # espera del de envíos (TESIS-24).
+  def ecommerce? = type == ECOMMERCE
 
   # Los mappers aceptan String JSON (formularios del backoffice) además de Hash:
   # un String se parsea y, si es inválido o no es un objeto, el registro queda

@@ -46,6 +46,24 @@ RSpec.describe 'Webhooks gateway', type: :request do
       expect(log.error_message).to be_nil
     end
 
+    it 'hands the event to the ingestion worker instead of processing it inline' do
+      expect { post_webhook }.to(
+        have_enqueued_job(Orders::ProcessWebhookEventJob).on_queue('realtime')
+          .with { |log_id, tenant| log_id == WebhookLog.unscoped.last.id && tenant == company.id }
+      )
+    end
+
+    context 'when the integration is not an e-commerce channel' do
+      let(:service) do
+        Service.create!(service_name: 'Andreani', type: 'courier',
+                        uri: 'https://api.andreani.com', http_method: 'POST')
+      end
+
+      it 'persists the event but leaves the processing to the shipments epic' do
+        expect { post_webhook }.not_to have_enqueued_job(Orders::ProcessWebhookEventJob)
+      end
+    end
+
     it 'stores the incoming HTTP headers' do
       post_webhook(integration.id, payload, { 'X-Signature' => 'abc123' })
       expect(WebhookLog.unscoped.last.headers['HTTP_X_SIGNATURE']).to eq('abc123')
