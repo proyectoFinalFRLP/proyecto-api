@@ -36,10 +36,34 @@ RSpec.describe Webhooks::ScanDueFailedEventsJob, type: :job do
     expect { run }.to have_enqueued_job(Webhooks::RetryFailedEventJob).twice
   end
 
-  it 'ignores events already claimed by a worker' do
-    create_event(company_a, next_retry_at: 1.minute.ago, status: :processing)
+  it 'ignores events already claimed by a live worker' do
+    create_event(company_a, next_retry_at: 1.minute.ago, status: :processing,
+                            claimed_at: 1.minute.ago)
 
     expect { run }.to have_enqueued_job(Webhooks::RetryFailedEventJob).twice
+  end
+
+  it 'rescues an event whose worker died holding the claim' do
+    stalled = create_event(company_a, next_retry_at: 2.minutes.ago, status: :processing,
+                                      claimed_at: 10.minutes.ago)
+
+    expect { run }.to have_enqueued_job(Webhooks::RetryFailedEventJob)
+      .with(stalled.id, company_a.id)
+  end
+
+  context 'when there are more events than the batch allows' do
+    let!(:oldest) { create_event(company_a, next_retry_at: 2.hours.ago) }
+
+    before { stub_const("#{described_class}::BATCH_SIZE", 1) }
+
+    it 'attends the oldest event first' do
+      expect { run }.to have_enqueued_job(Webhooks::RetryFailedEventJob)
+        .with(oldest.id, company_a.id)
+    end
+
+    it 'leaves the rest for the next tick instead of re-scanning the same subset' do
+      expect { run }.to have_enqueued_job(Webhooks::RetryFailedEventJob).exactly(:once)
+    end
   end
 
   context 'when a tenant context leaked from a previous job' do

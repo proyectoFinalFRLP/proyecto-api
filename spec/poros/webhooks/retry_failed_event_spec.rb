@@ -41,6 +41,13 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
                                               next_retry_at: nil, last_error: nil)
     end
 
+    it 'releases the claim' do
+      event.update!(claimed_at: Time.current)
+      retry_event
+
+      expect(event.reload.claimed_at).to be_nil
+    end
+
     it 'replays the original request against the external service' do
       retry_event
       expect(WebMock).to have_requested(:post, url)
@@ -60,6 +67,13 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
       retry_event
       expect(event.reload.next_retry_at).to be_between(119.seconds.from_now,
                                                        151.seconds.from_now)
+    end
+
+    it 'releases the claim so the next tick can take the event' do
+      event.update!(claimed_at: Time.current)
+      retry_event
+
+      expect(event.reload.claimed_at).to be_nil
     end
 
     it 'does not propagate the error to Active Job' do

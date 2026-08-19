@@ -29,11 +29,19 @@ RSpec.describe Webhooks::RequeueFailedEvent, type: :poro do
     expect(described_class.new(failed_event: event).call.status).to eq('pending')
   end
 
-  it 'refuses to requeue an event that is already being processed' do
-    event.update!(status: :processing)
+  it 'refuses to requeue an event a live worker is processing' do
+    event.update!(status: :processing, claimed_at: 1.minute.ago)
 
     expect { described_class.new(failed_event: event).call }
       .to raise_error(described_class::NotRequeueable, /processing/)
+  end
+
+  it 'requeues an event whose worker died holding the claim', :aggregate_failures do
+    event.update!(status: :processing, claimed_at: 10.minutes.ago)
+
+    described_class.new(failed_event: event).call
+
+    expect(event.reload).to have_attributes(status: 'pending', claimed_at: nil)
   end
 
   it 'refuses to requeue an event that already succeeded' do

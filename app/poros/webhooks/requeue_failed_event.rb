@@ -14,13 +14,19 @@ module Webhooks
     end
 
     def call
-      unless REQUEUEABLE_STATUSES.include?(@event.status)
-        raise NotRequeueable, "a #{@event.status} event cannot be requeued"
-      end
+      raise NotRequeueable, "a #{@event.status} event cannot be requeued" unless requeueable?
 
-      @event.update!(status: :pending, attempts: 0, next_retry_at: Time.current)
+      @event.update!(status: :pending, attempts: 0, next_retry_at: Time.current,
+                     claimed_at: nil)
       RetryFailedEventJob.perform_later(@event.id, @event.company_id)
       @event
     end
+
+    private
+
+    # Un evento en processing no se toca mientras el worker que lo reclamó siga
+    # vivo. Si el claim venció, ese worker murió y el reintento manual es una de
+    # las dos formas de rescatarlo (la otra es el barrido del cronjob).
+    def requeueable? = REQUEUEABLE_STATUSES.include?(@event.status) || @event.stalled?
   end
 end

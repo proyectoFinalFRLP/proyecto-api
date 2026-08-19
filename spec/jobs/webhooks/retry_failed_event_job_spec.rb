@@ -20,6 +20,12 @@ RSpec.describe Webhooks::RetryFailedEventJob, type: :job do
     expect(event.reload.status).to eq('processing')
   end
 
+  it 'stamps the claim so an abandoned event can be rescued later' do
+    run
+
+    expect(event.reload.claimed_at).to be_within(5.seconds).of(Time.current)
+  end
+
   it 'delegates the attempt to the retry PORO' do
     run
 
@@ -33,8 +39,24 @@ RSpec.describe Webhooks::RetryFailedEventJob, type: :job do
     expect(event.reload.status).to eq('pending')
   end
 
+  context 'when a previous worker died holding the claim' do
+    before { event.update!(status: :processing, claimed_at: 10.minutes.ago) }
+
+    it 'takes the event over instead of leaving it stuck' do
+      run
+
+      expect(retrier).to have_received(:call)
+    end
+
+    it 'refreshes the claim' do
+      run
+
+      expect(event.reload.claimed_at).to be_within(5.seconds).of(Time.current)
+    end
+  end
+
   context 'when the event was already claimed by another worker' do
-    before { event.update!(status: :processing) }
+    before { event.update!(status: :processing, claimed_at: 1.minute.ago) }
 
     it 'does nothing' do
       run

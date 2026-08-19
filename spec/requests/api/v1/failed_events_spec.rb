@@ -63,11 +63,19 @@ RSpec.describe 'Failed events API', type: :request do
         .to have_enqueued_job(Webhooks::RetryFailedEventJob).with(event.id, company.id)
     end
 
-    it 'returns 422 when the event is already being processed' do
-      event.update!(status: :processing)
+    it 'returns 422 when a live worker is already processing the event' do
+      event.update!(status: :processing, claimed_at: 1.minute.ago)
       post "/api/v1/failed-events/#{event.id}/retry", headers: headers
 
       expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it 'rescues an event whose worker died holding the claim', :aggregate_failures do
+      event.update!(status: :processing, claimed_at: 10.minutes.ago)
+      post "/api/v1/failed-events/#{event.id}/retry", headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(event.reload).to have_attributes(status: 'pending', claimed_at: nil)
     end
 
     it 'returns 404 for an event of another company' do

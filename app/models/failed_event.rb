@@ -9,6 +9,9 @@ class FailedEvent < ApplicationRecord
   BASE_RETRY_DELAY = 1.minute
   MAX_JITTER = 30.seconds
   ERROR_LIMIT = 2_000
+  # Un intento no puede durar más de los timeouts del HttpAdapter (10s + 10s):
+  # pasado este margen, un evento que sigue en processing es un claim perdido.
+  CLAIM_TIMEOUT = 5.minutes
 
   STATUSES = { pending: 'pending', processing: 'processing', succeeded: 'succeeded',
                dead: 'dead', discarded: 'discarded' }.freeze
@@ -26,6 +29,17 @@ class FailedEvent < ApplicationRecord
 
   scope :due, -> { pending.where(next_retry_at: ..Time.current) }
 
+  # Visibility timeout: si el worker muere entre el claim y la persistencia del
+  # resultado, el evento queda en processing sin nadie que lo termine. Pasado el
+  # CLAIM_TIMEOUT se lo considera abandonado y vuelve a estar disponible.
+  scope :stalled, -> { processing.where(claimed_at: ..CLAIM_TIMEOUT.ago) }
+
+  # Lo que el barrido tiene que encolar: vencidos y claims abandonados.
+  scope :retryable, -> { due.or(stalled) }
+
+  # Lo que un worker puede reclamar: un pendiente, o un claim ya abandonado.
+  scope :claimable, -> { pending.or(stalled) }
+
   # Backoff exponencial con jitter: 1m, 2m, 4m, 8m, 16m (+ hasta 30s de dispersión
   # para que un lote de eventos que falló junto no reintente todo en el mismo tick).
   def self.next_retry_at(attempts)
@@ -33,4 +47,7 @@ class FailedEvent < ApplicationRecord
   end
 
   def attempts_exhausted? = attempts >= max_attempts
+
+  # Misma condición que el scope :stalled, resuelta en memoria.
+  def stalled? = processing? && claimed_at.present? && claimed_at <= CLAIM_TIMEOUT.ago
 end

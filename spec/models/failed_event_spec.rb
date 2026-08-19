@@ -56,6 +56,43 @@ RSpec.describe FailedEvent, type: :model do
     end
   end
 
+  describe '.stalled' do
+    let!(:abandoned) do
+      build_event(status: :processing, claimed_at: 10.minutes.ago).tap(&:save!)
+    end
+
+    before do
+      build_event(status: :processing, claimed_at: 1.minute.ago).save!
+      build_event(status: :pending, claimed_at: 10.minutes.ago).save!
+    end
+
+    it 'returns only the events whose claim already expired' do
+      expect(described_class.stalled).to contain_exactly(abandoned)
+    end
+  end
+
+  describe '.retryable' do
+    it 'covers the due events and the abandoned claims', :aggregate_failures do
+      overdue = build_event(next_retry_at: 1.minute.ago).tap(&:save!)
+      abandoned = build_event(status: :processing, claimed_at: 10.minutes.ago).tap(&:save!)
+      build_event(status: :processing, claimed_at: 1.minute.ago).save!
+      build_event(next_retry_at: 1.hour.from_now).save!
+
+      expect(described_class.retryable).to contain_exactly(overdue, abandoned)
+    end
+  end
+
+  describe '.claimable' do
+    it 'lets a worker take a pending event or an abandoned claim' do
+      waiting = build_event(next_retry_at: 1.hour.from_now).tap(&:save!)
+      abandoned = build_event(status: :processing, claimed_at: 10.minutes.ago).tap(&:save!)
+      build_event(status: :processing, claimed_at: 1.minute.ago).save!
+      build_event(status: :dead).save!
+
+      expect(described_class.claimable).to contain_exactly(waiting, abandoned)
+    end
+  end
+
   describe '.next_retry_at' do
     # Cada intento duplica la espera: 1m, 2m, 4m, 8m, 16m (+ jitter).
     it 'schedules the first retry one base delay away' do
@@ -78,6 +115,20 @@ RSpec.describe FailedEvent, type: :model do
 
     it 'is true once the limit is reached' do
       expect(build_event(attempts: 5, max_attempts: 5)).to be_attempts_exhausted
+    end
+  end
+
+  describe '#stalled?' do
+    it 'is false for an event nobody claimed' do
+      expect(build_event(status: :pending)).not_to be_stalled
+    end
+
+    it 'is false while the worker that claimed it is still within the timeout' do
+      expect(build_event(status: :processing, claimed_at: 1.minute.ago)).not_to be_stalled
+    end
+
+    it 'is true once the claim outlived the timeout' do
+      expect(build_event(status: :processing, claimed_at: 10.minutes.ago)).to be_stalled
     end
   end
 

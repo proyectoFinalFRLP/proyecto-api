@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_30_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_19_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -46,6 +46,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_30_120000) do
 
   create_table "failed_events", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
+    t.datetime "claimed_at"
     t.bigint "company_id", null: false
     t.bigint "company_integration_id"
     t.datetime "created_at", null: false
@@ -62,6 +63,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_30_120000) do
     t.index ["company_id", "status"], name: "index_failed_events_on_company_id_and_status"
     t.index ["company_id"], name: "index_failed_events_on_company_id"
     t.index ["company_integration_id"], name: "index_failed_events_on_company_integration_id"
+    t.index ["status", "claimed_at"], name: "index_failed_events_on_status_and_claimed_at"
     t.index ["status", "next_retry_at"], name: "index_failed_events_on_status_and_next_retry_at"
     t.check_constraint "direction::text = ANY (ARRAY['inbound'::character varying, 'outbound'::character varying]::text[])", name: "failed_events_direction_check"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'succeeded'::character varying, 'dead'::character varying, 'discarded'::character varying]::text[])", name: "failed_events_status_check"
