@@ -93,8 +93,19 @@ module Api
         end
       end
 
-      def render_conflict(_exception)
-        render json: { error: 'SKU already exists' }, status: :conflict
+      # RecordNotUnique llega por dos índices distintos y el mensaje tiene que
+      # decir cuál: el de sku por company, y el de stocks por producto +
+      # depósito (dos escrituras que crean la misma fila de stock a la vez).
+      # Responder siempre 'SKU already exists' mandaba al front a buscar un
+      # duplicado de SKU que no existía.
+      def render_conflict(exception)
+        message = if exception.message.include?('index_stocks_on_product_id_and_warehouse_id')
+                    'stock for this warehouse is being written by another operation, please retry'
+                  else
+                    'SKU already exists'
+                  end
+
+        render json: { error: message }, status: :conflict
       end
     end
   end
