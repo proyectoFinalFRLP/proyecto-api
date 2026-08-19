@@ -1,4 +1,4 @@
-# ADR-008: Motor de reintentos con Dead Letter Queue
+# ADR-009: Motor de reintentos con Dead Letter Queue
 
 **Fecha:** 2026-07-30  
 **Estado:** Aceptado
@@ -30,6 +30,8 @@ pending ──(cron encola)──> processing ──(éxito)────> succee
 
 `discarded` es la salida manual: el operador decide que el evento ya no debe reintentarse.
 
+Un evento que quedó en `processing` con el claim vencido vuelve a ser reclamable **sin cambiar de estado**: el barrido lo encola de nuevo y el claim atómico lo vuelve a tomar (ver *Concurrencia*).
+
 ### Componentes
 
 | Pieza                                   | Rol                                                        |
@@ -41,6 +43,8 @@ pending ──(cron encola)──> processing ──(éxito)────> succee
 | `Webhooks::RetryFailedEventJob`         | Reclama el evento (claim atómico) y ejecuta un intento     |
 | `Webhooks::RetryFailedEvent`            | Ejecuta el replay y persiste el resultado                  |
 | `Webhooks::ReplayRegistry`              | Mapea `event_type` → PORO que sabe reprocesar              |
+| `Webhooks::RequeueFailedEvent`          | Reintento manual: devuelve el evento a la cola             |
+| `Webhooks::DiscardFailedEvent`          | Descarte manual: lo saca del ciclo de reintentos           |
 | `Api::V1::FailedEventsController`       | Inspección, reintento manual y descarte                    |
 
 Ambos jobs corren en la cola `low` ([ADR-006](ADR-006-background-jobs.md)): reintentos y tareas programadas no compiten con los eventos entrantes de `realtime`.
@@ -51,7 +55,13 @@ Exponencial con jitter: `1m, 2m, 4m, 8m, 16m` (+ hasta 30s de dispersión), 5 in
 
 ### Concurrencia
 
-El cron encola y el worker reclama: `UPDATE ... WHERE id = ? AND status = 'pending'`. Si el update afecta 0 filas, otro worker ya tomó el evento y el job termina sin hacer nada. No hace falta un lock distribuido.
+El cron encola y el worker reclama con un único `UPDATE ... WHERE id = ? AND <reclamable>`. Si el update afecta 0 filas, otro worker ya tomó el evento y el job termina sin hacer nada. No hace falta un lock distribuido.
+
+**Visibility timeout.** Un flag de estado no se libera solo: si el worker muere entre el claim y la persistencia del resultado —deploy, OOM, `kill`—, el evento queda en `processing` sin nadie que lo termine. La recuperación del propio broker tampoco alcanza: si Solid Queue vuelve a correr el job huérfano, el claim encuentra el evento ya en `processing` y el job termina en silencio. Por eso el claim guarda `claimed_at` y, pasado `FailedEvent::CLAIM_TIMEOUT`, el evento se considera abandonado y vuelve a estar disponible: el barrido lo encola de nuevo y el reintento manual también lo acepta.
+
+El timeout es de **5 minutos** contra los ~20s que puede durar un intento (`OPEN_TIMEOUT` + `READ_TIMEOUT` del `HttpAdapter`): margen suficiente para no arrebatarle nunca un evento a un worker vivo.
+
+Se descartó `FOR UPDATE SKIP LOCKED` —que liberaría el lock solo al morir el proceso— porque el replay es una llamada HTTP saliente: el lock obligaría a sostener una transacción de Postgres abierta durante toda la request al proveedor.
 
 ### Multi-tenancy
 
@@ -88,5 +98,7 @@ El motor no conoce ningún dominio: busca en `ReplayRegistry` el PORO correspond
 - ✅ La DLQ es consultable y reprocesable desde `/api/v1/failed-events`
 - ✅ Agregar tipos de evento nuevos no toca el motor
 - ⚠️ El barrido corre cada minuto: la latencia mínima de un reintento es de ~1 minuto
+- ⚠️ Un evento cuyo worker murió se recupera recién al vencer el `CLAIM_TIMEOUT` (5 minutos), no de inmediato
+- ⚠️ El barrido re-encola en cada tick lo que todavía no fue reclamado: si la cola `low` se atrasa, un evento puede generar varios jobs que no hacen nada (el claim evita la doble ejecución, no el job duplicado)
 - ⚠️ La tabla crece con cada fallo; los eventos `succeeded`/`discarded` necesitarán una política de limpieza (fuera del alcance de TESIS-39)
 - ⚠️ El `payload` se guarda en claro en la tabla: no se expone por API, pero conviene revisarlo si en el futuro incluye datos sensibles del cliente
