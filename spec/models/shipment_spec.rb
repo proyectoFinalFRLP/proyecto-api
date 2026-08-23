@@ -24,6 +24,22 @@ RSpec.describe Shipment, type: :model do
     expect(shipment.status).to eq('pending')
   end
 
+  it 'accepts a non-negative shipping_cost' do
+    shipment.shipping_cost = 1500.50
+    expect(shipment).to be_valid
+  end
+
+  it 'accepts nil shipping_cost' do
+    shipment.shipping_cost = nil
+    expect(shipment).to be_valid
+  end
+
+  it 'rejects a negative shipping_cost' do
+    shipment.shipping_cost = -100
+    expect(shipment).not_to be_valid
+    expect(shipment.errors[:shipping_cost]).to include('must be greater than or equal to 0')
+  end
+
   it 'is invalid without a company' do
     shipment.company = nil
     expect(shipment).not_to be_valid

@@ -13,6 +13,7 @@ class Shipment < ApplicationRecord
   has_many :shipment_events, dependent: :destroy
 
   validates :status, presence: true, inclusion: { in: STATUSES }
+  validates :shipping_cost, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
   # Restricción 1 a 1 de la card: una orden no puede tener dos envíos. El índice
   # único sobre order_id (migración) es la garantía a nivel motor; la validación
   # del modelo da un mensaje de error limpio antes de llegar a la DB.
