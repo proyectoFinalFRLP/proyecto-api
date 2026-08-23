@@ -3,7 +3,7 @@
 class ProductSerializer < ApplicationSerializer
   identifier :id
 
-  fields :sku, :name, :description, :dimensions, :total_stock,
+  fields :sku, :name, :description, :category, :dimensions, :total_stock,
          :created_at, :updated_at
 
   # weight es decimal en la DB y BigDecimal se serializa como string por

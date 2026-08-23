@@ -13,6 +13,9 @@ Rails.application.routes.draw do
       resources :integrations, only: %i[index update], param: :service_id
       resources :warehouses, only: %i[index show create update destroy]
       resources :products, only: %i[index show create update destroy] do
+        # Vocabulario de categorías: ruta de colección, no depende de un producto.
+        get :categories, on: :collection
+
         resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
       end
 

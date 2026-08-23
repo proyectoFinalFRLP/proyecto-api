@@ -188,6 +188,13 @@ if norte_company
     p.dimensions = '10x6x3'
   end
 
+  # Categorías (TESIS-102). Se asignan fuera del bloque de find_or_create_by!
+  # porque ese bloque sólo corre al crear: así las bases ya sembradas antes de
+  # que existiera la columna también quedan con categoría. El `if` mantiene la
+  # idempotencia y no pisa una categoría cambiada a mano.
+  { celular => 'Electronics', notebook => 'Electronics', mouse => 'Electronics' }
+    .each { |product, category| product.update!(category: category) if product.category.nil? }
+
   # Stock en depósitos de Norte
   central = Warehouse.find_by(company: norte_company, name: 'Depósito Central')
   satelite = Warehouse.find_by(company: norte_company, name: 'Depósito Satélite Norte')
@@ -280,6 +287,9 @@ if sur_company
     p.weight = 1.800
     p.dimensions = '30x12x10'
   end
+
+  { taladro => 'Machinery', amoladora => 'Machinery' }
+    .each { |product, category| product.update!(category: category) if product.category.nil? }
 
   # Stock en depósito de Sur
   deposito_sur = Warehouse.find_by(company: sur_company, name: 'Depósito Sur')
