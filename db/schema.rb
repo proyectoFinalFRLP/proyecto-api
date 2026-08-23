@@ -149,6 +149,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_13_000001) do
     t.index ["product_id", "warehouse_id"], name: "index_stocks_on_product_id_and_warehouse_id", unique: true
     t.index ["product_id"], name: "index_stocks_on_product_id"
     t.index ["warehouse_id"], name: "index_stocks_on_warehouse_id"
+    t.check_constraint "quantity >= 0", name: "stocks_quantity_non_negative"
   end
 
   create_table "users", force: :cascade do |t|
