@@ -5,7 +5,6 @@
 # un recurso llega al controller por fuera del scope.
 class FailedEventPolicy < ApplicationPolicy
   def index?   = user.present?
-  def show?    = same_company?
   def requeue? = same_company?
   def discard? = same_company?
 

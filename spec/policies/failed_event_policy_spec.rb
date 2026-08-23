@@ -16,7 +16,6 @@ RSpec.describe FailedEventPolicy, type: :policy do
   end
 
   it 'lets a user operate on an event of their own company', :aggregate_failures do
-    expect(policy.show?).to be(true)
     expect(policy.requeue?).to be(true)
     expect(policy.discard?).to be(true)
   end
@@ -28,7 +27,6 @@ RSpec.describe FailedEventPolicy, type: :policy do
     end
 
     it 'denies every action on the record', :aggregate_failures do
-      expect(policy.show?).to be(false)
       expect(policy.requeue?).to be(false)
       expect(policy.discard?).to be(false)
     end
@@ -51,7 +49,7 @@ RSpec.describe FailedEventPolicy, type: :policy do
     end
 
     it 'denies operating on the record' do
-      expect(policy.show?).to be(false)
+      expect(policy.requeue?).to be(false)
     end
   end
 end
