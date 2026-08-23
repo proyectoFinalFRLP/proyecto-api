@@ -19,21 +19,30 @@ RSpec.describe 'Failed events API', type: :request do
     it 'returns the events of the authenticated company' do
       get '/api/v1/failed-events', headers: headers
 
-      expect(response.parsed_body.pluck('id')).to contain_exactly(event.id)
+      expect(response.parsed_body['data'].pluck('id')).to contain_exactly(event.id)
     end
 
-    it 'never returns events of another company' do
+    it 'never returns events of another company', :aggregate_failures do
       create_event(other_company)
       get '/api/v1/failed-events', headers: headers
 
-      expect(response.parsed_body.size).to eq(1)
+      expect(response.parsed_body['data'].size).to eq(1)
+      expect(response.parsed_body['meta']['total']).to eq(1)
     end
 
     it 'filters by status' do
       pending_event = create_event(company, status: :pending)
       get '/api/v1/failed-events', params: { status: 'pending' }, headers: headers
 
-      expect(response.parsed_body.pluck('id')).to contain_exactly(pending_event.id)
+      expect(response.parsed_body['data'].pluck('id')).to contain_exactly(pending_event.id)
+    end
+
+    it 'paginates the results', :aggregate_failures do
+      3.times { create_event(company) }
+      get '/api/v1/failed-events', params: { per_page: 2, page: 1 }, headers: headers
+
+      expect(response.parsed_body['data'].size).to eq(2)
+      expect(response.parsed_body['meta']).to eq('page' => 1, 'per_page' => 2, 'total' => 4)
     end
 
     it 'ignores an unknown status filter' do
