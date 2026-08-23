@@ -34,7 +34,7 @@ RSpec.describe Shipment, type: :model do
     expect(shipment).to be_valid
   end
 
-  it 'rejects a negative shipping_cost' do
+  it 'rejects a negative shipping_cost', :aggregate_failures do
     shipment.shipping_cost = -100
     expect(shipment).not_to be_valid
     expect(shipment.errors[:shipping_cost]).to include('must be greater than or equal to 0')
