@@ -27,6 +27,19 @@ RSpec.describe ShipmentEvent, type: :model do
     expect(shipment_event).not_to be_valid
   end
 
+  it 'validates internal_status inclusion' do
+    shipment_event.internal_status = 'invalid_status'
+    expect(shipment_event).not_to be_valid
+    expect(shipment_event.errors[:internal_status]).to include('is not included in the list')
+  end
+
+  it 'accepts valid internal_status values' do
+    Shipment::STATUSES.each do |status|
+      shipment_event.internal_status = status
+      expect(shipment_event).to be_valid, "expected #{status} to be valid"
+    end
+  end
+
   it 'is invalid without an external_status' do
     shipment_event.external_status = nil
     expect(shipment_event).not_to be_valid
