@@ -12,9 +12,23 @@ module Integrations
       @response_body = response_body
     end
 
+    # Navega una ruta con notación de puntos, con soporte de índices de array
+    # ("bulto.0.numeroDeEnvio"). Es método de clase porque otros traductores
+    # necesitan ubicar un valor suelto con las mismas reglas sin arrastrar la
+    # traducción de valores que hace #call (ej. Shipments::TranslateTrackingPayload,
+    # que necesita el estado crudo del courier).
+    def self.dig_path(node, path)
+      path.split('.').reduce(node) do |current, key|
+        case current
+        when Array then current[key.to_i]
+        when Hash then current[key]
+        end
+      end
+    end
+
     def call
       @service.response_mapper.each_with_object({}) do |(external_path, internal_key), result|
-        value = dig_path(@response_body, external_path)
+        value = self.class.dig_path(@response_body, external_path)
         next if value.nil?
 
         result[internal_key] = translate(value)
@@ -25,15 +39,6 @@ module Integrations
 
     def translate(value)
       @service.response_value_mapper.fetch(value.to_s, value)
-    end
-
-    def dig_path(node, path)
-      path.split('.').reduce(node) do |current, key|
-        case current
-        when Array then current[key.to_i]
-        when Hash then current[key]
-        end
-      end
     end
   end
 end
