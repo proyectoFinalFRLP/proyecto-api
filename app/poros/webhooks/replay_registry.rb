@@ -9,9 +9,11 @@ module Webhooks
     class UnknownEventType < StandardError; end
 
     HTTP_REQUEST = 'integrations.http_request'
+    TRACKING_INGESTION = 'webhooks.tracking_ingestion'
 
     REPLAYERS = {
-      HTTP_REQUEST => 'Webhooks::Replayers::HttpRequest'
+      HTTP_REQUEST => 'Webhooks::Replayers::HttpRequest',
+      TRACKING_INGESTION => 'Webhooks::Replayers::TrackingIngestion'
     }.freeze
 
     def self.fetch(event_type)
