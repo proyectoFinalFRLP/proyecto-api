@@ -3,7 +3,9 @@
 class Service < ApplicationRecord
   self.inheritance_column = nil
 
-  TYPES = %w[ecommerce courier].freeze
+  ECOMMERCE = 'ecommerce'
+  COURIER = 'courier'
+  TYPES = [ECOMMERCE, COURIER].freeze
   MAPPER_FIELDS = %w[request_mapper response_mapper request_value_mapper
                      response_value_mapper].freeze
 
@@ -23,6 +25,12 @@ class Service < ApplicationRecord
       super(coerce_mapper(mapper, value))
     end
   end
+
+  # Los gateways de webhooks rutean con estos predicados: cada endpoint público
+  # encola el procesamiento sólo si la integración es del tipo que sabe traducir
+  # (tracking para couriers, ventas para canales de e-commerce).
+  def ecommerce? = type == ECOMMERCE
+  def courier? = type == COURIER
 
   private
 
