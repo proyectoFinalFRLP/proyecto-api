@@ -19,6 +19,13 @@ Rails.application.routes.draw do
         resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
       end
 
+      resources :stock_transfers, path: 'stock-transfers', only: %i[index create] do
+        member do
+          post :receive
+          post :cancel
+        end
+      end
+
       resources :failed_events, path: 'failed-events', only: %i[index] do
         member do
           post :retry, action: :requeue

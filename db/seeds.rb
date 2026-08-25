@@ -210,6 +210,21 @@ if norte_company
     Stock.find_or_create_by!(product: mouse, warehouse: satelite) { |s| s.quantity = 30 }
   end
 
+  # Transferencia en vuelo (TESIS-103): unidades que ya salieron del Central y
+  # todavía no llegaron al Satélite. No se usa DispatchTransfer porque el stock
+  # sembrado arriba ya refleja el saldo posterior al despacho; acá sólo se
+  # registra el movimiento para que el catálogo tenga un producto con
+  # `in_transit_quantity > 0` y el tab "In Transit" muestre algo real.
+  if central && satelite
+    StockTransfer.find_or_create_by!(product: notebook, origin_warehouse: central,
+                                     destination_warehouse: satelite,
+                                     status: 'in_transit') do |t|
+      t.company = norte_company
+      t.quantity = 5
+      t.dispatched_at = 2.days.ago
+    end
+  end
+
   # Identity Mapping: vincula productos de Norte con Mercado Libre, usando la
   # integración de la plantilla de stock (la de órdenes no transmite stock).
   ml_stock_service = Service.find_by(service_name: 'Mercado Libre - Stock')

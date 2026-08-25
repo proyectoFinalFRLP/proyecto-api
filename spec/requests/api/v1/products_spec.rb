@@ -159,6 +159,63 @@ RSpec.describe 'Products API', type: :request do
       it 'exposes the category of each product' do
         expect(response.parsed_body['data'].pluck('category')).to all(be_nil)
       end
+
+      it 'reports no units in transit when there are no transfers' do
+        expect(response.parsed_body['data'].pluck('in_transit_quantity')).to all(eq(0))
+      end
+    end
+
+    context 'with units travelling between warehouses' do
+      let(:warehouse) do
+        Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+      end
+
+      def north
+        @north ||= Warehouse.create!(company: company, name: 'North',
+                                     zip_code: '1901', address: 'Calle 2')
+      end
+
+      def dispatch(product, quantity)
+        Catalog::DispatchTransfer.new(company: company, product: product,
+                                      origin_warehouse: warehouse, destination_warehouse: north,
+                                      quantity: quantity).call
+      end
+
+      def row
+        get '/api/v1/products', headers: headers
+        response.parsed_body['data'].find { |item| item['sku'] == 'A-001' }
+      end
+
+      def stocked_product
+        Product.create!(company: company, sku: 'A-001', name: 'Alpha').tap do |product|
+          Stock.create!(product: product, warehouse: warehouse, quantity: 10)
+        end
+      end
+
+      it 'reports the units in flight apart from the stock', :aggregate_failures do
+        dispatch(stocked_product, 3)
+
+        expect(row['in_transit_quantity']).to eq(3)
+        expect(row['total_stock']).to eq(7)
+      end
+
+      # La subconsulta escalar existe para no romper el SUM de total_stock: un
+      # segundo left_joins daría producto cartesiano entre stocks y transfers.
+      it 'does not corrupt total_stock when a product has several transfers' do
+        product = stocked_product
+        2.times { dispatch(product, 2) }
+
+        expect(row['total_stock']).to eq(6)
+      end
+
+      # 0 y no 1: va como subconsulta escalar dentro del SELECT del listado, así
+      # que no hay ninguna consulta separada contra stock_transfers.
+      it 'adds no query per row' do
+        create_products_with_stock(10)
+        queries = count_queries(matching: /FROM "stock_transfers"/) { get '/api/v1/products', headers: headers }
+
+        expect(queries).to eq(0)
+      end
     end
 
     context 'with stock spread across warehouses' do
