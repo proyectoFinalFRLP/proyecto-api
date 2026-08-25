@@ -15,6 +15,13 @@ Rails.application.routes.draw do
       resources :products, only: %i[index show create update destroy] do
         resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
       end
+
+      resources :failed_events, path: 'failed-events', only: %i[index] do
+        member do
+          post :retry, action: :requeue
+          post :discard
+        end
+      end
     end
 
     # Ruta pública: la consumen las plataformas externas, no el frontend.
