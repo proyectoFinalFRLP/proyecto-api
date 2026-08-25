@@ -50,6 +50,16 @@ RSpec.describe ShipmentEvent, type: :model do
     expect(shipment_event).not_to be_valid
   end
 
+  it 'rejects invalid internal_status at the DB level (CHECK constraint)' do
+    shipment_event.save!
+
+    # Saltear las validaciones es exactamente lo que este ejemplo necesita provocar:
+    # es el escenario contra el que existe el CHECK.
+    expect do
+      described_class.where(id: shipment_event.id).update_all(internal_status: 'invalid_status') # rubocop:disable Rails/SkipsModelValidations
+    end.to raise_error(ActiveRecord::CheckViolation)
+  end
+
   it 'allows multiple events for the same shipment (bitácora)' do
     create_event('ready_to_ship')
     create_event('in_transit')
