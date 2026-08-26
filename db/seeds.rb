@@ -157,10 +157,10 @@ services.each do |attrs|
 end
 
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
+# La variable ml_integration la consume la orden de webhook de la sección TESIS-40
+# más abajo (sin ella, `db:seed` cortaba con NameError: undefined ml_integration).
 first_company = Company.find_by(tax_id: '30-11111111-1')
 ml_service = Service.find_by(service_name: 'Mercado Libre')
-# La integración queda en una variable: la reusa la orden de webhook de TESIS-40
-# más abajo (sin esto, `db:seed` cortaba con NameError: undefined ml_integration).
 ml_integration =
   if first_company && ml_service
     CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
@@ -407,10 +407,66 @@ if sur_company
   end
 end
 
+# ---------------------------------------------------------------------------
+# TESIS-45 — Shipments & ShipmentEvents (base de la épica TESIS-24)
+# ---------------------------------------------------------------------------
+
+# Integración de courier Andreani para Distribuidora Norte: la consume el envío
+# de la venta manual (se asigna al confirmar el despacho).
+andreani_service = Service.find_by(service_name: 'Andreani')
+if norte_company && andreani_service
+  andreani_integration = CompanyIntegration.find_or_create_by!(
+    company: norte_company, service: andreani_service
+  ) do |ci|
+    ci.credentials = { 'access_token' => 'DEMO-TOKEN-ANDREANI' }
+    ci.is_active = true
+  end
+
+  # Envío de la venta manual: despachado con Andreani, en tránsito, con bitácora.
+  # La clave de búsqueda es la orden: la restricción 1 a 1 garantiza que nunca
+  # haya dos envíos para la misma orden.
+  if manual_order
+    shipped = Shipment.find_or_create_by!(order: manual_order) do |s|
+      s.company = norte_company
+      s.company_integration = andreani_integration
+      s.tracking_number = 'AND-100000001'
+      s.shipping_label_url = 'https://apis.andreani.com/labels/AND-100000001.pdf'
+      s.status = 'in_transit'
+      s.shipping_cost = 12_500.00
+    end
+
+    # Bitácora cronológica del envío: el courier reporta el estado crudo
+    # (external_status) y el sistema lo normaliza (internal_status).
+    [
+      { internal_status: 'ready_to_ship',
+        external_status: 'En preparación',
+        occurred_at: Time.zone.parse('2026-08-10 10:00:00') },
+      { internal_status: 'in_transit',
+        external_status: 'En distribución',
+        occurred_at: Time.zone.parse('2026-08-11 08:30:00') }
+    ].each do |event_attrs|
+      ShipmentEvent.find_or_create_by!(shipment: shipped, **event_attrs)
+    end
+  end
+
+  # Envío de la orden de webhook: inicializado (pending) sin courier todavía —
+  # la integración se asigna recién al confirmar el despacho (TESIS-47).
+  if webhook_order
+    Shipment.find_or_create_by!(order: webhook_order) do |s|
+      s.company = norte_company
+      s.status = 'pending'
+    end
+  end
+end
+
+# La orden cancelada de Comercial Sur queda SIN envío a propósito: una orden
+# cancelada nunca se despacha. Cubre el caso borde de orden sin shipment.
+
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
      "#{CompanyIntegration.count} integraciones, #{AdminUser.count} admins, " \
      "#{Product.count} productos, #{Stock.count} stocks, " \
      "#{ProductMapping.count} mappings, " \
      "#{WebhookLog.unscoped.count} webhook logs, " \
-     "#{Order.unscoped.count} órdenes, #{OrderItem.unscoped.count} ítems."
+     "#{Order.unscoped.count} órdenes, #{OrderItem.unscoped.count} ítems, " \
+     "#{Shipment.unscoped.count} envíos, #{ShipmentEvent.unscoped.count} eventos de envío."
