@@ -23,9 +23,20 @@ module Integrations
     end
 
     def call
+      source_elements.filter_map { |element| translate(element).presence }
+    end
+
+    # Los elementos crudos, antes de traducirlos. Es público porque `call`
+    # descarta el elemento que no matchea ninguna clave del mapper, y este PORO
+    # es genérico: no sabe si esa pérdida es ruido o información que falta. Quien
+    # llama compara ambos tamaños y decide (ver Orders::TranslateWebhookPayload).
+    #
+    # Array.wrap y no un cast directo: si la plataforma manda un solo ítem como
+    # objeto en vez de lista, se procesa igual en lugar de perderse.
+    def source_elements
       return [] if collection.blank?
 
-      elements.filter_map { |element| translate(element).presence }
+      Array.wrap(ParseExternalResponse.dig_path(@payload, root))
     end
 
     private
@@ -50,12 +61,6 @@ module Integrations
       @element_mapper ||= collection.last.to_h do |path, internal_key|
         [path.split(MARKER, 2).last.delete_prefix('.'), internal_key]
       end
-    end
-
-    # Array.wrap y no un cast directo: si la plataforma manda un solo ítem como
-    # objeto en vez de lista, se procesa igual en lugar de perderse.
-    def elements
-      Array.wrap(ParseExternalResponse.dig_path(@payload, root))
     end
 
     def translate(element)

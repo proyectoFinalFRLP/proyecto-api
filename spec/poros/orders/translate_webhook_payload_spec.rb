@@ -51,4 +51,30 @@ RSpec.describe Orders::TranslateWebhookPayload, type: :poro do
 
     expect(translated[:order]).to eq(external_order_id: 'ORD-1')
   end
+
+  describe 'the count of unreadable items' do
+    it 'is zero when every element of the list could be translated' do
+      expect(translated[:unreadable_items]).to eq(0)
+    end
+
+    # El parser descarta el elemento intraducible porque es generico; contarlo
+    # es lo que le deja a ProcessWebhookOrder decidir que hacer con la perdida.
+    it 'counts the elements the template could not read' do
+      payload['lineas'] << { 'otro_formato' => 'EXT-2' } << { 'otro_formato' => 'EXT-3' }
+
+      expect(translated[:unreadable_items]).to eq(2)
+    end
+
+    it 'does not count them as items' do
+      payload['lineas'] << { 'otro_formato' => 'EXT-2' }
+
+      expect(translated[:items].size).to eq(1)
+    end
+
+    it 'is zero when the template describes no collection at all' do
+      service.update!(response_mapper: { 'id' => 'external_order_id' })
+
+      expect(translated[:unreadable_items]).to eq(0)
+    end
+  end
 end

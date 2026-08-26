@@ -62,6 +62,33 @@ RSpec.describe Integrations::ParseExternalCollection, type: :poro do
     it 'drops it instead of returning an empty row' do
       expect(parsed).to eq([])
     end
+
+    # Descartarlo es correcto para un parser generico, pero quien llama tiene
+    # que poder notar la diferencia: para una venta un item perdido es un
+    # renglon menos y stock descontado de menos.
+    it 'still reports it among the source elements' do
+      collection = described_class.new(service: service, payload: payload)
+
+      expect(collection.source_elements.size).to eq(1)
+    end
+  end
+
+  describe '#source_elements' do
+    it 'returns the raw elements before translating them' do
+      collection = described_class.new(service: service, payload: payload)
+
+      expect(collection.source_elements).to eq(payload['order_items'])
+    end
+
+    context 'when the template declares no collection' do
+      let(:mapper) { { 'id' => 'external_order_id' } }
+
+      it 'returns an empty list instead of raising' do
+        collection = described_class.new(service: service, payload: payload)
+
+        expect(collection.source_elements).to eq([])
+      end
+    end
   end
 
   context 'when the collection hangs from a nested node' do

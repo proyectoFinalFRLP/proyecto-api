@@ -19,6 +19,8 @@ module Orders
 
     MISSING_ORDER_ID = 'the payload does not carry an external order id'
     MISSING_ITEMS = 'the payload does not carry any order item'
+    UNREADABLE_ITEMS = 'the template could not read %<count>d of the order items in the payload'
+    ORDERS_UNIQUE_INDEX = 'index_orders_on_company_id_and_external_order_id'
 
     def initialize(webhook_log:)
       super()
@@ -47,7 +49,15 @@ module Orders
 
       items = resolve_items
       ActiveRecord::Base.transaction { create_order(items) }
-    rescue ActiveRecord::RecordNotUnique
+    rescue ActiveRecord::RecordNotUnique => e
+      # Sólo la violación del índice de órdenes significa "otro worker ya registró
+      # esta venta". El rescate cubre toda la transacción, y cualquier otro
+      # índice único que aparezca ahí dentro —hoy no hay, mañana puede haberlo en
+      # order_items o en stocks— es un fallo real: tratarlo como duplicado
+      # devolvería una orden que no fue la causa del error, o nil, y entonces el
+      # log quedaría en `processed` sin ninguna orden creada.
+      raise unless e.message.include?(ORDERS_UNIQUE_INDEX)
+
       # Dos workers con el mismo evento: el índice único (company_id,
       # external_order_id) deja pasar a uno solo. El que perdió la carrera no
       # tiene nada que hacer, la venta ya está registrada.
@@ -131,15 +141,37 @@ module Orders
             "item '#{item[:external_product_id]}' has no valid quantity"
     end
 
-    # El precio de la venta externa es el que manda. Si la plantilla no lo mapea
-    # se cae al precio publicado en el canal y, si tampoco está, a cero: la
-    # columna es NOT NULL y el ítem no puede quedar sin precio.
+    # El precio de la venta externa es el que manda; si la plantilla no lo mapea
+    # se cae al precio publicado en el canal, que sigue siendo un precio real de
+    # la venta.
+    #
+    # Si no hay ninguno de los dos se corta, mismo criterio que la cantidad: un
+    # ítem en cero es indistinguible de una bonificación legítima, así que el
+    # error quedaría enterrado para siempre en un registro financiero (los
+    # mismos que este repo protege con `restrict_with_error` para que no se
+    # evaporen). Preferimos que la venta no entre y quede visible en la DLQ,
+    # reprocesable apenas se arregle el mapper, antes que registrarla gratis con
+    # el descuento de stock hecho.
     def unit_price_of(item, mapping)
-      item[:unit_price] || mapping.external_price || 0
+      price = item[:unit_price].presence || mapping.external_price
+      return price if price
+
+      raise InvalidPayloadError,
+            "item '#{item[:external_product_id]}' has no usable unit price"
     end
 
+    # Un ítem que la plantilla no sabe leer no se descarta en silencio: la orden
+    # entraría con menos renglones de los que vendió el canal, el stock se
+    # descontaría de menos —sobreventa— y el log quedaría en `processed` sin
+    # rastro de lo que faltó. Es el mismo criterio que la lista vacía: un
+    # elemento intraducible es menos información, no más. El caso real es que la
+    # plataforma cambie la forma de sus ítems, y así falla fuerte una vez en vez
+    # de degradar las ventas de a una.
     def validate_payload!
       raise InvalidPayloadError, MISSING_ORDER_ID if external_order_id.blank?
+
+      lost = translated[:unreadable_items]
+      raise InvalidPayloadError, format(UNREADABLE_ITEMS, count: lost) if lost.positive?
       raise InvalidPayloadError, MISSING_ITEMS if translated[:items].empty?
     end
 

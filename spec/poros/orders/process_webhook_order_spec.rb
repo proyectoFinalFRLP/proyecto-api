@@ -222,10 +222,89 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
     end
   end
 
+  # Mismo criterio que la cantidad: sin precio no se registra la venta en cero,
+  # porque un cero es indistinguible de una bonificacion legitima.
+  context 'when neither the payload nor the mapping carries a price' do
+    before { publish('SKU-1', 'MLA-1') }
+
+    let(:payload) { order_payload(items: [line('MLA-1', 1)]) }
+
+    it 'fails instead of registering the sale for free' do
+      expect { process.call }.to raise_error(described_class::InvalidPayloadError, /unit price/)
+    end
+
+    it 'writes no order' do
+      suppress(described_class::InvalidPayloadError) { process.call }
+
+      expect(Order.count).to eq(0)
+    end
+
+    it 'deducts no stock' do
+      suppress(described_class::InvalidPayloadError) { process.call }
+
+      expect(stock_of('SKU-1')).to eq(10)
+    end
+
+    it 'honours an explicit zero sent by the channel' do
+      log.update!(payload: order_payload(items: [line('MLA-1', 1, 0)]))
+
+      expect(process.call.order_items.first.unit_price).to eq(0)
+    end
+  end
+
+  # El caso realista es que la plataforma cambie la forma de sus items: la orden
+  # entraria con menos renglones y el stock se descontaria de menos.
+  context 'when an item of the payload does not match the template at all' do
+    before { publish('SKU-1', 'MLA-1') }
+
+    let(:payload) do
+      order_payload(items: [line('MLA-1', 1, 100), { 'producto' => 'MLA-2', 'cant' => 3 }])
+    end
+
+    it 'fails instead of ingesting the sale with one item less' do
+      expect { process.call }.to raise_error(described_class::InvalidPayloadError, /could not read/)
+    end
+
+    it 'writes no order' do
+      suppress(described_class::InvalidPayloadError) { process.call }
+
+      expect(Order.count).to eq(0)
+    end
+
+    it 'deducts no stock' do
+      suppress(described_class::InvalidPayloadError) { process.call }
+
+      expect(stock_of('SKU-1')).to eq(10)
+    end
+  end
+
+  # El rescate de RecordNotUnique existe para la carrera de dos workers sobre el
+  # indice de ordenes. Cualquier otra violacion es un fallo real y tiene que
+  # llegar a la DLQ, no hacerse pasar por un duplicado ya registrado.
+  context 'when a unique violation comes from another index' do
+    before do
+      publish('SKU-1', 'MLA-1')
+      allow(OrderItem).to receive(:create!)
+        .and_raise(ActiveRecord::RecordNotUnique.new('index_order_items_on_something'))
+    end
+
+    let(:payload) { order_payload(items: [line('MLA-1', 1, 100)]) }
+
+    it 'propagates it instead of treating the event as a duplicate' do
+      expect { process.call }.to raise_error(ActiveRecord::RecordNotUnique)
+    end
+
+    it 'leaves the log failed' do
+      suppress(ActiveRecord::RecordNotUnique) { process.call }
+
+      expect(log.reload).to be_failed
+    end
+  end
+
   context 'when the channel reports a status the OMS does not know' do
     before { publish('SKU-1', 'MLA-1') }
 
-    let(:payload) { order_payload(items: [line('MLA-1', 1)], status: 'en_camino') }
+    let(:payload) { order_payload(items: [line('MLA-1', 1, 100)], status: 'en_camino') }
 
     it 'registers the sale as pending instead of losing it' do
       expect(process.call.status).to eq('pending')

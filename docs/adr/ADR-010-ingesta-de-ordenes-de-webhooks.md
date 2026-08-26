@@ -76,6 +76,27 @@ Dos detalles que hacen que eso realmente se cumpla:
 
 El registro del resultado en el `WebhookLog` va **fuera** de la transacción de negocio: si fuera adentro, el propio rollback se llevaría puesto el registro del error.
 
+### Qué corta la ingesta y qué no
+
+Una venta que entra mal es peor que una venta que no entra: queda escrita, con movimiento de stock real detrás, y sin nada que la marque como sospechosa. Por eso la ingesta es **estricta con los datos de la venta y permisiva con lo accesorio**:
+
+| Qué falta | Qué hace | Por qué |
+| --- | --- | --- |
+| `external_order_id` | Corta (`InvalidPayloadError`) | Sin él no hay idempotencia posible |
+| La lista de ítems viene vacía | Corta | Una venta sin renglones no es una venta |
+| Un elemento de la lista que la plantilla no sabe leer | Corta | La orden entraría con menos renglones de los que vendió el canal y el stock se descontaría de menos: sobreventa silenciosa, con el log en `processed` |
+| `quantity` ausente o no positiva | Corta | Asumir 1 sería registrar una venta por una cantidad inventada |
+| `unit_price` en el payload **y** `external_price` en el mapping (los dos) | Corta | Un ítem en 0 es indistinguible de una bonificación legítima: el error queda enterrado en un registro financiero y ya no se puede detectar |
+| Un id externo sin `ProductMapping` | Corta (`UnmappedProductError`) | Es el caso que la DLQ resuelve sola: se crea el mapeo y se reintenta |
+| `status` ausente o desconocido para el OMS | **No corta**: entra como `pending` | El estado es informativo y se corrige después; la venta es el dato que no se puede perder |
+| Datos del comprador (documento, dirección, CP) | **No corta** | La plantilla los mapea si el canal los manda; su ausencia no mueve ni stock ni dinero |
+
+El precio tiene un respaldo antes de cortar: el `external_price` del `ProductMapping`, o sea el precio publicado en ese canal. Es un precio real de la venta y no uno inventado, y cubre el caso común de un canal que no manda el precio en el webhook. Un `0` que **sí** viene en el payload se respeta: ahí el canal está afirmando que el ítem fue bonificado.
+
+El elemento intraducible se detecta comparando cuántos elementos trae la lista externa contra cuántos pudo traducir la plantilla (`unreadable_items`). `Integrations::ParseExternalCollection` sigue descartando el que no matchea —es un parser genérico y no sabe qué colección está leyendo—, pero expone los elementos crudos para que la capa de órdenes note la pérdida y decida. La política vive en `Orders::ProcessWebhookOrder`, no en el parser.
+
+Todo lo que corta levanta antes de la transacción o adentro, así que no queda ni orden parcial ni stock descontado: el evento termina en `failed`, con su `FailedEvent` visible por API y reprocesable.
+
 ### Depósito del que se descuenta
 
 `Catalog::DeductStock` toma el **primer depósito, en orden estable por `warehouse_id`, que pueda cubrir la cantidad completa**. No parte una venta entre varios depósitos: si ninguno alcanza por sí solo, falla aunque el stock consolidado sea suficiente.
@@ -104,7 +125,7 @@ Las plataformas reenvían webhooks y Solid Queue garantiza *at-least-once*: el m
 
 1. Un log ya `processed` no se vuelve a procesar.
 2. Si ya existe una `Order` con ese `external_order_id`, se marca el log como procesado y no se crea nada.
-3. Si dos workers corren a la vez, el índice único `(company_id, external_order_id)` deja pasar a uno solo; el que pierde la carrera captura el `RecordNotUnique` y termina como duplicado.
+3. Si dos workers corren a la vez, el índice único `(company_id, external_order_id)` deja pasar a uno solo; el que pierde la carrera captura el `RecordNotUnique` y termina como duplicado. El rescate verifica que la violación sea **la de ese índice** por nombre: cubre toda la transacción, y un índice único que aparezca más adelante en `order_items` o en `stocks` es un fallo real que tiene que llegar a la DLQ, no un duplicado ya registrado.
 
 ### Ruteo en el gateway
 
@@ -147,6 +168,7 @@ El job recibe `company_id` y lo activa con `with_tenant` ([ADR-003](ADR-003-mult
 - ✅ El descuento por venta reutiliza el lock de stock, así que compite correctamente con el ABM y con el sync saliente
 - ✅ El descuento dispara solo el sync saliente de stock (callback de `Stock`, TESIS-35): una venta en un canal actualiza la publicación en todos los demás, sin código extra acá
 - ⚠️ Una venta falla si ningún depósito **por sí solo** cubre la cantidad, aunque el total alcance: el reparto multi-depósito queda pendiente
+- ⚠️ La ingesta falla entera ante un ítem ilegible o sin precio, en vez de degradar la venta: es deliberado —una venta incompleta o gratis es peor que una que no entró— pero significa que un cambio de formato del canal frena **todas** sus ventas hasta que se corrija la plantilla. El costo está acotado porque los eventos quedan en la DLQ y se reprocesan solos al arreglarla
 - ⚠️ `orders` no tiene columna `total`: el total de la venta externa no se persiste, se deriva de los ítems (`quantity * unit_price`). Si el canal aplica descuentos o impuestos a nivel de orden, esa diferencia hoy no se guarda
 - ⚠️ Un webhook cuyo `perform_later` falle (broker caído) queda en `pending` para siempre: no hay barrido de logs pendientes, sólo de la DLQ
 - ⚠️ Si el mismo log se procesa dos veces en paralelo, cada corrida registra su propio `FailedEvent`: el reintento es idempotente, pero la DLQ puede mostrar entradas duplicadas del mismo evento

@@ -5,8 +5,8 @@ module Orders
   # usando la plantilla del Service (response_mapper / response_value_mapper), sin
   # una línea de código por proveedor.
   #
-  # Devuelve { order: {...atributos de la venta...}, items: [{...}, ...] }. Las
-  # claves internas que la plantilla no mapea simplemente no vienen: quién es
+  # Devuelve { order: {...}, items: [{...}], unreadable_items: n }. Las claves
+  # internas que la plantilla no mapea simplemente no vienen: quién es
   # obligatorio y quién no lo decide ProcessWebhookOrder, no la traducción.
   class TranslateWebhookPayload < ApplicationPoro
     # Claves internas reconocidas. Todo lo demás que traiga la plantilla se
@@ -23,7 +23,7 @@ module Orders
     end
 
     def call
-      { order: order_attributes, items: items }
+      { order: order_attributes, items: items, unreadable_items: unreadable_items }
     end
 
     private
@@ -35,9 +35,20 @@ module Orders
     end
 
     def items
-      Integrations::ParseExternalCollection
-        .new(service: @service, payload: @payload).call
-        .map { |item| item.slice(*ITEM_KEYS).symbolize_keys }
+      @items ||= collection.call.map { |item| item.slice(*ITEM_KEYS).symbolize_keys }
+    end
+
+    # Cuántos elementos de la lista externa no se pudieron traducir. El parser
+    # los descarta —es genérico y no sabe qué colección está leyendo—, pero en
+    # una venta un ítem ilegible no es ruido: es un ítem que existe y que el OMS
+    # no ve. Se reporta y ProcessWebhookOrder decide.
+    def unreadable_items
+      collection.source_elements.size - items.size
+    end
+
+    def collection
+      @collection ||= Integrations::ParseExternalCollection.new(service: @service,
+                                                                payload: @payload)
     end
   end
 end
