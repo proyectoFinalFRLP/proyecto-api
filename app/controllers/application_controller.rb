@@ -20,14 +20,21 @@ class ApplicationController < ActionController::API
 
   # Las acciones index usan policy_scope; el resto deben llamar authorize.
   # Si una acción futura olvida el authorize, falla en vez de pasar sin ruido.
-  # `index` se define en las subclases, no en esta clase: el cop
-  # Rails/LexicallyScopedActionFilter no puede resolverla y se excluye acá.
-  # rubocop:disable Rails/LexicallyScopedActionFilter
-  after_action :verify_authorized, except: :index
-  after_action :verify_policy_scoped, only: :index
-  # rubocop:enable Rails/LexicallyScopedActionFilter
+  #
+  # La condición va por predicado y no por `only:`/`except: :index`. Desde
+  # Rails 7.1, nombrar en `only:`/`except:` una acción que el controller no
+  # define levanta AbstractController::ActionNotFound — y como `index` se define
+  # en las subclases, cualquier controller sin index se caía con un 404 engañoso
+  # antes de ejecutar su acción. Lo pisó primero la cotización de TESIS-46, que
+  # tiene una sola acción. Con el predicado el comportamiento es idéntico y deja
+  # de ser una trampa para el próximo controller de acción única. De paso ya no
+  # hace falta silenciar Rails/LexicallyScopedActionFilter.
+  after_action :verify_authorized, unless: :index_action?
+  after_action :verify_policy_scoped, if: :index_action?
 
   private
+
+  def index_action? = action_name == 'index'
 
   def set_current_tenant
     Current.company_id = current_user&.company_id

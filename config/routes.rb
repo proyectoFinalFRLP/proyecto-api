@@ -16,6 +16,12 @@ Rails.application.routes.draw do
         resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
       end
 
+      # `only: []` a propósito: esta card sólo agrega la cotización anidada. El
+      # ABM de órdenes es TESIS-42 y define ahí sus propias acciones.
+      resources :orders, only: [] do
+        resources :quotes, only: %i[create], controller: 'shipping_quotes'
+      end
+
       resources :failed_events, path: 'failed-events', only: %i[index] do
         member do
           post :retry, action: :requeue
