@@ -133,6 +133,31 @@ Serializer (Blueprinter)
 render json: ...
 ```
 
+### 4.1 Flujo de un webhook entrante
+
+Los eventos de las plataformas externas no siguen el flujo de arriba: no hay JWT, no hay usuario y el proveedor no espera detrás de la lógica de negocio. El gateway persiste y suelta la conexión; el procesamiento corre en un worker (ver [ADR-010](../adr/ADR-010-ingesta-de-ordenes-de-webhooks.md)).
+
+```
+POST /api/webhooks/integrations/:company_integration_id   (sin autenticación)
+  ↓
+Api::Webhooks::IntegrationsController
+  - El tenant sale de la integración, no de Current
+  - WebhookLog.create!(status: 'pending')                 (auditoría del evento crudo)
+  - Orders::ProcessWebhookEventJob.perform_later          (sólo canales de e-commerce)
+  - head :accepted                                        (202, cuerpo vacío)
+  ↓
+Orders::ProcessWebhookEventJob                            (cola realtime)
+  - with_tenant(company_id)
+  ↓
+Orders::ProcessWebhookOrder
+  - Traduce el payload con el response_mapper del Service
+  - Resuelve cada ítem contra ProductMapping (Identity Mapping)
+  - Transacción: Order + OrderItems + descuento de stock
+  - Marca el WebhookLog 'processed' o 'failed' + error_message
+  ↓
+(si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
+```
+
 ---
 
 ## 5. Multi-tenancy en detalle

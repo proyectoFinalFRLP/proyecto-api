@@ -3,15 +3,18 @@
 class WebhookLog < ApplicationRecord
   include CompanyScoped
 
-  STATUSES = %w[pending processed failed].freeze
+  STATUSES = { pending: 'pending', processed: 'processed', failed: 'failed' }.freeze
+  ERROR_LIMIT = 2_000
 
   belongs_to :company
   belongs_to :company_integration
 
-  validates :status, presence: true, inclusion: { in: STATUSES }
-  validate :company_integration_belongs_to_company
+  # Mismo criterio que FailedEvent: el enum da los predicados y los scopes
+  # (`pending`, `processed?`) y `validate: true` hace que un status desconocido
+  # invalide el registro en lugar de explotar en el asignador.
+  enum :status, STATUSES, validate: true
 
-  scope :pending, -> { where(status: 'pending') }
+  validate :company_integration_belongs_to_company
 
   private
 
