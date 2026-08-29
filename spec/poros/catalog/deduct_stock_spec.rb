@@ -93,4 +93,36 @@ RSpec.describe Catalog::DeductStock, type: :poro do
 
     expect(Catalog::WithStockLock).to have_received(:new).with(product_id: product.id)
   end
+
+  # TESIS-42: warehouse_id explícito para ventas offline
+  context 'with explicit warehouse_id' do
+    it 'deducts from the specified warehouse' do
+      central = Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 3)
+      north = Stock.create!(product: product, warehouse: warehouse('Norte', '1602'), quantity: 10)
+
+      described_class.new(product: product, quantity: 3, warehouse_id: north.warehouse_id).call
+
+      expect(north.reload.quantity).to eq(7)
+      expect(central.reload.quantity).to eq(3)
+    end
+
+    it 'raises when the specified warehouse has insufficient stock' do
+      Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 3)
+
+      expect do
+        described_class.new(product: product, quantity: 5, warehouse_id: Stock.first.warehouse_id).call
+      end.to raise_error(Catalog::InsufficientStockError)
+    end
+
+    it 'ignores other warehouses even if they could cover the sale' do
+      Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 3)
+      north = Stock.create!(product: product, warehouse: warehouse('Norte', '1602'), quantity: 10)
+
+      suppress(Catalog::InsufficientStockError) do
+        described_class.new(product: product, quantity: 5, warehouse_id: Stock.first.warehouse_id).call
+      end
+
+      expect(north.reload.quantity).to eq(10)
+    end
+  end
 end

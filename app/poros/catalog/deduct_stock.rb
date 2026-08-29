@@ -12,10 +12,15 @@ module Catalog
   # read-modify-write, y leer afuera dejaría la ventana para que otro proceso
   # descuente sobre el mismo saldo.
   class DeductStock < ApplicationPoro
-    def initialize(product:, quantity:)
+    # warehouse_id: cuando se provee, descuenta del depósito específico
+    # (ventas offline TESIS-42, donde el operador elige de dónde saca).
+    # Cuando se omite, picking automático por orden de warehouse_id
+    # (webhooks TESIS-43).
+    def initialize(product:, quantity:, warehouse_id: nil)
       super()
       @product = product
       @quantity = quantity.to_i
+      @warehouse_id = warehouse_id
     end
 
     def call
@@ -32,11 +37,12 @@ module Catalog
 
     private
 
-    # El orden por warehouse_id es arbitrario pero estable: dos ventas del mismo
-    # producto vacían los depósitos en la misma secuencia, sin depender del orden
-    # físico de las filas.
+    # Con warehouse_id: busca esa fila específica. Sin warehouse_id: picking
+    # automático por orden de warehouse_id (comportamiento heredado TESIS-43).
     def fulfilling_stock
-      Stock.where(product_id: @product.id, quantity: @quantity..).order(:warehouse_id).first
+      scope = Stock.where(product_id: @product.id, quantity: @quantity..)
+      scope = scope.where(warehouse_id: @warehouse_id) if @warehouse_id
+      scope.order(:warehouse_id).first
     end
   end
 end
