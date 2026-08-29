@@ -162,6 +162,30 @@ RSpec.describe Shipments::ProcessTrackingUpdate, type: :poro do
     end
   end
 
+  context 'when the same undated event is delivered twice as separate webhook logs' do
+    let(:payload) { tracking_payload.except('fecha') }
+
+    before { described_class.new(webhook_log: create_log).call }
+
+    it 'does not create a second event, even though occurred_at differs per delivery' do
+      expect { process.call }.not_to change(ShipmentEvent, :count)
+    end
+
+    it 'leaves the retried log processed' do
+      expect { process.call }.to change { log.reload.status }.to('processed')
+    end
+  end
+
+  context 'when an undated event reports a status different from the last known one' do
+    let(:payload) { tracking_payload(estado: 'En camino').except('fecha') }
+
+    before { described_class.new(webhook_log: create_log(tracking_payload(estado: 'Entregado'))).call }
+
+    it 'still registers it, since it is not a retry of the last event' do
+      expect { process.call }.to change(ShipmentEvent, :count).by(1)
+    end
+  end
+
   context 'when the webhook log was already processed' do
     before { log.update!(status: :processed) }
 

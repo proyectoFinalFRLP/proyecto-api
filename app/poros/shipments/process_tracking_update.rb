@@ -101,8 +101,20 @@ module Shipments
     end
 
     def duplicate?(shipment)
+      return duplicate_without_timestamp?(shipment) if translated[:occurred_at].nil?
+
       shipment.shipment_events.exists?(external_status: translated[:external_status],
                                        occurred_at: occurred_at)
+    end
+
+    # Sin fecha del courier, occurred_at se sintetiza con Time.current en cada
+    # entrega (ver occurred_at) y nunca coincide entre reintentos: comparar por
+    # timestamp exacto no sirve para distinguir un reintento de un movimiento
+    # legítimo. Para una bitácora de auditoría el default seguro es no duplicar,
+    # así que acá se compara contra el último evento del envío por external_status.
+    def duplicate_without_timestamp?(shipment)
+      last_event = shipment.shipment_events.order(occurred_at: :desc).first
+      last_event&.external_status == translated[:external_status]
     end
 
     # Llegó desordenado: ya hay registrado un evento con occurred_at más nuevo
