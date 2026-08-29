@@ -160,21 +160,50 @@ services = [
     response_value_mapper: {}
   },
   {
+    # Una misma plantilla describe dos payloads distintos del mismo proveedor: la
+    # respuesta síncrona de POST /ordenes-de-envio (numeroDeEnvio del despacho) y
+    # el push asíncrono de tracking que Andreani manda al webhook de couriers
+    # (TESIS-48). Es la misma convención de ADR-010: el Service modela "cómo
+    # habla este proveedor", no "para qué endpoint propio es cada dato" —
+    # separar la plantilla en dos duplicaría URI y credenciales sin necesidad,
+    # cuando lo único que cambia es qué ruta del payload se lee en cada caso.
     service_name: 'Andreani',
     type: 'courier',
     uri: 'https://apis.andreani.com/v2/ordenes-de-envio',
     http_method: 'POST',
     request_mapper: { 'destino.postal.codigoPostal' => 'customer_zip_code' },
-    response_mapper: { 'bulto.0.numeroDeEnvio' => 'tracking_number' },
+    response_mapper: {
+      'bulto.0.numeroDeEnvio' => 'tracking_number',
+      # Rutas del push de tracking (TESIS-48): Shipments::TranslateTrackingPayload
+      # las lee crudas (sin pasar por response_value_mapper) para conservar el
+      # external_status tal cual lo mandó el courier.
+      'evento.estado' => 'external_status',
+      'evento.fecha' => 'occurred_at',
+      'evento.sucursal' => 'description'
+    },
     request_value_mapper: {},
-    response_value_mapper: { 'EnDistribucion' => 'in_transit', 'Entregado' => 'delivered' }
+    response_value_mapper: {
+      'EnPreparacion' => 'ready_to_ship',
+      'EnDistribucion' => 'in_transit',
+      'EntregadoAlDestinatario' => 'delivered',
+      'Entregado' => 'delivered'
+    }
   }
 ]
 
 services.each do |attrs|
-  Service.find_or_create_by!(service_name: attrs[:service_name]) do |s|
+  service = Service.find_or_create_by!(service_name: attrs[:service_name]) do |s|
     s.assign_attributes(attrs)
   end
+
+  # find_or_create_by! no toca un registro que ya existe: una base sembrada antes
+  # de ampliar una plantilla (p.ej. el push de tracking de Andreani, TESIS-48)
+  # se quedaría con los mappers viejos para siempre. Reaplicar sólo
+  # Service::MAPPER_FIELDS mantiene la carga idempotente sin pisar el resto de
+  # la plantilla (uri, http_method, type) por si se editó a mano desde el
+  # backoffice, y sin tocar otras plantillas: cada vuelta sólo actualiza su
+  # propio service_name.
+  service.update!(attrs.slice(*Service::MAPPER_FIELDS.map(&:to_sym)))
 end
 
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
@@ -502,6 +531,40 @@ end
 
 # La orden cancelada de Comercial Sur queda SIN envío a propósito: una orden
 # cancelada nunca se despacha. Cubre el caso borde de orden sin shipment.
+
+# ---------------------------------------------------------------------------
+# TESIS-48 — Webhooks: log crudo de push tracking de courier (auditoría)
+# ---------------------------------------------------------------------------
+
+# Equivalente al webhook de orden que sembró TESIS-36: un WebhookLog en
+# 'pending' listo para disparar a mano en desarrollo el pipeline completo
+# (Shipments::ProcessTrackingEventJob → ProcessTrackingUpdate) sin esperar un
+# push real de Andreani. El payload sigue las rutas del response_mapper
+# ampliado más arriba y apunta al tracking_number del envío ya despachado: al
+# procesarlo, 'Entregado' traduce a delivered y el shipment pasa de
+# in_transit a delivered.
+#
+# Guard scopeado a la integración de Andreani (no a WebhookLog.unscoped.none?
+# a secas, como en TESIS-36): esa base ya tiene el webhook log de la orden de
+# Mercado Libre para cuando se llega acá, así que un chequeo global nunca
+# volvería a sembrar éste.
+if andreani_integration && shipped &&
+   WebhookLog.unscoped.where(company_integration: andreani_integration).none?
+  WebhookLog.create!(
+    company_id: norte_company.id,
+    company_integration: andreani_integration,
+    headers: { 'HTTP_USER_AGENT' => 'Andreani-Tracking-Webhook/1.0' },
+    payload: {
+      'bulto' => [{ 'numeroDeEnvio' => shipped.tracking_number }],
+      'evento' => {
+        'estado' => 'Entregado',
+        'fecha' => '2026-08-24T09:15:00-03:00',
+        'sucursal' => 'CABA - Palermo'
+      }
+    },
+    status: 'pending'
+  )
+end
 
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \

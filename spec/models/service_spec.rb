@@ -33,6 +33,30 @@ RSpec.describe Service, type: :model do
     expect(described_class.new(type: 'ecommerce')).to be_an_instance_of(described_class)
   end
 
+  describe '#ecommerce?' do
+    it 'is true for an ecommerce service' do
+      service.type = 'ecommerce'
+      expect(service.ecommerce?).to be true
+    end
+
+    it 'is false for a courier service' do
+      service.type = 'courier'
+      expect(service.ecommerce?).to be false
+    end
+  end
+
+  describe '#courier?' do
+    it 'is true for a courier service' do
+      service.type = 'courier'
+      expect(service.courier?).to be true
+    end
+
+    it 'is false for an ecommerce service' do
+      service.type = 'ecommerce'
+      expect(service.courier?).to be false
+    end
+  end
+
   it 'persists nested JSONB mappers', :aggregate_failures do
     service.update!(request_mapper: { 'order' => { 'id' => 'external_id' } })
     expect(service.reload.request_mapper).to eq('order' => { 'id' => 'external_id' })

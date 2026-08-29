@@ -61,9 +61,19 @@ RSpec.describe ShipmentEvent, type: :model do
   end
 
   it 'allows multiple events for the same shipment (bitácora)' do
-    create_event('ready_to_ship')
-    create_event('in_transit')
+    create_event('ready_to_ship', 'En preparación', '2026-08-10 10:00:00')
+    create_event('in_transit', 'En distribución', '2026-08-11 08:30:00')
     expect(shipment.reload.shipment_events.count).to eq(2)
+  end
+
+  # Invariante que agrega TESIS-48: la entrega de webhooks es at-least-once, así
+  # que el mismo movimiento puede llegar dos veces. Repetir estado externo e
+  # instante es un reenvío del courier, no un movimiento nuevo del paquete.
+  it 'rejects a repeated event with the same external status and timestamp' do
+    create_event('in_transit', 'En distribución', '2026-08-11 08:30:00')
+
+    expect { create_event('in_transit', 'En distribución', '2026-08-11 08:30:00') }
+      .to raise_error(ActiveRecord::RecordNotUnique)
   end
 
   it 'belongs to a shipment' do
@@ -72,9 +82,9 @@ RSpec.describe ShipmentEvent, type: :model do
 
   private
 
-  def create_event(status)
-    described_class.create!(shipment: shipment, internal_status: status,
-                            external_status: 'En distribución',
-                            occurred_at: Time.zone.parse('2026-08-11 08:30:00'))
+  def create_event(internal_status, external_status, occurred_at)
+    described_class.create!(shipment: shipment, internal_status: internal_status,
+                            external_status: external_status,
+                            occurred_at: Time.zone.parse(occurred_at))
   end
 end
