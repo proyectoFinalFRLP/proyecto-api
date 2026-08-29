@@ -29,12 +29,20 @@ module Integrations
       SocketError, OpenSSL::SSL::SSLError, EOFError
     ].freeze
 
-    def initialize(company_integration:, payload: {}, uri_params: {})
+    # Los timeouts son parámetro y no constante fija porque no todos los usos
+    # toleran lo mismo: un sync saliente en background puede esperar 10s, pero
+    # una cotización que corre dentro de un request HTTP no — ahí el usuario está
+    # esperando y el motor prefiere perder un operador antes que la respuesta
+    # entera (TESIS-46).
+    def initialize(company_integration:, payload: {}, uri_params: {},
+                   open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT)
       super()
       @integration = company_integration
       @service = company_integration.service
       @payload = payload
       @uri_params = uri_params
+      @open_timeout = open_timeout
+      @read_timeout = read_timeout
     end
 
     def call
@@ -70,8 +78,8 @@ module Integrations
     def execute((uri, request))
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = uri.scheme == 'https'
-      http.open_timeout = OPEN_TIMEOUT
-      http.read_timeout = READ_TIMEOUT
+      http.open_timeout = @open_timeout
+      http.read_timeout = @read_timeout
       http.request(request)
     end
 

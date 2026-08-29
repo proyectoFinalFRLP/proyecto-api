@@ -22,6 +22,20 @@ class Service < ApplicationRecord
   # espera del de envíos (TESIS-24).
   def ecommerce? = type == ECOMMERCE
 
+  def courier? = type == COURIER
+
+  # Una plantilla de courier puede servir para cotizar o para despachar: son dos
+  # endpoints distintos del mismo proveedor y, por convención del proyecto, dos
+  # `Service` distintos (igual que 'Mercado Libre' y 'Mercado Libre - Stock').
+  #
+  # Cuál es cuál lo declara la propia plantilla en vez de una columna nueva: la
+  # que sabe cotizar es la que mapea el costo en su `response_mapper`. Es el
+  # mismo principio data-driven del resto de las integraciones — el template
+  # dice qué sabe contestar — y evita una migración por cada capacidad nueva.
+  def quotes_shipping?
+    courier? && response_mapper.value?(Shipments::QuoteShipment::COST_KEY)
+  end
+
   # Los mappers aceptan String JSON (formularios del backoffice) además de Hash:
   # un String se parsea y, si es inválido o no es un objeto, el registro queda
   # inválido y conserva el valor anterior.

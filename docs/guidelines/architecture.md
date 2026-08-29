@@ -317,6 +317,35 @@ module Catalog
 end
 ```
 
+#### La excepción: la cotización logística
+
+La regla anterior tiene un caso documentado que no la cumple, y conviene que se
+lea acá y no se descubra leyendo el código.
+
+`POST /api/v1/orders/:order_id/quotes` (TESIS-46) llama a los couriers **dentro
+del request**, no desde un job. El motivo es el producto: el usuario está
+esperando la lista de tarifas para elegir una. Devolverla por un job obligaría a
+sondear o a abrir un canal de tiempo real para un dato que se consume en el acto
+y que caduca enseguida.
+
+Lo que acota el riesgo de sostener un hilo de Puma:
+
+- **Timeout propio y más corto.** El adaptador acepta los timeouts por parámetro;
+  la cotización usa 4 s de apertura y de lectura, contra los 10 s del uso en
+  background. El techo de la request es ese, no la suma de los couriers.
+- **Concurrencia real.** Los operadores se consultan en paralelo, así que el
+  tiempo total es el del más lento y no la suma. Medido con tres couriers de
+  0,4 s: 0,46 s.
+- **Aislamiento por operador.** El fallo de un courier se rescata dentro de su
+  propio hilo y sale de la lista de opciones; nunca voltea la cotización.
+
+**Cuándo sí hay que volver a un job:** si la cantidad de couriers integrados por
+empresa deja de ser un puñado, o si aparece un segundo caso de llamada saliente
+sincrónica. Ahí el patrón correcto es encolar y notificar, y esta excepción deja
+de estar justificada.
+
+Toda otra llamada saliente sigue la regla: PORO, ejecutado desde un job.
+
 ---
 
 ## 8. Background jobs y colas (Solid Queue)
