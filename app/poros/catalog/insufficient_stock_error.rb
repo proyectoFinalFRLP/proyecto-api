@@ -1,18 +1,16 @@
 # frozen_string_literal: true
 
 module Catalog
-  # No hay unidades suficientes en el depósito para el movimiento pedido.
-  # El controller lo mapea a 422: es un dato del request, no un fallo del sistema.
+  # Se levanta cuando ningún depósito puede cubrir la cantidad pedida de un
+  # producto. Es un error de datos, no transitorio: reintentarlo no cambia nada
+  # hasta que entre stock nuevo.
   class InsufficientStockError < StandardError
-    attr_reader :product_id, :warehouse_id, :available, :requested
+    attr_reader :product_id, :quantity
 
-    def initialize(product_id:, warehouse_id:, available:, requested:)
-      @product_id = product_id
-      @warehouse_id = warehouse_id
-      @available = available
-      @requested = requested
-      super("warehouse #{warehouse_id} holds #{available} units of product " \
-            "#{product_id}, cannot move #{requested}")
+    def initialize(product:, quantity:)
+      @product_id = product.id
+      @quantity = quantity
+      super("insufficient stock for product '#{product.sku}': #{quantity} units required")
     end
   end
 end

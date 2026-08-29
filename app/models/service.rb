@@ -3,7 +3,9 @@
 class Service < ApplicationRecord
   self.inheritance_column = nil
 
-  TYPES = %w[ecommerce courier].freeze
+  ECOMMERCE = 'ecommerce'
+  COURIER = 'courier'
+  TYPES = [ECOMMERCE, COURIER].freeze
   MAPPER_FIELDS = %w[request_mapper response_mapper request_value_mapper
                      response_value_mapper].freeze
 
@@ -14,6 +16,26 @@ class Service < ApplicationRecord
   validates :http_method, presence: true
   validates :type, presence: true, inclusion: { in: TYPES }
   validate :mappers_are_valid_json
+
+  # Sólo los canales de e-commerce generan ventas: el gateway lo usa para decidir
+  # si un webhook entrante va al procesador de órdenes (TESIS-43) o queda a la
+  # espera del de envíos (TESIS-24). CouriersController usa courier? con el mismo
+  # criterio para decidir si encola el procesamiento de tracking (TESIS-48).
+  def ecommerce? = type == ECOMMERCE
+
+  def courier? = type == COURIER
+
+  # Una plantilla de courier puede servir para cotizar o para despachar: son dos
+  # endpoints distintos del mismo proveedor y, por convención del proyecto, dos
+  # `Service` distintos (igual que 'Mercado Libre' y 'Mercado Libre - Stock').
+  #
+  # Cuál es cuál lo declara la propia plantilla en vez de una columna nueva: la
+  # que sabe cotizar es la que mapea el costo en su `response_mapper`. Es el
+  # mismo principio data-driven del resto de las integraciones — el template
+  # dice qué sabe contestar — y evita una migración por cada capacidad nueva.
+  def quotes_shipping?
+    courier? && response_mapper.value?(Shipments::QuoteShipment::COST_KEY)
+  end
 
   # Los mappers aceptan String JSON (formularios del backoffice) además de Hash:
   # un String se parsea y, si es inválido o no es un objeto, el registro queda

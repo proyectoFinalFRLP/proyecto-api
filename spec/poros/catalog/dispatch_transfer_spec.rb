@@ -46,11 +46,11 @@ RSpec.describe Catalog::DispatchTransfer, type: :poro do
     let(:quantity) { 99 }
 
     it 'raises instead of leaving a negative balance' do
-      expect { dispatch.call }.to raise_error(Catalog::InsufficientStockError)
+      expect { dispatch.call }.to raise_error(Catalog::InsufficientWarehouseStockError)
     end
 
     context 'when the dispatch has already failed' do
-      before { suppress(Catalog::InsufficientStockError) { dispatch.call } }
+      before { suppress(Catalog::InsufficientWarehouseStockError) { dispatch.call } }
 
       it 'writes no transfer at all' do
         expect(StockTransfer.count).to eq(0)

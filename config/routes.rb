@@ -26,6 +26,12 @@ Rails.application.routes.draw do
         end
       end
 
+      # `only: []` a propósito: esta card sólo agrega la cotización anidada. El
+      # ABM de órdenes es TESIS-42 y define ahí sus propias acciones.
+      resources :orders, only: [] do
+        resources :quotes, only: %i[create], controller: 'shipment_quotes'
+      end
+
       resources :failed_events, path: 'failed-events', only: %i[index] do
         member do
           post :retry, action: :requeue
@@ -37,6 +43,7 @@ Rails.application.routes.draw do
     # Ruta pública: la consumen las plataformas externas, no el frontend.
     namespace :webhooks do
       post 'integrations/:company_integration_id', to: 'integrations#create'
+      post 'couriers/:company_integration_id', to: 'couriers#create'
     end
   end
 end

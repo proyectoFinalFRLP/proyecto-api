@@ -4,7 +4,7 @@ module Api
   module V1
     class StockTransfersController < ApplicationController
       before_action :set_transfer, only: %i[receive cancel]
-      rescue_from Catalog::InsufficientStockError, with: :render_unprocessable
+      rescue_from Catalog::InsufficientWarehouseStockError, with: :render_unprocessable
       rescue_from Catalog::SettleTransfer::NotInFlightError, with: :render_conflict
 
       def index

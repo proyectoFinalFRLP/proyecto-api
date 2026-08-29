@@ -133,6 +133,56 @@ Serializer (Blueprinter)
 render json: ...
 ```
 
+### 4.1 Flujo de un webhook entrante
+
+Los eventos de las plataformas externas no siguen el flujo de arriba: no hay JWT, no hay usuario y el proveedor no espera detrás de la lógica de negocio. El gateway persiste y suelta la conexión; el procesamiento corre en un worker (ver [ADR-010](../adr/ADR-010-ingesta-de-ordenes-de-webhooks.md)).
+
+```
+POST /api/webhooks/integrations/:company_integration_id   (sin autenticación)
+  ↓
+Api::Webhooks::IntegrationsController
+  - El tenant sale de la integración, no de Current
+  - WebhookLog.create!(status: 'pending')                 (auditoría del evento crudo)
+  - Orders::ProcessWebhookEventJob.perform_later          (sólo canales de e-commerce)
+  - head :accepted                                        (202, cuerpo vacío)
+  ↓
+Orders::ProcessWebhookEventJob                            (cola realtime)
+  - with_tenant(company_id)
+  ↓
+Orders::ProcessWebhookOrder
+  - Traduce el payload con el response_mapper del Service
+  - Resuelve cada ítem contra ProductMapping (Identity Mapping)
+  - Transacción: Order + OrderItems + descuento de stock
+  - Marca el WebhookLog 'processed' o 'failed' + error_message
+  ↓
+(si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
+```
+
+### 4.2 Flujo de un webhook de courier (push tracking)
+
+Los eventos de courier tampoco siguen el flujo de arriba: no hay JWT, no hay usuario, y el proveedor no espera detrás de la lógica de negocio — el gateway persiste el evento crudo y suelta la conexión; la traducción y la actualización del envío corren en un worker aparte (ver [ADR-011](../adr/ADR-011-push-tracking-de-couriers.md)).
+
+```
+POST /api/webhooks/couriers/:company_integration_id   (sin autenticación)
+  ↓
+Api::Webhooks::CouriersController
+  - El tenant sale de la integración, no de Current
+  - WebhookLog.create!(status: 'pending')              (auditoría del evento crudo)
+  - Shipments::ProcessTrackingEventJob.perform_later   (sólo integraciones de tipo courier)
+  - head :accepted                                     (202, cuerpo vacío)
+  ↓
+Shipments::ProcessTrackingEventJob                     (cola realtime)
+  - with_tenant(company_id)
+  ↓
+Shipments::ProcessTrackingUpdate
+  - Traduce el payload con el response_mapper del Service (Shipments::TranslateTrackingPayload)
+  - Ubica el Shipment por tracking_number + company_integration_id
+  - Transacción: shipment.lock! + ShipmentEvent + actualización de shipments.status
+  - Marca el WebhookLog 'processed' o 'failed' + error_message
+  ↓
+(si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
+```
+
 ---
 
 ## 5. Multi-tenancy en detalle
@@ -304,6 +354,35 @@ module Catalog
   end
 end
 ```
+
+#### La excepción: la cotización logística
+
+La regla anterior tiene un caso documentado que no la cumple, y conviene que se
+lea acá y no se descubra leyendo el código.
+
+`POST /api/v1/orders/:order_id/quotes` (TESIS-46) llama a los couriers **dentro
+del request**, no desde un job. El motivo es el producto: el usuario está
+esperando la lista de tarifas para elegir una. Devolverla por un job obligaría a
+sondear o a abrir un canal de tiempo real para un dato que se consume en el acto
+y que caduca enseguida.
+
+Lo que acota el riesgo de sostener un hilo de Puma:
+
+- **Timeout propio y más corto.** El adaptador acepta los timeouts por parámetro;
+  la cotización usa 4 s de apertura y de lectura, contra los 10 s del uso en
+  background. El techo de la request es ese, no la suma de los couriers.
+- **Concurrencia real.** Los operadores se consultan en paralelo, así que el
+  tiempo total es el del más lento y no la suma. Medido con tres couriers de
+  0,4 s: 0,46 s.
+- **Aislamiento por operador.** El fallo de un courier se rescata dentro de su
+  propio hilo y sale de la lista de opciones; nunca voltea la cotización.
+
+**Cuándo sí hay que volver a un job:** si la cantidad de couriers integrados por
+empresa deja de ser un puñado, o si aparece un segundo caso de llamada saliente
+sincrónica. Ahí el patrón correcto es encolar y notificar, y esta excepción deja
+de estar justificada.
+
+Toda otra llamada saliente sigue la regla: PORO, ejecutado desde un job.
 
 ---
 

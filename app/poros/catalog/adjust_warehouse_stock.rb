@@ -37,7 +37,7 @@ module Catalog
     def ensure_available!(stock, resulting)
       return unless resulting.negative?
 
-      raise InsufficientStockError.new(
+      raise InsufficientWarehouseStockError.new(
         product_id: @product.id, warehouse_id: @warehouse.id,
         available: stock.quantity.to_i, requested: @delta.abs
       )

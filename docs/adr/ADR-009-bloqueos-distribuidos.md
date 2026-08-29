@@ -85,7 +85,56 @@ Catalog::WithStockLock.new(product_id: product.id, wait: false).call { ... }
 - ✅ Sin infraestructura nueva: PostgreSQL ya es parte del stack y ya es la fuente de verdad del stock
 - ✅ No hay locks huérfanos que limpiar: el motor los libera solo, al terminar la transacción (commit o rollback)
 - ✅ El PORO es explícito y auditable: clave, timeout y manejo de errores están a la vista en ~40 líneas
-- ⚠️ El lock ordena escrituras, no detecta ediciones concurrentes: el lost update del ABM sigue abierto hasta que se implemente el locking optimista
+- ✅ El lost update del ABM lo cierra el locking optimista de TESIS-101 (ver sección siguiente): el lock ordena, el ETag detecta
 - ⚠️ La granularidad por producto serializa de más cuando una empresa escribe stock del mismo producto en depósitos distintos al mismo tiempo
 - ⚠️ Las escrituras batch (`update_all`, `upsert_all`, SQL crudo) se saltean el PORO por completo — por eso existe el `CHECK` de la base como red de seguridad independiente
 - ⚠️ Los specs de concurrencia necesitan desactivar el envoltorio transaccional de RSpec (`use_transactional_tests = false`): si no, las dos "conexiones" que se quieren probar en paralelo viven dentro de la misma transacción de test y nunca compiten de verdad por el lock
+
+---
+
+## Complemento: locking optimista del ABM (TESIS-101)
+
+Este ADR dejaba abierto el *lost update* del ABM. Se cierra con un mecanismo
+distinto, porque responde a otra pregunta: el advisory lock **ordena** las
+escrituras, y acá hace falta **detectar** que dos personas editaron lo mismo.
+
+### Decisión: ETag + `If-Match`, no `lock_version`
+
+`GET /products/:id` devuelve un `ETag` con la huella del agregado, y
+`PUT /products/:id` la exige de vuelta en `If-Match`.
+
+**Por qué no `lock_version`.** La columna versiona la fila `products`, y el modal
+edita un agregado: nombre, medidas **y** las cantidades de cada depósito. Para
+que `lock_version` cubriera el stock habría que bumpearlo desde los callbacks de
+`Stock`, o sea escribir en `products` en cada venta — amplificación de escritura
+y contención justo en el camino más caliente del sistema. El ETag cubre el
+agregado completo sin tocar la base ni sumar una migración.
+
+**Qué cubre la huella** (`Catalog::ProductVersion`): los campos que el modal
+edita más el par `warehouse_id:quantity` de cada depósito, ordenados. Que incluya
+el stock no es un extra: el escenario más peligroso no son dos operadores sino
+**una venta**. Si un webhook descuenta 5 unidades mientras el modal está abierto,
+guardar la cantidad *absoluta* que el usuario vio borraría ese descuento sin
+dejar rastro.
+
+**Dónde se verifica.** Dentro de la transacción y detrás de un `lock!`
+(`SELECT ... FOR UPDATE` sobre la fila del producto). Comparar afuera dejaría
+pasar a dos requests que leyeron la misma versión — exactamente la carrera que
+esto cierra.
+
+### Desvío de la card: 412, no 409
+
+La card pedía 409 «con un cuerpo que permita distinguirlo de los otros dos 409».
+Se devuelve **412 Precondition Failed**, que es el código que HTTP define para
+una precondición incumplida — y de paso resuelve solo el requisito: el endpoint
+ya devuelve 409 por SKU duplicado y por lock de stock ocupado, y un tercer 409
+obligaría al front a leer el cuerpo para saber cuál es. Con 412 alcanza el
+status.
+
+### Consecuencias
+
+- ✅ Sin migración y sin columna nueva
+- ✅ Cubre cualquier escritor: otro operador, una venta por webhook, un job
+- ✅ Sin `If-Match` el update pasa como siempre — semántica de HTTP, y no rompe el contrato anterior
+- ⚠️ Esa misma compatibilidad hace que la protección sea **opt-in**: un cliente que no manda el header no está protegido
+- ⚠️ La huella se recalcula en cada `show` y en cada `update`; es un SHA-256 sobre unas pocas decenas de bytes, pero no es gratis

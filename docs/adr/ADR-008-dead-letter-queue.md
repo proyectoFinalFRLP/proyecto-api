@@ -71,6 +71,8 @@ Se descartó `FOR UPDATE SKIP LOCKED` —que liberaría el lock solo al morir el
 
 El motor no conoce ningún dominio: busca en `ReplayRegistry` el PORO correspondiente al `event_type` y lo ejecuta. Sumar los webhooks entrantes (TESIS-36) o el sync de stock (TESIS-21) es registrar un replayer nuevo, sin tocar el motor.
 
+La ingesta de órdenes entrantes (TESIS-43) fue el primer caso que lo ejercitó: registró el `event_type` `webhooks.order_ingestion` con su replayer y estrenó la dirección `inbound`, sin cambiar una línea del motor. Ver [ADR-010](ADR-010-ingesta-de-ordenes-de-webhooks.md).
+
 ## Alternativas consideradas
 
 ### `retry_on` de Active Job

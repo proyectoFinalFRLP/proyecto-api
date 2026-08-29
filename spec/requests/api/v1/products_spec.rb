@@ -346,6 +346,106 @@ RSpec.describe 'Products API', type: :request do
     end
   end
 
+  describe 'optimistic locking with If-Match' do
+    let(:warehouse) do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+    end
+    let!(:product) do
+      p = Product.create!(company: company, sku: 'A-001', name: 'Alpha', weight: 1)
+      Stock.create!(product: p, warehouse: warehouse, quantity: 10)
+      p
+    end
+
+    def current_version
+      get "/api/v1/products/#{product.id}", headers: headers
+      response.headers['ETag']
+    end
+
+    def save(version, quantity: 7, name: 'Alpha')
+      body = { product: { name: name, weight: 1,
+                          stocks: stocks_for(warehouse.id, quantity: quantity) } }
+      put "/api/v1/products/#{product.id}",
+          params: body, headers: headers.merge('If-Match' => version.to_s), as: :json
+    end
+
+    it 'exposes the version as an ETag on show' do
+      expect(current_version).to be_present
+    end
+
+    it 'accepts the write when the version still matches' do
+      save(current_version)
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'returns the new version after a successful write', :aggregate_failures do
+      before_write = current_version
+      save(before_write)
+
+      expect(response.headers['ETag']).to be_present
+      expect(response.headers['ETag']).not_to eq(before_write)
+    end
+
+    # La carrera real de la card: dos ediciones que partieron de la misma
+    # version. La segunda no puede pisar a la primera en silencio.
+    context 'when someone else already saved' do
+      # Metodo y no `let` para no pasar el tope de helpers memoizados del grupo.
+      def stale
+        @stale ||= current_version
+      end
+
+      before { save(stale, quantity: 20, name: 'First writer') }
+
+      it 'rejects the second write with 412' do
+        save(stale, quantity: 3, name: 'Second writer')
+        expect(response).to have_http_status(:precondition_failed)
+      end
+
+      it 'does not apply the second write' do
+        save(stale, quantity: 3, name: 'Second writer')
+        expect(product.reload.name).to eq('First writer')
+      end
+
+      it 'does not touch the stock either' do
+        save(stale, quantity: 3, name: 'Second writer')
+        expect(Stock.find_by(product: product, warehouse: warehouse).quantity).to eq(20)
+      end
+
+      it 'hands back the current version so the client can reload' do
+        save(stale, quantity: 3)
+        expect(response.parsed_body['current_version']).to be_present
+      end
+    end
+
+    # El caso mas peligroso no es otro operador: es una venta descontando stock
+    # mientras el modal esta abierto. Guardar la cantidad absoluta lo borraria.
+    it 'rejects the write when stock moved underneath, even if nobody edited' do
+      stale = current_version
+      Stock.find_by(product: product, warehouse: warehouse).update!(quantity: 5)
+      save(stale)
+
+      expect(response).to have_http_status(:precondition_failed)
+    end
+
+    # Semantica de HTTP: sin precondicion, no hay nada que verificar. Mantiene
+    # el contrato anterior para un cliente que no manda el header.
+    it 'writes without If-Match, as before' do
+      body = { product: { name: 'No header', weight: 1 } }
+      put "/api/v1/products/#{product.id}", params: body, headers: headers, as: :json
+
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'treats If-Match: * as no precondition' do
+      save('*')
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'accepts a weak or quoted version' do
+      save("W/#{current_version}")
+      expect(response).to have_http_status(:ok)
+    end
+  end
+
   describe 'POST /api/v1/products' do
     let(:warehouse) do
       Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')

@@ -140,6 +140,35 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_120000) do
     t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying::text, 'courier'::character varying::text])", name: "services_type_check"
   end
 
+  create_table "shipment_events", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "external_status", null: false
+    t.string "internal_status", null: false
+    t.datetime "occurred_at", null: false
+    t.bigint "shipment_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["shipment_id", "external_status", "occurred_at"], name: "index_shipment_events_on_shipment_and_event", unique: true
+    t.index ["shipment_id"], name: "index_shipment_events_on_shipment_id"
+    t.check_constraint "internal_status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipment_events_internal_status_check"
+  end
+
+  create_table "shipments", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.bigint "company_integration_id"
+    t.datetime "created_at", null: false
+    t.bigint "order_id", null: false
+    t.decimal "shipping_cost", precision: 10, scale: 2
+    t.string "shipping_label_url"
+    t.string "status", default: "pending", null: false
+    t.string "tracking_number"
+    t.datetime "updated_at", null: false
+    t.index ["company_id"], name: "index_shipments_on_company_id"
+    t.index ["company_integration_id"], name: "index_shipments_on_company_integration_id"
+    t.index ["order_id"], name: "index_shipments_on_order_id", unique: true
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipments_status_check"
+  end
+
   create_table "stock_transfers", force: :cascade do |t|
     t.bigint "company_id", null: false
     t.datetime "created_at", null: false
@@ -223,6 +252,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_120000) do
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade
   add_foreign_key "product_mappings", "products", on_delete: :cascade
   add_foreign_key "products", "companies", on_delete: :cascade
+  add_foreign_key "shipment_events", "shipments", on_delete: :cascade
+  add_foreign_key "shipments", "companies", on_delete: :cascade
+  add_foreign_key "shipments", "company_integrations", on_delete: :nullify
+  add_foreign_key "shipments", "orders", on_delete: :cascade
   add_foreign_key "stock_transfers", "companies", on_delete: :cascade
   add_foreign_key "stock_transfers", "products", on_delete: :restrict
   add_foreign_key "stock_transfers", "warehouses", column: "destination_warehouse_id", on_delete: :restrict
