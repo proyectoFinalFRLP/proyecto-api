@@ -138,6 +138,27 @@ services = [
     request_value_mapper: {},
     response_value_mapper: {}
   },
+  # Plantilla de COTIZACIÓN de Andreani (TESIS-46). Va aparte de la de despacho
+  # porque son dos endpoints distintos del proveedor, igual que 'Mercado Libre'
+  # y 'Mercado Libre - Stock'. El motor la reconoce porque su response_mapper
+  # declara `shipping_cost` (ver Service#quotes_shipping?).
+  {
+    service_name: 'Andreani - Cotización',
+    type: 'courier',
+    uri: 'https://apis.andreani.com/v1/tarifas',
+    http_method: 'POST',
+    request_mapper: {
+      'origen.postal.codigoPostal' => 'origin_zip_code',
+      'destino.postal.codigoPostal' => 'destination_zip_code',
+      'bultos.0.kilos' => 'total_weight'
+    },
+    response_mapper: {
+      'tarifaConIva.total' => 'shipping_cost',
+      'plazoEntrega' => 'estimated_days'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
   {
     # Una misma plantilla describe dos payloads distintos del mismo proveedor: la
     # respuesta síncrona de POST /ordenes-de-envio (numeroDeEnvio del despacho) y
@@ -449,6 +470,16 @@ if norte_company && andreani_service
   ) do |ci|
     ci.credentials = { 'access_token' => 'DEMO-TOKEN-ANDREANI' }
     ci.is_active = true
+  end
+
+  # Integración de la plantilla de cotización: es la que consume el motor de
+  # TESIS-46 para pedir tarifas antes de elegir operador.
+  quote_service = Service.find_by(service_name: 'Andreani - Cotización')
+  if quote_service
+    CompanyIntegration.find_or_create_by!(company: norte_company, service: quote_service) do |ci|
+      ci.credentials = { 'access_token' => 'DEMO-TOKEN-ANDREANI' }
+      ci.is_active = true
+    end
   end
 
   # Envío de la venta manual: despachado con Andreani, en tránsito, con bitácora.
