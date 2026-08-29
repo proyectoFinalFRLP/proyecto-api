@@ -6,6 +6,7 @@ class CompanyIntegration < ApplicationRecord
   belongs_to :company
   belongs_to :service
   has_many :product_mappings, dependent: :destroy
+  has_many :shipments, dependent: :nullify
 
   serialize :credentials, coder: JSON
   encrypts :credentials

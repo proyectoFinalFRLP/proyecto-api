@@ -41,7 +41,7 @@ module Api
         # llegara con valor, el assign_current_company de CompanyScoped pisaría
         # el company_id derivado de la integración y el log terminaría en el
         # tenant equivocado. Acá el tenant lo manda la integración, punto.
-        Current.set(company_id: nil) do
+        log = Current.set(company_id: nil) do
           WebhookLog.create!(
             company_id: integration.company_id,
             company_integration: integration,
@@ -50,10 +50,21 @@ module Api
           )
         end
 
+        enqueue_processing(log, integration)
         head :accepted
       end
 
       private
+
+      # El procesamiento real corre en un worker (TESIS-43): el gateway sólo
+      # persiste y encola. Sólo los canales de e-commerce generan ventas; los
+      # webhooks de couriers quedan en `pending` hasta que TESIS-24 los procese,
+      # en lugar de irse a la DLQ como eventos que nadie sabe traducir.
+      def enqueue_processing(log, integration)
+        return unless integration.service.ecommerce?
+
+        Orders::ProcessWebhookEventJob.perform_later(log.id, log.company_id)
+      end
 
       # Un body ilegible no se rechaza: se guarda tal cual para no perder el
       # evento (el reproceso es responsabilidad de la épica de resiliencia).

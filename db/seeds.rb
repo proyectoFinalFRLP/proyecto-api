@@ -89,12 +89,26 @@ services = [
     # Plantilla de órdenes entrantes: GET sin body, no transmite stock. El
     # sync saliente (TESIS-35) para los productos mapeados en este canal usa
     # la plantilla 'Mercado Libre - Stock' de abajo, no ésta.
+    #
+    # El response_mapper es el que usa la ingesta de webhooks (TESIS-43) para
+    # traducir la venta: las entradas con el marcador `[]` describen la lista de
+    # ítems ("por cada elemento de order_items, el id externo está en item.id").
     service_name: 'Mercado Libre',
     type: 'ecommerce',
     uri: 'https://api.mercadolibre.com/orders',
     http_method: 'GET',
     request_mapper: { 'destination.street' => 'customer_address' },
-    response_mapper: { 'tracking.number' => 'tracking_number' },
+    response_mapper: {
+      'id' => 'external_order_id',
+      'status' => 'status',
+      'buyer.nickname' => 'customer_name',
+      'buyer.billing_info.doc_number' => 'customer_document',
+      'shipping.receiver_address.address_line' => 'customer_address',
+      'shipping.receiver_address.zip_code' => 'customer_zip_code',
+      'order_items[].item.id' => 'external_product_id',
+      'order_items[].quantity' => 'quantity',
+      'order_items[].unit_price' => 'unit_price'
+    },
     request_value_mapper: {},
     response_value_mapper: { 'pagado' => 'paid', 'paid' => 'paid' }
   },
@@ -124,6 +138,27 @@ services = [
     request_value_mapper: {},
     response_value_mapper: {}
   },
+  # Plantilla de COTIZACIÓN de Andreani (TESIS-46). Va aparte de la de despacho
+  # porque son dos endpoints distintos del proveedor, igual que 'Mercado Libre'
+  # y 'Mercado Libre - Stock'. El motor la reconoce porque su response_mapper
+  # declara `shipping_cost` (ver Service#quotes_shipping?).
+  {
+    service_name: 'Andreani - Cotización',
+    type: 'courier',
+    uri: 'https://apis.andreani.com/v1/tarifas',
+    http_method: 'POST',
+    request_mapper: {
+      'origen.postal.codigoPostal' => 'origin_zip_code',
+      'destino.postal.codigoPostal' => 'destination_zip_code',
+      'bultos.0.kilos' => 'total_weight'
+    },
+    response_mapper: {
+      'tarifaConIva.total' => 'shipping_cost',
+      'plazoEntrega' => 'estimated_days'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
   {
     service_name: 'Andreani',
     type: 'courier',
@@ -143,14 +178,17 @@ services.each do |attrs|
 end
 
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
+# La variable ml_integration la consume la orden de webhook de la sección TESIS-40
+# más abajo (sin ella, `db:seed` cortaba con NameError: undefined ml_integration).
 first_company = Company.find_by(tax_id: '30-11111111-1')
 ml_service = Service.find_by(service_name: 'Mercado Libre')
-if first_company && ml_service
-  CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
-    ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
-    ci.is_active = true
+ml_integration =
+  if first_company && ml_service
+    CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
+      ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
+      ci.is_active = true
+    end
   end
-end
 
 # ---------------------------------------------------------------------------
 # TESIS-32 — Catalog: Products, Stock, ProductMappings
@@ -303,13 +341,35 @@ end
 # TESIS-36 — Webhooks: log crudo de eventos entrantes (auditoría)
 # ---------------------------------------------------------------------------
 
+# El payload imita una venta de Mercado Libre y es el que sabe traducir el
+# response_mapper de la plantilla. Queda en 'pending': las seeds no encolan
+# jobs (el adaptador de cola está en :test más arriba), así que el evento espera
+# a que se lo procese a mano —lo que sirve para probar la ingesta de TESIS-43:
+#
+#   Orders::ProcessWebhookEventJob.perform_now(WebhookLog.unscoped.last.id, <company_id>)
+#
+# Los ítems del ejemplo no están mapeados contra esta integración a propósito
+# (ver el ProductMapping.destroy_all de más arriba: publicar los productos en la
+# integración de órdenes le mandaría el stock a la plantilla equivocada), así que
+# ese procesamiento termina en 'failed' y en la DLQ. Para verlo terminar bien,
+# crear antes el ProductMapping del ítem contra esta integración.
 demo_integration = CompanyIntegration.unscoped.first
 if demo_integration && WebhookLog.unscoped.none?
   WebhookLog.create!(
     company_id: demo_integration.company_id,
     company_integration: demo_integration,
     headers: { 'HTTP_USER_AGENT' => 'MercadoLibre-Webhook/1.0' },
-    payload: { 'topic' => 'orders_v2', 'resource' => '/orders/2000003508419013' },
+    payload: {
+      'id' => '2000003508419013',
+      'status' => 'pagado',
+      'buyer' => { 'nickname' => 'COMPRADOR_DEMO',
+                   'billing_info' => { 'doc_number' => '20-40234567-8' } },
+      'shipping' => { 'receiver_address' => { 'address_line' => 'Av. Rivadavia 1234, CABA',
+                                              'zip_code' => '1406' } },
+      'order_items' => [
+        { 'item' => { 'id' => 'MLA123456789' }, 'quantity' => 1, 'unit_price' => 149_999.99 }
+      ]
+    },
     status: 'pending'
   )
 end
@@ -378,10 +438,76 @@ if sur_company
   end
 end
 
+# ---------------------------------------------------------------------------
+# TESIS-45 — Shipments & ShipmentEvents (base de la épica TESIS-24)
+# ---------------------------------------------------------------------------
+
+# Integración de courier Andreani para Distribuidora Norte: la consume el envío
+# de la venta manual (se asigna al confirmar el despacho).
+andreani_service = Service.find_by(service_name: 'Andreani')
+if norte_company && andreani_service
+  andreani_integration = CompanyIntegration.find_or_create_by!(
+    company: norte_company, service: andreani_service
+  ) do |ci|
+    ci.credentials = { 'access_token' => 'DEMO-TOKEN-ANDREANI' }
+    ci.is_active = true
+  end
+
+  # Integración de la plantilla de cotización: es la que consume el motor de
+  # TESIS-46 para pedir tarifas antes de elegir operador.
+  quote_service = Service.find_by(service_name: 'Andreani - Cotización')
+  if quote_service
+    CompanyIntegration.find_or_create_by!(company: norte_company, service: quote_service) do |ci|
+      ci.credentials = { 'access_token' => 'DEMO-TOKEN-ANDREANI' }
+      ci.is_active = true
+    end
+  end
+
+  # Envío de la venta manual: despachado con Andreani, en tránsito, con bitácora.
+  # La clave de búsqueda es la orden: la restricción 1 a 1 garantiza que nunca
+  # haya dos envíos para la misma orden.
+  if manual_order
+    shipped = Shipment.find_or_create_by!(order: manual_order) do |s|
+      s.company = norte_company
+      s.company_integration = andreani_integration
+      s.tracking_number = 'AND-100000001'
+      s.shipping_label_url = 'https://apis.andreani.com/labels/AND-100000001.pdf'
+      s.status = 'in_transit'
+      s.shipping_cost = 12_500.00
+    end
+
+    # Bitácora cronológica del envío: el courier reporta el estado crudo
+    # (external_status) y el sistema lo normaliza (internal_status).
+    [
+      { internal_status: 'ready_to_ship',
+        external_status: 'En preparación',
+        occurred_at: Time.zone.parse('2026-08-10 10:00:00') },
+      { internal_status: 'in_transit',
+        external_status: 'En distribución',
+        occurred_at: Time.zone.parse('2026-08-11 08:30:00') }
+    ].each do |event_attrs|
+      ShipmentEvent.find_or_create_by!(shipment: shipped, **event_attrs)
+    end
+  end
+
+  # Envío de la orden de webhook: inicializado (pending) sin courier todavía —
+  # la integración se asigna recién al confirmar el despacho (TESIS-47).
+  if webhook_order
+    Shipment.find_or_create_by!(order: webhook_order) do |s|
+      s.company = norte_company
+      s.status = 'pending'
+    end
+  end
+end
+
+# La orden cancelada de Comercial Sur queda SIN envío a propósito: una orden
+# cancelada nunca se despacha. Cubre el caso borde de orden sin shipment.
+
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
      "#{CompanyIntegration.count} integraciones, #{AdminUser.count} admins, " \
      "#{Product.count} productos, #{Stock.count} stocks, " \
      "#{ProductMapping.count} mappings, " \
      "#{WebhookLog.unscoped.count} webhook logs, " \
-     "#{Order.unscoped.count} órdenes, #{OrderItem.unscoped.count} ítems."
+     "#{Order.unscoped.count} órdenes, #{OrderItem.unscoped.count} ítems, " \
+     "#{Shipment.unscoped.count} envíos, #{ShipmentEvent.unscoped.count} eventos de envío."
