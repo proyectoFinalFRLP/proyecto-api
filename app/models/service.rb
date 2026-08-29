@@ -31,10 +31,8 @@ class Service < ApplicationRecord
     end
   end
 
-  # Los gateways de webhooks rutean con estos predicados: cada endpoint público
-  # encola el procesamiento sólo si la integración es del tipo que sabe traducir
-  # (tracking para couriers, ventas para canales de e-commerce).
-  def ecommerce? = type == ECOMMERCE
+  # Mismo criterio que ecommerce?: CouriersController lo usa para decidir si
+  # encola el procesamiento de tracking (TESIS-48).
   def courier? = type == COURIER
 
   private

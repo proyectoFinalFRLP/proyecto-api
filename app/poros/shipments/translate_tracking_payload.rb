@@ -17,13 +17,6 @@ module Shipments
     # proveedor (la respuesta del despacho, por ejemplo).
     TRACKING_KEYS = %w[tracking_number external_status occurred_at description].freeze
 
-    # Marcador que una plantilla usa para describir una lista dentro del payload
-    # ("order_items[].quantity"). Un push de tracking siempre habla de un evento
-    # suelto, así que esas entradas no le sirven y se descartan al invertir el
-    # mapper: sin el filtro, una plantilla que mezcle ambas formas podría hacer
-    # que la ruta de una lista gane sobre la del valor suelto.
-    COLLECTION_MARKER = '[]'
-
     def initialize(service:, payload:)
       super()
       @service = service
@@ -56,14 +49,16 @@ module Shipments
     end
 
     # Invierte el response_mapper (ruta externa => clave interna) para encontrar la ruta que
-    # alimenta esta clave interna.
+    # alimenta esta clave interna. Las entradas de colección ([]) describen listas (ítems de
+    # una orden, por ejemplo); un push de tracking es un evento suelto, no una lista, así que
+    # se descartan al invertir.
     def external_path_for(internal_key)
       single_event_mapper.key(internal_key)
     end
 
     def single_event_mapper
       @single_event_mapper ||= @service.response_mapper.reject do |path, _internal_key|
-        path.include?(COLLECTION_MARKER)
+        path.include?(Integrations::ParseExternalResponse::COLLECTION_MARKER)
       end
     end
 

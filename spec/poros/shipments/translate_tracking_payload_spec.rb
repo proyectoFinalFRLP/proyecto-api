@@ -158,7 +158,9 @@ RSpec.describe Shipments::TranslateTrackingPayload, type: :poro do
         type: 'courier',
         uri: 'https://api.andreani.com',
         http_method: 'POST',
-        response_mapper: { "items#{described_class::COLLECTION_MARKER}.estado" => 'tracking_number' },
+        response_mapper: {
+          "items#{Integrations::ParseExternalResponse::COLLECTION_MARKER}.estado" => 'tracking_number'
+        },
         response_value_mapper: {}
       )
     end
