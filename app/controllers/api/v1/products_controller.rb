@@ -12,7 +12,18 @@ module Api
         page = [params[:page].to_i, 1].max
         per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
 
+        # La precarga es load-bearing: ProductListSerializer lee el depósito
+        # principal de cada fila, y sin ella son dos queries por producto
+        # (stocks + warehouse) en vez de dos para toda la página.
+        #
+        # preload y no includes: `includes` deja que Rails elija entre precargar
+        # y hacer un JOIN, y acá el JOIN rompe. with_total_stock ya agrupa por
+        # products.id con un SELECT propio; si Rails resolviera la asociación
+        # como eager_load, sumaría las columnas de stocks y warehouses a ese
+        # SELECT y Postgres rechazaría la consulta por columnas fuera del
+        # GROUP BY. preload garantiza las consultas separadas.
         products = policy_scope(Product).with_total_stock
+                                        .preload(stocks: :warehouse)
                                         .order(created_at: :desc)
                                         .offset((page - 1) * per_page)
                                         .limit(per_page)
@@ -30,6 +41,14 @@ module Api
       def show
         expose_version(@product)
         render json: ProductSerializer.render(@product)
+      end
+
+      # Vocabulario del Select de categoría. Existe para que el modal de alta y
+      # el filtro del listado no repitan la lista en el frontend: el origen es
+      # Product::CATEGORIES y nadie más la escribe.
+      def categories
+        skip_authorization
+        render json: { data: Product::CATEGORIES }
       end
 
       def create
@@ -101,7 +120,7 @@ module Api
         # on_unpermitted: :raise, así que un body con company_id daría 400 en
         # vez de ignorarlo — rompiendo el requisito de la card.
         # rubocop:disable Rails/StrongParametersExpect
-        params.require(:product).permit(:sku, :name, :description, :weight, :dimensions)
+        params.require(:product).permit(:sku, :name, :description, :category, :weight, :dimensions)
         # rubocop:enable Rails/StrongParametersExpect
       end
 

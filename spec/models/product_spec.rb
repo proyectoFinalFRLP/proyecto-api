@@ -23,6 +23,68 @@ RSpec.describe Product, type: :model do
     expect(product).not_to be_valid
   end
 
+  describe 'category' do
+    it 'is valid without one' do
+      product.category = nil
+      expect(product).to be_valid
+    end
+
+    it 'accepts every value of the vocabulary' do
+      Product::CATEGORIES.each do |category|
+        product.category = category
+        expect(product).to be_valid, "expected #{category} to be valid"
+      end
+    end
+
+    it 'rejects a value outside the vocabulary', :aggregate_failures do
+      product.category = 'Groceries'
+      expect(product).not_to be_valid
+      expect(product.errors[:category]).to include('is not included in the list')
+    end
+  end
+
+  describe '#primary_stock' do
+    let(:central) do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+    end
+    let(:north) do
+      Warehouse.create!(company: company, name: 'North', zip_code: '1901', address: 'Calle 2')
+    end
+
+    before { product.save! }
+
+    it 'is nil when the product has no stock rows' do
+      expect(product.primary_stock).to be_nil
+    end
+
+    it 'returns the warehouse holding the most units' do
+      Stock.create!(product: product, warehouse: central, quantity: 3)
+      Stock.create!(product: product, warehouse: north, quantity: 9)
+
+      expect(product.reload.primary_stock.warehouse_id).to eq(north.id)
+    end
+
+    it 'breaks ties by the lowest warehouse id' do
+      Stock.create!(product: product, warehouse: north, quantity: 7)
+      Stock.create!(product: product, warehouse: central, quantity: 7)
+
+      expect(product.reload.primary_stock.warehouse_id).to eq([central.id, north.id].min)
+    end
+
+    it 'ignores rows holding zero units' do
+      Stock.create!(product: product, warehouse: central, quantity: 0)
+      Stock.create!(product: product, warehouse: north, quantity: 4)
+
+      expect(product.reload.primary_stock.warehouse_id).to eq(north.id)
+    end
+
+    it 'is nil when every row holds zero units' do
+      Stock.create!(product: product, warehouse: central, quantity: 0)
+
+      expect(product.reload.primary_stock).to be_nil
+    end
+  end
+
   %i[sku name].each do |attribute|
     it "is invalid without #{attribute}" do
       product.public_send("#{attribute}=", nil)
