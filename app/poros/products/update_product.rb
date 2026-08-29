@@ -4,15 +4,17 @@ module Products
   class UpdateProduct < ApplicationPoro
     include Concerns::WarehouseValidation
 
-    def initialize(product:, params:, stocks:)
+    def initialize(product:, params:, stocks:, expected_version: nil)
       super()
       @product = product
       @params = params
       @stocks_params = stocks
+      @expected_version = expected_version
     end
 
     def call
       Product.transaction do
+        verify_version!
         @product.update!(@params)
 
         if @stocks_params.present?
@@ -25,6 +27,27 @@ module Products
     end
 
     private
+
+    # Locking optimista (TESIS-101). El chequeo va DENTRO de la transaccion y
+    # detras de un `lock!` --o sea `SELECT ... FOR UPDATE` sobre la fila del
+    # producto-- y no antes: comparar afuera dejaria pasar a dos requests que
+    # leyeron la misma version, que es exactamente la carrera que esto cierra.
+    # Con la fila tomada, el segundo espera, relee el estado que dejo el primero
+    # y su version ya no coincide.
+    #
+    # Sin `expected_version` no hay precondicion que verificar y el update pasa
+    # como siempre: es la semantica de `If-Match` en HTTP, y mantiene el
+    # contrato anterior para cualquier cliente que no lo mande.
+    def verify_version!
+      return if @expected_version.blank?
+
+      @product.lock!
+      @product.stocks.reload
+      current = Catalog::ProductVersion.new(product: @product).call
+      return if current == @expected_version
+
+      raise Catalog::StaleProductError.new(current_version: current)
+    end
 
     # Advisory lock y no sólo FOR UPDATE: el upsert puede crear filas de
     # stocks que todavía no existen, y ahí FOR UPDATE no tiene nada que
