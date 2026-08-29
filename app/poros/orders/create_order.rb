@@ -11,6 +11,8 @@ module Orders
   # usan ProcessWebhookOrder (TESIS-43) que tiene su propia lógica de
   # resolución de identidades.
   class CreateOrder < ApplicationPoro
+    REQUIRED_ITEM_KEYS = %i[product_id quantity unit_price warehouse_id].freeze
+
     def initialize(params:, items:, company:)
       super()
       @params = params
@@ -61,8 +63,7 @@ module Orders
       # Warehouse.where ya filtra por company_id via CompanyScoped default_scope,
       # pero si Current.company_id es nil (fuera de request), el scope no aplica.
       # La validación explícita cubre ambos casos.
-      owned = Warehouse.where(id: warehouse_id, company_id: @company.id).exists?
-      return if owned
+      return if Warehouse.exists?(id: warehouse_id, company_id: @company.id)
 
       raise ActiveRecord::RecordNotSaved,
             'One or more warehouses do not belong to this company'
@@ -72,7 +73,7 @@ module Orders
       raise ActiveRecord::RecordNotSaved, 'items must be present' if @items.blank?
 
       @items.each_with_index do |item, i|
-        %i[product_id quantity unit_price warehouse_id].each do |key|
+        REQUIRED_ITEM_KEYS.each do |key|
           next if item[key].present?
 
           raise ActiveRecord::RecordNotSaved,

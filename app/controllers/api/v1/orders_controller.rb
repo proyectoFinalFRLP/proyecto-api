@@ -33,7 +33,7 @@ module Api
 
         raw.map do |item|
           unless item.respond_to?(:permit)
-            msg = 'each item must be an object with product_id, quantity, unit_price and warehouse_id'
+            msg = 'each item must have product_id, quantity, unit_price and warehouse_id'
             raise ActiveRecord::RecordNotSaved, msg
           end
 
