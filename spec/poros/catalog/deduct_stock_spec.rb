@@ -17,6 +17,10 @@ RSpec.describe Catalog::DeductStock, type: :poro do
     Stock.create!(product: product, warehouse: warehouse(name, zip), quantity: quantity)
   end
 
+  def deduct_with(wh_id, qty)
+    described_class.new(product: product, quantity: qty, warehouse_id: wh_id).call
+  end
+
   before { Current.company_id = company.id }
 
   context 'when a single warehouse holds the stock' do
@@ -101,29 +105,23 @@ RSpec.describe Catalog::DeductStock, type: :poro do
   # TESIS-42: warehouse_id explícito para ventas offline
   context 'with explicit warehouse_id' do
     it 'deducts from the specified warehouse' do
-      central = Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 3)
-      north = Stock.create!(product: product, warehouse: warehouse('Norte', '1602'), quantity: 10)
-
+      north = create_stock(quantity: 10, name: 'Norte', zip: '1602')
       described_class.new(product: product, quantity: 3, warehouse_id: north.warehouse_id).call
-
       expect(north.reload.quantity).to eq(7)
     end
 
     it 'raises when the specified warehouse has insufficient stock' do
-      Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 3)
-
+      stock = create_stock(quantity: 3)
       expect do
-        described_class.new(product: product, quantity: 5, warehouse_id: Stock.first.warehouse_id).call
+        described_class.new(product: product, quantity: 5, warehouse_id: stock.warehouse_id).call
       end.to raise_error(Catalog::InsufficientStockError)
     end
 
     it 'ignores other warehouses even if they could cover the sale' do
-      central = create_stock(quantity: 3, name: 'Central')
-      north = create_stock(quantity: 10, name: 'Norte')
-      suppress(Catalog::InsufficientStockError) do
-        described_class.new(product: product, quantity: 5, warehouse_id: central.warehouse_id).call
-      end
-      expect(north.reload.quantity).to eq(10)
+      low = create_stock(quantity: 3)
+      high = create_stock(quantity: 10, name: 'Norte')
+      suppress(Catalog::InsufficientStockError) { deduct_with(low.warehouse_id, 5) }
+      expect(high.reload.quantity).to eq(10)
     end
   end
 end
