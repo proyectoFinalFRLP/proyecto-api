@@ -148,6 +148,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
     t.datetime "updated_at", null: false
     t.index ["shipment_id", "external_status", "occurred_at"], name: "index_shipment_events_on_shipment_and_event", unique: true
     t.index ["shipment_id"], name: "index_shipment_events_on_shipment_id"
+    t.check_constraint "internal_status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipment_events_internal_status_check"
   end
 
   create_table "shipments", force: :cascade do |t|
