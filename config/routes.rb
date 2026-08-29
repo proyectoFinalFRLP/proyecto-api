@@ -19,7 +19,7 @@ Rails.application.routes.draw do
       # `only: []` a propósito: esta card sólo agrega la cotización anidada. El
       # ABM de órdenes es TESIS-42 y define ahí sus propias acciones.
       resources :orders, only: [] do
-        resources :quotes, only: %i[create], controller: 'shipping_quotes'
+        resources :quotes, only: %i[create], controller: 'shipment_quotes'
       end
 
       resources :failed_events, path: 'failed-events', only: %i[index] do

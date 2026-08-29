@@ -33,7 +33,7 @@ class Service < ApplicationRecord
   # mismo principio data-driven del resto de las integraciones — el template
   # dice qué sabe contestar — y evita una migración por cada capacidad nueva.
   def quotes_shipping?
-    courier? && response_mapper.value?(Shipping::QuoteShipping::COST_KEY)
+    courier? && response_mapper.value?(Shipments::QuoteShipment::COST_KEY)
   end
 
   # Los mappers aceptan String JSON (formularios del backoffice) además de Hash:

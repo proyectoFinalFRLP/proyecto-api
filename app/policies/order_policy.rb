@@ -11,9 +11,6 @@ class OrderPolicy < ApplicationPolicy
     show?
   end
 
-  class Scope < ApplicationPolicy::Scope
-    def resolve
-      scope.where(company_id: user.company_id)
-    end
-  end
+  # Sin `Scope`: ninguna accion lista ordenes todavia. El listado llega con
+  # TESIS-42 y define ahi el suyo, en vez de dejar codigo anticipado.
 end

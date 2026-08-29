@@ -3,12 +3,12 @@
 module Api
   module V1
     # Cotización logística de una orden (TESIS-46).
-    class ShippingQuotesController < ApplicationController
+    class ShipmentQuotesController < ApplicationController
       def create
         order = Order.find(params.expect(:order_id))
         authorize order, :quote?
 
-        quotes = Shipping::QuoteShipping.new(
+        quotes = Shipments::QuoteShipment.new(
           order: order, origin_warehouse: origin_warehouse
         ).call
 
@@ -29,11 +29,22 @@ module Api
       # find y no find_by: Warehouse es CompanyScoped, así que un id de otra
       # empresa levanta RecordNotFound -> 404 en vez de revelar que existe.
       def origin_warehouse
-        Warehouse.find(quote_params[:origin_warehouse_id])
+        Warehouse.find(origin_warehouse_id)
       end
 
       def quote_params
         params.expect(quote: [:origin_warehouse_id])
+      end
+
+      # `expect` cubre la clave ausente, no el valor vacio: sin esto un
+      # origin_warehouse_id en blanco llegaba a Warehouse.find('') y salia como
+      # 404, diciendole al cliente que el deposito no existe cuando lo que falta
+      # es el parametro.
+      def origin_warehouse_id
+        id = quote_params[:origin_warehouse_id]
+        raise ActionController::ParameterMissing, :origin_warehouse_id if id.blank?
+
+        id
       end
     end
   end

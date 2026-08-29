@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe Shipping::QuoteShipping, type: :poro do
+RSpec.describe Shipments::QuoteShipment, type: :poro do
   subject(:quotes) { described_class.new(order: order, origin_warehouse: origin).call }
 
   let(:company) { Company.create!(name: 'Acme', tax_id: '20-12345678-9') }

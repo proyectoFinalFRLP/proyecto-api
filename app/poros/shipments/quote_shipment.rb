@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-module Shipping
+module Shipments
   # Cotiza un envío contra todos los operadores logísticos activos de la empresa,
   # en paralelo, y devuelve una lista normalizada para que el usuario elija.
   #
   # El fallo de un courier no voltea la cotización: cada llamada se aísla y el
   # operador que no contesta simplemente no aparece entre las opciones. Es la
   # diferencia entre "no pudimos cotizar" y "no pudimos cotizar con Andreani".
-  class QuoteShipping < ApplicationPoro
+  class QuoteShipment < ApplicationPoro
     # Claves internas del contrato de cotización. Las plantillas mapean SUS
     # nombres externos a estas: el motor no sabe cómo las llama cada courier.
     COST_KEY = 'shipping_cost'
@@ -46,6 +46,8 @@ module Shipping
     # sería llamar al endpoint equivocado (ver Service#quotes_shipping?).
     def integrations
       @integrations ||= CompanyIntegration.where(is_active: true)
+                                          .joins(:service)
+                                          .where(services: { type: Service::COURIER })
                                           .includes(:service)
                                           .select { |ci| ci.service.quotes_shipping? }
     end

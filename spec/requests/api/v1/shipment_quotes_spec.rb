@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-RSpec.describe 'Shipping quotes API', type: :request do
+RSpec.describe 'Shipment quotes API', type: :request do
   let(:company) { Company.create!(name: 'Tenant A', tax_id: '30-11111111-1') }
   let(:user) { User.create!(email: 'a@example.com', password: 'password123', company: company) }
   let(:headers) { auth_headers(user) }
@@ -97,6 +97,16 @@ RSpec.describe 'Shipping quotes API', type: :request do
 
   it 'returns 400 without the origin warehouse' do
     post "/api/v1/orders/#{order.id}/quotes", params: {}, headers: headers, as: :json
+    expect(response).to have_http_status(:bad_request)
+  end
+
+  # El valor presente pero vacio llegaba a Warehouse.find('') y salia como 404,
+  # que le dice al cliente "ese deposito no existe" cuando en realidad no mando
+  # ninguno. Detectado en el review del PR #60.
+  it 'returns 400 when the origin warehouse is blank' do
+    post "/api/v1/orders/#{order.id}/quotes",
+         params: { quote: { origin_warehouse_id: '' } }, headers: headers, as: :json
+
     expect(response).to have_http_status(:bad_request)
   end
 end
