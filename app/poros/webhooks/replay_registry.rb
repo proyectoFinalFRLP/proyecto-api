@@ -10,10 +10,12 @@ module Webhooks
 
     HTTP_REQUEST = 'integrations.http_request'
     ORDER_INGESTION = 'webhooks.order_ingestion'
+    TRACKING_INGESTION = 'webhooks.tracking_ingestion'
 
     REPLAYERS = {
       HTTP_REQUEST => 'Webhooks::Replayers::HttpRequest',
-      ORDER_INGESTION => 'Webhooks::Replayers::OrderIngestion'
+      ORDER_INGESTION => 'Webhooks::Replayers::OrderIngestion',
+      TRACKING_INGESTION => 'Webhooks::Replayers::TrackingIngestion'
     }.freeze
 
     def self.fetch(event_type)

@@ -158,6 +158,31 @@ Orders::ProcessWebhookOrder
 (si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
 ```
 
+### 4.2 Flujo de un webhook de courier (push tracking)
+
+Los eventos de courier tampoco siguen el flujo de arriba: no hay JWT, no hay usuario, y el proveedor no espera detrás de la lógica de negocio — el gateway persiste el evento crudo y suelta la conexión; la traducción y la actualización del envío corren en un worker aparte (ver [ADR-011](../adr/ADR-011-push-tracking-de-couriers.md)).
+
+```
+POST /api/webhooks/couriers/:company_integration_id   (sin autenticación)
+  ↓
+Api::Webhooks::CouriersController
+  - El tenant sale de la integración, no de Current
+  - WebhookLog.create!(status: 'pending')              (auditoría del evento crudo)
+  - Shipments::ProcessTrackingEventJob.perform_later   (sólo integraciones de tipo courier)
+  - head :accepted                                     (202, cuerpo vacío)
+  ↓
+Shipments::ProcessTrackingEventJob                     (cola realtime)
+  - with_tenant(company_id)
+  ↓
+Shipments::ProcessTrackingUpdate
+  - Traduce el payload con el response_mapper del Service (Shipments::TranslateTrackingPayload)
+  - Ubica el Shipment por tracking_number + company_integration_id
+  - Transacción: shipment.lock! + ShipmentEvent + actualización de shipments.status
+  - Marca el WebhookLog 'processed' o 'failed' + error_message
+  ↓
+(si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
+```
+
 ---
 
 ## 5. Multi-tenancy en detalle

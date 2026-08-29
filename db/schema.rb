@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_19_120001) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -146,6 +146,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_19_120001) do
     t.datetime "occurred_at", null: false
     t.bigint "shipment_id", null: false
     t.datetime "updated_at", null: false
+    t.index ["shipment_id", "external_status", "occurred_at"], name: "index_shipment_events_on_shipment_and_event", unique: true
     t.index ["shipment_id"], name: "index_shipment_events_on_shipment_id"
     t.check_constraint "internal_status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipment_events_internal_status_check"
   end

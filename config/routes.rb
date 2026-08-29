@@ -33,6 +33,7 @@ Rails.application.routes.draw do
     # Ruta pública: la consumen las plataformas externas, no el frontend.
     namespace :webhooks do
       post 'integrations/:company_integration_id', to: 'integrations#create'
+      post 'couriers/:company_integration_id', to: 'couriers#create'
     end
   end
 end
