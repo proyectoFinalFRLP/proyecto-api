@@ -19,7 +19,8 @@ class Service < ApplicationRecord
 
   # Sólo los canales de e-commerce generan ventas: el gateway lo usa para decidir
   # si un webhook entrante va al procesador de órdenes (TESIS-43) o queda a la
-  # espera del de envíos (TESIS-24).
+  # espera del de envíos (TESIS-24). CouriersController usa courier? con el mismo
+  # criterio para decidir si encola el procesamiento de tracking (TESIS-48).
   def ecommerce? = type == ECOMMERCE
 
   def courier? = type == COURIER
@@ -44,10 +45,6 @@ class Service < ApplicationRecord
       super(coerce_mapper(mapper, value))
     end
   end
-
-  # Mismo criterio que ecommerce?: CouriersController lo usa para decidir si
-  # encola el procesamiento de tracking (TESIS-48).
-  def courier? = type == COURIER
 
   private
 
