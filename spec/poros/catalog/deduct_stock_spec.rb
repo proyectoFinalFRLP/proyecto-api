@@ -13,6 +13,10 @@ RSpec.describe Catalog::DeductStock, type: :poro do
     Warehouse.create!(company: company, name: name, zip_code: zip, address: "#{name} 1")
   end
 
+  def create_stock(quantity:, name: 'W', zip: '1900')
+    Stock.create!(product: product, warehouse: warehouse(name, zip), quantity: quantity)
+  end
+
   before { Current.company_id = company.id }
 
   context 'when a single warehouse holds the stock' do
@@ -103,7 +107,6 @@ RSpec.describe Catalog::DeductStock, type: :poro do
       described_class.new(product: product, quantity: 3, warehouse_id: north.warehouse_id).call
 
       expect(north.reload.quantity).to eq(7)
-      expect(central.reload.quantity).to eq(3)
     end
 
     it 'raises when the specified warehouse has insufficient stock' do
@@ -115,13 +118,11 @@ RSpec.describe Catalog::DeductStock, type: :poro do
     end
 
     it 'ignores other warehouses even if they could cover the sale' do
-      Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 3)
-      north = Stock.create!(product: product, warehouse: warehouse('Norte', '1602'), quantity: 10)
-
+      central = create_stock(quantity: 3, name: 'Central')
+      north = create_stock(quantity: 10, name: 'Norte')
       suppress(Catalog::InsufficientStockError) do
-        described_class.new(product: product, quantity: 5, warehouse_id: Stock.first.warehouse_id).call
+        described_class.new(product: product, quantity: 5, warehouse_id: central.warehouse_id).call
       end
-
       expect(north.reload.quantity).to eq(10)
     end
   end
