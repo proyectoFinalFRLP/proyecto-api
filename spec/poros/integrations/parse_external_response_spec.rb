@@ -36,4 +36,20 @@ RSpec.describe Integrations::ParseExternalResponse, type: :poro do
     result = described_class.new(service: service, response_body: { 'extra' => 'dato' }).call
     expect(result).to eq({})
   end
+
+  # Las entradas con `[]` describen una lista y las resuelve
+  # ParseExternalCollection: acá tienen que pasar de largo sin ensuciar el hash.
+  it 'ignores the collection entries of the mapper' do
+    service.update!(response_mapper: { 'items[].sku' => 'external_product_id' })
+    body = { 'items' => [{ 'sku' => 'A-1' }] }
+
+    expect(described_class.new(service: service, response_body: body).call).to eq({})
+  end
+
+  it 'translates with a mapper given by the caller instead of the template one' do
+    result = described_class.new(service: service, response_body: { 'sku' => 'A-1' },
+                                 mapper: { 'sku' => 'external_product_id' }).call
+
+    expect(result).to eq('external_product_id' => 'A-1')
+  end
 end

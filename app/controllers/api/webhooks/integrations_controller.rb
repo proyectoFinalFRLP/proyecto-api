@@ -9,6 +9,17 @@ module Api
     # en el concern EventIngestion, compartido con CouriersController.
     class IntegrationsController < ApplicationController
       include EventIngestion
+
+      private
+
+      # El procesamiento real corre en un worker (TESIS-43): el gateway sólo
+      # persiste y encola. Sólo los canales de e-commerce generan ventas; los
+      # webhooks de couriers quedan a cargo de CouriersController (TESIS-48).
+      def enqueue_processing(log, integration)
+        return unless integration.service.ecommerce?
+
+        Orders::ProcessWebhookEventJob.perform_later(log.id, log.company_id)
+      end
     end
   end
 end

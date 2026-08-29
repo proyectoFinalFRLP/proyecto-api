@@ -3,7 +3,7 @@
 class WebhookLog < ApplicationRecord
   include CompanyScoped
 
-  STATUSES = %w[pending processed failed].freeze
+  STATUSES = { pending: 'pending', processed: 'processed', failed: 'failed' }.freeze
   # Mismo tope que FailedEvent: error_message sirve para diagnosticar, no para
   # guardar un stack trace entero.
   ERROR_LIMIT = 2_000
@@ -11,15 +11,12 @@ class WebhookLog < ApplicationRecord
   belongs_to :company
   belongs_to :company_integration
 
-  validates :status, presence: true, inclusion: { in: STATUSES }
+  # Mismo criterio que FailedEvent: el enum da los predicados y los scopes
+  # (`pending`, `processed?`) y `validate: true` hace que un status desconocido
+  # invalide el registro en lugar de explotar en el asignador.
+  enum :status, STATUSES, validate: true
+
   validate :company_integration_belongs_to_company
-
-  scope :pending, -> { where(status: 'pending') }
-
-  # Lo consultan los procesadores de eventos (Shipments::ProcessTrackingUpdate):
-  # el proveedor reintenta la entrega y el worker puede correr más de una vez
-  # para el mismo log, así que uno ya procesado no se vuelve a procesar.
-  def processed? = status == 'processed'
 
   private
 
