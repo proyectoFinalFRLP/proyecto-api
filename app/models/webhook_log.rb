@@ -4,6 +4,8 @@ class WebhookLog < ApplicationRecord
   include CompanyScoped
 
   STATUSES = { pending: 'pending', processed: 'processed', failed: 'failed' }.freeze
+  # Mismo tope que FailedEvent: error_message sirve para diagnosticar, no para
+  # guardar un stack trace entero.
   ERROR_LIMIT = 2_000
 
   belongs_to :company
