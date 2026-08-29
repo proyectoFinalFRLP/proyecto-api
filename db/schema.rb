@@ -111,6 +111,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
   end
 
   create_table "products", force: :cascade do |t|
+    t.string "category"
     t.bigint "company_id", null: false
     t.datetime "created_at", null: false
     t.text "description"
@@ -119,6 +120,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
     t.string "sku", null: false
     t.datetime "updated_at", null: false
     t.decimal "weight", precision: 10, scale: 2, default: "0.0"
+    t.index ["company_id", "category"], name: "index_products_on_company_id_and_category"
     t.index ["company_id", "sku"], name: "index_products_on_company_id_and_sku", unique: true
     t.index ["company_id"], name: "index_products_on_company_id"
   end

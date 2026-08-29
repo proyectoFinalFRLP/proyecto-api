@@ -155,6 +155,93 @@ RSpec.describe 'Products API', type: :request do
         expect(response).to have_http_status(:ok)
         expect(queries).to eq(1)
       end
+
+      it 'exposes the category of each product' do
+        expect(response.parsed_body['data'].pluck('category')).to all(be_nil)
+      end
+    end
+
+    context 'with stock spread across warehouses' do
+      let(:warehouse) do
+        Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+      end
+      let(:product) { Product.create!(company: company, sku: 'A-001', name: 'Alpha') }
+
+      # Método y no `let` para no pasar el tope de helpers memoizados del grupo;
+      # mismo criterio que other_warehouse más arriba en este archivo.
+      def north
+        @north ||= Warehouse.create!(company: company, name: 'North',
+                                     zip_code: '1901', address: 'Calle 2')
+      end
+
+      # Pide el listado y devuelve la fila del producto bajo prueba.
+      def row
+        get '/api/v1/products', headers: headers
+        response.parsed_body['data'].find { |item| item['sku'] == 'A-001' }
+      end
+
+      it 'reports the warehouse holding the most units' do
+        Stock.create!(product: product, warehouse: warehouse, quantity: 3)
+        Stock.create!(product: product, warehouse: north, quantity: 9)
+
+        expect(row['primary_warehouse']).to eq('id' => north.id, 'name' => 'North', 'quantity' => 9)
+      end
+
+      it 'counts the warehouses that hold units' do
+        Stock.create!(product: product, warehouse: warehouse, quantity: 3)
+        Stock.create!(product: product, warehouse: north, quantity: 9)
+
+        expect(row['warehouse_count']).to eq(2)
+      end
+
+      it 'breaks ties by warehouse id so the value is stable between requests' do
+        # Sin desempate explícito, dos depósitos empatados devuelven uno u otro
+        # según el orden que le convenga a Postgres: la columna del listado
+        # cambiaría de valor entre dos refrescos sin que haya pasado nada.
+        Stock.create!(product: product, warehouse: north, quantity: 7)
+        Stock.create!(product: product, warehouse: warehouse, quantity: 7)
+
+        expect(row['primary_warehouse']['id']).to eq([warehouse.id, north.id].min)
+      end
+
+      it 'ignores warehouses holding zero units', :aggregate_failures do
+        Stock.create!(product: product, warehouse: warehouse, quantity: 0)
+        Stock.create!(product: product, warehouse: north, quantity: 4)
+
+        listed = row
+        expect(listed['primary_warehouse']['id']).to eq(north.id)
+        expect(listed['warehouse_count']).to eq(1)
+      end
+
+      it 'returns a null node when the product has no units anywhere', :aggregate_failures do
+        Stock.create!(product: product, warehouse: warehouse, quantity: 0)
+
+        listed = row
+        expect(listed['primary_warehouse']).to be_nil
+        expect(listed['warehouse_count']).to eq(0)
+      end
+
+      it 'preloads the warehouses instead of querying one per row', :aggregate_failures do
+        create_products_with_stock(10)
+        queries = count_queries(matching: /FROM "warehouses"/) { get '/api/v1/products', headers: headers }
+
+        expect(response).to have_http_status(:ok)
+        expect(queries).to eq(1)
+      end
+    end
+  end
+
+  describe 'GET /api/v1/products/categories' do
+    it 'returns 401 without a token' do
+      get '/api/v1/products/categories'
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'returns the category vocabulary', :aggregate_failures do
+      get '/api/v1/products/categories', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['data']).to eq(Product::CATEGORIES)
     end
   end
 
@@ -229,6 +316,23 @@ RSpec.describe 'Products API', type: :request do
 
       expect(response.parsed_body['weight']).to eq(0.5)
       expect(response.parsed_body['weight']).to be_a(Numeric)
+    end
+
+    it 'accepts a category from the vocabulary', :aggregate_failures do
+      post '/api/v1/products',
+           params: { product: product_attrs.merge(category: 'Electronics') },
+           headers: headers, as: :json
+
+      expect(response).to have_http_status(:created)
+      expect(response.parsed_body['category']).to eq('Electronics')
+    end
+
+    it 'rejects a category outside the vocabulary' do
+      post '/api/v1/products',
+           params: { product: product_attrs.merge(category: 'Groceries') },
+           headers: headers, as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
     end
 
     it 'assigns the company from the JWT, ignoring any company_id in the body' do
