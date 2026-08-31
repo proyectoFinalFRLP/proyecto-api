@@ -9,6 +9,7 @@ Rails.application.routes.draw do
     namespace :v1 do
       post 'auth/register', to: 'auth/registrations#create'
       post 'auth/login', to: 'auth/sessions#create'
+      delete 'auth/logout', to: 'auth/sessions#destroy'
 
       resources :integrations, only: %i[index update], param: :service_id
       resources :warehouses, only: %i[index show create update destroy]

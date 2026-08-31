@@ -56,4 +56,71 @@ RSpec.describe 'Auth API', type: :request do
       expect(response).to have_http_status(:unauthorized)
     end
   end
+
+  describe 'DELETE /api/v1/auth/logout' do
+    let(:user) { User.create!(email: 'out@test.com', password: 'password123', company: company) }
+    let(:token) do
+      post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }
+      response.parsed_body['token']
+    end
+    let(:auth) { { 'Authorization' => "Bearer #{token}" } }
+
+    it 'returns 204' do
+      delete '/api/v1/auth/logout', headers: auth
+      expect(response).to have_http_status(:no_content)
+    end
+
+    it 'revokes the token: reusing it no longer authenticates', :aggregate_failures do
+      get '/api/v1/warehouses', headers: auth
+      expect(response).to have_http_status(:ok)
+
+      delete '/api/v1/auth/logout', headers: auth
+
+      get '/api/v1/warehouses', headers: auth
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'records the revoked token in the denylist' do
+      expect { delete '/api/v1/auth/logout', headers: auth }.to change(JwtDenylist, :count).by(1)
+    end
+
+    # El cliente puede reintentar por una respuesta perdida; el segundo intento
+    # llega ya con el token revocado y debe fallar como cualquier otro request,
+    # no romper por el jti repetido.
+    it 'is safe to call twice' do
+      delete '/api/v1/auth/logout', headers: auth
+      delete '/api/v1/auth/logout', headers: auth
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'requires authentication' do
+      delete '/api/v1/auth/logout'
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    # Revocar es por token, no por usuario: una sesión abierta en otro navegador
+    # no tiene por qué cerrarse porque alguien salió en este.
+    context 'with the same user logged in from two places' do
+      let(:otra_sesion) do
+        post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }
+        { 'Authorization' => "Bearer #{response.parsed_body['token']}" }
+      end
+
+      before do
+        primera = auth
+        otra_sesion
+        delete '/api/v1/auth/logout', headers: primera
+      end
+
+      it 'revokes the session that logged out' do
+        get '/api/v1/warehouses', headers: auth
+        expect(response).to have_http_status(:unauthorized)
+      end
+
+      it 'leaves the other session alive' do
+        get '/api/v1/warehouses', headers: otra_sesion
+        expect(response).to have_http_status(:ok)
+      end
+    end
+  end
 end

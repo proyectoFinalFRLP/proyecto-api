@@ -45,5 +45,42 @@ Se adopta **Devise 5 + devise-jwt 0.13** para la autenticación.
 - ✅ devise-jwt integra JWT con Devise sin reimplementar el flujo de autenticación
 - ✅ El payload del JWT permite inicializar `Current.company_id` sin una query adicional a la DB
 - ✅ Autenticación stateless: la API es horizontalmente escalable sin sesiones compartidas
-- ⚠️ La revocación de tokens requiere una denylist en la DB (se configura en `devise-jwt`)
+- ✅ La revocación de tokens está implementada con una denylist en la DB (ver la actualización al pie)
 - ⚠️ El secreto JWT debe rotarse periódicamente y mantenerse fuera del código fuente
+
+
+---
+
+## Actualización — revocación de tokens (2026-08-30, TESIS-106)
+
+La consecuencia que decía que la revocación *requería* una denylist quedaba
+anotada pero sin implementar: `User` usaba
+`Devise::JWT::RevocationStrategies::Null`, que no revoca nada. En la práctica
+**cerrar sesión sólo borraba el store del navegador y el token seguía siendo
+válido contra la API hasta vencer**, hasta un día entero.
+
+### Decisión
+
+Se adopta `Devise::JWT::RevocationStrategies::Denylist` sobre la tabla
+`jwt_denylist` (`jti` único, `exp` indexado), y se expone
+`DELETE /api/v1/auth/logout`, que revoca el token con el que llega el request y
+devuelve 204.
+
+### Por qué se revoca por token y no por usuario
+
+El `jti` identifica al **token**, no al usuario, y un mismo usuario puede tener
+varios tokens vivos —dos navegadores, dos dispositivos—. Revocar por usuario los
+cerraría todos, que no es lo que alguien pide cuando aprieta "cerrar sesión" en
+una pestaña. Hay un spec dedicado a ese caso.
+
+### Consecuencias
+
+- ✅ Un token revocado deja de autenticar de inmediato, en cualquier endpoint
+- ✅ El logout es idempotente desde el punto de vista del cliente: un reintento
+  llega con el token ya revocado y recibe 401, sin romper por el `jti` repetido
+- ⚠️ Cada request autenticado suma una consulta a `jwt_denylist`. Es una
+  búsqueda por índice único sobre una tabla que se mantiene chica gracias a la
+  limpieza diaria (`Auth::PurgeExpiredTokensJob`), pero deja de ser autenticación
+  puramente stateless: es el precio de poder revocar
+- ⚠️ La tabla es global y **no** lleva `CompanyScoped`. Filtrar por empresa
+  dejaría pasar un token revocado desde otro contexto de tenant

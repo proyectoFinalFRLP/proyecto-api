@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_30_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -67,6 +67,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
     t.index ["status", "next_retry_at"], name: "index_failed_events_on_status_and_next_retry_at"
     t.check_constraint "direction::text = ANY (ARRAY['inbound'::character varying, 'outbound'::character varying]::text[])", name: "failed_events_direction_check"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'succeeded'::character varying, 'dead'::character varying, 'discarded'::character varying]::text[])", name: "failed_events_status_check"
+  end
+
+  create_table "jwt_denylist", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.datetime "exp", null: false
+    t.string "jti", null: false
+    t.datetime "updated_at", null: false
+    t.index ["exp"], name: "index_jwt_denylist_on_exp"
+    t.index ["jti"], name: "index_jwt_denylist_on_jti", unique: true
   end
 
   create_table "order_items", force: :cascade do |t|

@@ -14,6 +14,11 @@ development:
     class: Webhooks::ScanDueFailedEventsJob
     queue: low
     schedule: every minute
+  # Limpieza de la lista de revocacion de JWT: las filas vencidas ya no deciden nada.
+  purge_expired_tokens:
+    class: Auth::PurgeExpiredTokensJob
+    queue: low
+    schedule: every day at 4am
 
 production:
   clear_solid_queue_finished_jobs:
@@ -24,3 +29,8 @@ production:
     class: Webhooks::ScanDueFailedEventsJob
     queue: low
     schedule: every minute
+  # Limpieza de la lista de revocacion de JWT: las filas vencidas ya no deciden nada.
+  purge_expired_tokens:
+    class: Auth::PurgeExpiredTokensJob
+    queue: low
+    schedule: every day at 4am
