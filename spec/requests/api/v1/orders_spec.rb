@@ -68,10 +68,13 @@ RSpec.describe 'Orders API', type: :request do
     end
 
     context 'when authenticated' do
-      it 'creates an order and returns 201 with correct body', :aggregate_failures do
+      it 'creates an order and returns 201' do
         expect { post_order }.to change(Order, :count).by(1)
         expect(response).to have_http_status(:created)
+      end
 
+      it 'returns the expected JSON body' do
+        post_order
         body = response.parsed_body
         expect(body['id']).to be_present
         expect(body['customer_name']).to eq('Juan Pérez')
