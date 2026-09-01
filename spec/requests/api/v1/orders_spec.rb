@@ -71,14 +71,27 @@ RSpec.describe 'Orders API', type: :request do
     end
 
     context 'when authenticated' do
-      it 'creates an order and returns 201', :aggregate_failures do
+      it 'creates an order and returns 201 with correct body', :aggregate_failures do
         expect { post_order }.to change(Order, :count).by(1)
         expect(response).to have_http_status(:created)
+
+        body = response.parsed_body
+        expect(body['id']).to be_present
+        expect(body['customer_name']).to eq('Juan Pérez')
+        expect(body['status']).to eq('pending')
+        expect(body['order_items']).to be_an(Array)
+        expect(body['order_items'].first['unit_price']).to eq(150.0)
       end
 
       it 'deducts stock from the specified warehouse' do
         post_order
         expect(Stock.find_by(product: product, warehouse: warehouse).quantity).to eq(18)
+      end
+
+      it 'returns unit_price as a number, not a string' do
+        post_order
+        item = response.parsed_body['order_items'].first
+        expect(item['unit_price']).to be_a(Numeric)
       end
 
       it 'assigns the company from the JWT' do
