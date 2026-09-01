@@ -3,10 +3,14 @@
 module Catalog
   # Descuenta unidades de un producto de uno de sus depósitos.
   #
-  # Regla del MVP (TESIS-43): se descuenta del primer depósito que pueda cubrir
-  # la cantidad completa, tomados en orden estable por warehouse_id. No se parte
-  # una venta entre varios depósitos: si ninguno alcanza solo, la operación falla
-  # aunque el stock consolidado sea suficiente (ver ADR-010).
+  # Modo automático (sin warehouse_id, TESIS-43): picking del primer depósito
+  # que pueda cubrir la cantidad completa, tomados en orden estable por
+  # warehouse_id. No se parte una venta entre varios depósitos: si ninguno
+  # alcanza solo, la operación falla aunque el stock consolidado sea suficiente
+  # (ver ADR-010).
+  #
+  # Modo explícito (con warehouse_id, TESIS-42): descuenta del depósito
+  # específico indicado por el operador en ventas offline.
   #
   # La lectura del stock va adentro del advisory lock (ADR-009): es un
   # read-modify-write, y leer afuera dejaría la ventana para que otro proceso

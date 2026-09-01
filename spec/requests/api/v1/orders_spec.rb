@@ -4,8 +4,7 @@ require 'rails_helper'
 
 RSpec.describe 'Orders API', type: :request do
   let(:company) do
-    Company.create!(name: "Acme-#{SecureRandom.hex(4)}",
-                    tax_id: "20-#{rand(10_000_000..99_999_999)}-#{rand(1000..9999)}")
+    Company.create!(name: 'Acme', tax_id: '20-12345678-9')
   end
   let(:user) { User.create!(email: 'a@acme.com', password: 'pass123', company: company) }
   let(:headers) { auth_headers(user) }
@@ -40,8 +39,7 @@ RSpec.describe 'Orders API', type: :request do
   end
 
   def create_second_product
-    p2 = Product.create!(company: company,
-                         sku: "SKU-#{rand(100..999)}", name: 'Tablet')
+    p2 = Product.create!(company: company, sku: 'SKU-002', name: 'Tablet')
     Stock.create!(product: p2, warehouse: warehouse, quantity: 10)
     p2
   end
@@ -56,8 +54,7 @@ RSpec.describe 'Orders API', type: :request do
   end
 
   def other_company_warehouse
-    other_co = Company.create!(name: 'Other',
-                               tax_id: "30-#{rand(10_000_000..99_999_999)}-0001")
+    other_co = Company.create!(name: 'Other', tax_id: '30-99999999-0')
     Current.set(company_id: nil) do
       Warehouse.create!(company: other_co, name: 'Other',
                         zip_code: '2000', address: 'X')
