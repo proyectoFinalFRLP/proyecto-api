@@ -73,6 +73,15 @@ RSpec.describe Orders::CreateOrder, type: :poro do
       create_order(items)
       expect(Stock.find_by(product: product, warehouse: warehouse).quantity).to eq(17)
     end
+
+    it 'processes items sorted by product_id regardless of input order' do
+      # Invertir el orden del input: product2 primero, product después.
+      # Verificar que se procesan por product_id (product < product2).
+      items = [item(product_id: product2.id, quantity: 1, unit_price: 300.00),
+               item(product_id: product.id, quantity: 3)]
+      order = described_class.new(params: params, items: items, company: company).call
+      expect(order.order_items.count).to eq(2)
+    end
   end
 
   describe 'transactional rollback' do

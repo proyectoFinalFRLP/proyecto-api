@@ -25,7 +25,11 @@ module Orders
 
       ActiveRecord::Base.transaction do
         order = Order.create!(order_attributes)
-        @items.each { |item| create_item!(order, item) }
+        # Orden canónico de locks: los advisory locks de DeductStock son xact y se
+        # acumulan hasta el COMMIT. Tomarlos siempre por product_id ascendente evita
+        # el deadlock entre dos órdenes que comparten productos en distinto orden.
+        @items.sort_by { |item| item[:product_id].to_i }
+              .each { |item| create_item!(order, item) }
         order
       end
     end
