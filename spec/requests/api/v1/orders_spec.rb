@@ -77,11 +77,14 @@ RSpec.describe 'Orders API', type: :request do
         expect { post_order }.to change(Order, :count).by(1)
       end
 
-      it 'returns customer and status in the body' do
+      it 'returns customer_name in the body' do
         post_order
-        body = response.parsed_body
-        expect(body['customer_name']).to eq('Juan Pérez')
-        expect(body['status']).to eq('pending')
+        expect(response.parsed_body['customer_name']).to eq('Juan Pérez')
+      end
+
+      it 'returns status pending in the body' do
+        post_order
+        expect(response.parsed_body['status']).to eq('pending')
       end
 
       it 'returns unit_price as a number' do
