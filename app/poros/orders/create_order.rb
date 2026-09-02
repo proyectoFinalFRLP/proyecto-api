@@ -25,11 +25,8 @@ module Orders
 
       ActiveRecord::Base.transaction do
         order = Order.create!(order_attributes)
-        # Orden canónico de locks: los advisory locks de DeductStock son xact y se
-        # acumulan hasta el COMMIT. Tomarlos siempre por product_id ascendente evita
-        # el deadlock entre dos órdenes que comparten productos en distinto orden.
-        @items.sort_by { |item| item[:product_id].to_i }
-              .each { |item| create_item!(order, item) }
+        acquire_locks_in_canonical_order!
+        @items.each { |item| create_item!(order, item) }
         order
       end
     end
@@ -83,6 +80,16 @@ module Orders
           raise ActiveRecord::RecordNotSaved,
                 "item[#{i}]: #{key} is required"
         end
+      end
+    end
+
+    # Adquiere los advisory locks en orden canónico (product_id ascendente)
+    # para evitar deadlocks entre órdenes que comparten productos en distinto
+    # orden. Los locks son xact y se sostienen hasta el COMMIT.
+    # La creación de items se hace después, en el orden de input del usuario.
+    def acquire_locks_in_canonical_order!
+      @items.sort_by { |item| item[:product_id].to_i }.each do |item|
+        Catalog::WithStockLock.new(product_id: item[:product_id], wait: false).call { nil }
       end
     end
   end

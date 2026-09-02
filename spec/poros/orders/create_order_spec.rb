@@ -22,6 +22,21 @@ RSpec.describe Orders::CreateOrder, type: :poro do
     described_class.new(params: params, items: items, company: company).call
   end
 
+  # product2 se crea después que product, así que su id es mayor.
+  # Mandarlo primero deja el input en orden inverso al de adquisición de locks.
+  def reverse_ordered_items
+    [item(product_id: product2.id, quantity: 1, unit_price: 300.00),
+     item(product_id: product.id, quantity: 3)]
+  end
+
+  def stub_lock_acquisition(collector)
+    allow(Catalog::WithStockLock).to receive(:new)
+      .and_wrap_original do |original, **kwargs|
+      collector << kwargs[:product_id]
+      original.call(**kwargs) { nil }
+    end
+  end
+
   def other_company_warehouse
     other_co = Company.create!(name: 'Other', tax_id: '30-99999999-9')
     Current.set(company_id: nil) do
@@ -74,13 +89,16 @@ RSpec.describe Orders::CreateOrder, type: :poro do
       expect(Stock.find_by(product: product, warehouse: warehouse).quantity).to eq(17)
     end
 
-    it 'processes items sorted by product_id regardless of input order' do
-      # Invertir el orden del input: product2 primero, product después.
-      # Verificar que se procesan por product_id (product < product2).
-      items = [item(product_id: product2.id, quantity: 1, unit_price: 300.00),
-               item(product_id: product.id, quantity: 3)]
-      order = described_class.new(params: params, items: items, company: company).call
-      expect(order.order_items.count).to eq(2)
+    it 'acquires locks in ascending product_id order regardless of input order' do
+      locked = []
+      stub_lock_acquisition(locked)
+      create_order(reverse_ordered_items)
+      expect(locked.first(2)).to eq([product.id, product2.id])
+    end
+
+    it 'persists items in input order, not lock order' do
+      order = create_order(reverse_ordered_items)
+      expect(order.order_items.map(&:product_id)).to eq([product2.id, product.id])
     end
   end
 
