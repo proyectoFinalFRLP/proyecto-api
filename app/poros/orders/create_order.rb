@@ -51,7 +51,8 @@ module Orders
       Catalog::DeductStock.new(
         product: product,
         quantity: item[:quantity],
-        warehouse_id: item[:warehouse_id]
+        warehouse_id: item[:warehouse_id],
+        wait: false
       ).call
     end
 

@@ -20,17 +20,22 @@ module Catalog
     # (ventas offline TESIS-42, donde el operador elige de dónde saca).
     # Cuando se omite, picking automático por orden de warehouse_id
     # (webhooks TESIS-43).
-    def initialize(product:, quantity:, warehouse_id: nil)
+    #
+    # wait: pasa directo a WithStockLock. En requests HTTP (TESIS-42)
+    # conviene wait: false para fallar rápido con 409; en jobs de
+    # background (TESIS-43) el default true permite esperar y reintentar.
+    def initialize(product:, quantity:, warehouse_id: nil, wait: true)
       super()
       @product = product
       @quantity = quantity.to_i
       @warehouse_id = warehouse_id
+      @wait = wait
     end
 
     def call
       raise ArgumentError, 'quantity must be positive' unless @quantity.positive?
 
-      WithStockLock.new(product_id: @product.id).call do
+      WithStockLock.new(product_id: @product.id, wait: @wait).call do
         stock = fulfilling_stock
         raise InsufficientStockError.new(product: @product, quantity: @quantity) if stock.nil?
 

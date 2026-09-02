@@ -99,7 +99,16 @@ RSpec.describe Catalog::DeductStock, type: :poro do
 
     deduct.call
 
-    expect(Catalog::WithStockLock).to have_received(:new).with(product_id: product.id)
+    expect(Catalog::WithStockLock).to have_received(:new).with(product_id: product.id, wait: true)
+  end
+
+  it 'forwards wait: to WithStockLock (ADR-009)' do
+    Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 10)
+    allow(Catalog::WithStockLock).to receive(:new).and_call_original
+
+    described_class.new(product: product, quantity: 3, wait: false).call
+
+    expect(Catalog::WithStockLock).to have_received(:new).with(product_id: product.id, wait: false)
   end
 
   # TESIS-42: warehouse_id explícito para ventas offline
