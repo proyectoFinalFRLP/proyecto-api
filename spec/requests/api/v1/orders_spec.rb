@@ -119,6 +119,13 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
+      it 'rejects when order is not an object' do
+        post '/api/v1/orders',
+             params: { order: 'not_an_object' },
+             headers: headers, as: :json
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
       it 'rejects when items is not an array' do
         post '/api/v1/orders',
              params: { order: { customer_name: 'X', items: 'not_an_array' } },

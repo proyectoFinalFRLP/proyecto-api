@@ -21,10 +21,13 @@ module Api
       private
 
       def order_params
-        # rubocop:disable Rails/StrongParametersExpect
-        params.require(:order).permit(:customer_name, :customer_document,
-                                      :customer_address, :customer_zip_code)
-        # rubocop:enable Rails/StrongParametersExpect
+        order = params.require(:order)
+        unless order.is_a?(ActionController::Parameters)
+          raise ActiveRecord::RecordNotSaved, 'order must be an object'
+        end
+
+        order.permit(:customer_name, :customer_document,
+                     :customer_address, :customer_zip_code)
       end
 
       def items_params
