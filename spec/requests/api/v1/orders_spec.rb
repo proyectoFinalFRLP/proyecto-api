@@ -140,6 +140,17 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
+      it 'rejects when items exceeds maximum' do
+        too_many = (1..101).map { |i| default_item.merge(product_id: i) }
+        post_order(build_payload(items: too_many))
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
+      it 'returns 422 (not 404) when product does not exist' do
+        post_order(build_payload(items: [default_item.merge(product_id: -1)]))
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
       it 'does not create order when item validation fails' do
         expect { post_order(build_payload(items: [default_item.merge(quantity: 50)])) }
           .not_to change(Order, :count)

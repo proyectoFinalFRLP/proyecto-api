@@ -4,7 +4,10 @@ module Api
   module V1
     class OrdersController < ApplicationController
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
+      rescue_from ActiveRecord::RecordNotFound, with: :render_unprocessable
       rescue_from Catalog::InsufficientStockError, with: :render_insufficient_stock
+
+      MAX_ITEMS = 100
 
       def create
         authorize Order
@@ -33,6 +36,10 @@ module Api
       def items_params
         raw = params[:order][:items]
         raise ActiveRecord::RecordNotSaved, 'items must be an array' unless raw.is_a?(Array)
+        if raw.size > MAX_ITEMS
+          raise ActiveRecord::RecordNotSaved,
+                "items exceeds maximum of #{MAX_ITEMS}"
+        end
 
         raw.map do |item|
           unless item.respond_to?(:permit)
