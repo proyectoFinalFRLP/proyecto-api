@@ -2,7 +2,7 @@
 
 require 'rails_helper'
 
-# rubocop:disable RSpec/ExampleLength, RSpec/MultipleExpectations
+# rubocop:disable-next RSpec/ExampleLength, RSpec/MultipleExpectations
 RSpec.describe Catalog::WithStockLock, type: :poro do
   # Este describe cubre la parte que justifica la card entera: que el advisory
   # lock realmente serializa escrituras entre conexiones/threads distintos.
@@ -290,4 +290,3 @@ RSpec.describe Catalog::WithStockLock, type: :poro do
     end
   end
 end
-# rubocop:enable RSpec/ExampleLength, RSpec/MultipleExpectations
