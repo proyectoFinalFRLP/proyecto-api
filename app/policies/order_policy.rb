@@ -16,5 +16,5 @@ class OrderPolicy < ApplicationPolicy
   end
 
   # Sin `Scope`: ninguna accion lista ordenes todavia. El listado tendra su
-  # propia card (ver TESIS-45).
+  # propia card (ver TESIS-112).
 end
