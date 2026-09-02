@@ -21,7 +21,9 @@ pre-push:
     branch-name:
       run: |
         branch=$(git rev-parse --abbrev-ref HEAD)
-        if [[ "$branch" == "master" || "$branch" == "develop" ]]; then
+        # release-1 es la rama de integracion de la demo: se pushea directo,
+        # igual que master y develop.
+        if [[ "$branch" == "master" || "$branch" == "develop" || "$branch" == "release-1" ]]; then
           exit 0
         fi
         echo "$branch" | grep -E '^TESIS-[0-9]+-[a-z0-9-]+$' || { echo '❌ Nombre de rama inválido. Debe seguir el formato TESIS-XXX-descripcion'; exit 1; }

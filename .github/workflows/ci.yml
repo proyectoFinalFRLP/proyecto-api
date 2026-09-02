@@ -3,7 +3,10 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [ master, develop ]
+    # `release-1` es la rama de integracion de la demo: todo el desarrollo apunta
+    # ahi hasta que se mergea a master. Sin listarla, los merges a la rama no
+    # corren nada y el estado de la demo queda sin verificar.
+    branches: [ master, develop, release-1 ]
 
 jobs:
   scan_ruby:
