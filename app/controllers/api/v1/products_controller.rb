@@ -119,9 +119,8 @@ module Api
         # permit (no expect) es intencional y load-bearing: expect usa
         # on_unpermitted: :raise, así que un body con company_id daría 400 en
         # vez de ignorarlo — rompiendo el requisito de la card.
-        # rubocop:disable Rails/StrongParametersExpect
+        # rubocop:disable-next Rails/StrongParametersExpect
         params.require(:product).permit(:sku, :name, :description, :category, :weight, :dimensions)
-        # rubocop:enable Rails/StrongParametersExpect
       end
 
       def stock_params

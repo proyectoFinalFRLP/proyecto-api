@@ -14,9 +14,8 @@ module Products
       # revierte todo). Warehouse.where(id:) ya filtra por empresa vía el
       # default_scope de CompanyScoped, así que no hace falta repetir company_id.
       def validate_warehouses_belong_to_company!
-        # rubocop:disable Rails/Pluck
+        # rubocop:disable-next Rails/Pluck
         warehouse_ids = @stocks_params.map { |s| s[:warehouse_id] }.uniq
-        # rubocop:enable Rails/Pluck
         owned = Warehouse.where(id: warehouse_ids).pluck(:id)
         return if owned.sort == warehouse_ids.sort
 
