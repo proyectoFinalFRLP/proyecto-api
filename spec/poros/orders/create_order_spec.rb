@@ -44,6 +44,13 @@ RSpec.describe Orders::CreateOrder, type: :poro do
     end
   end
 
+  def other_company_product
+    other_co = Company.create!(name: 'Other', tax_id: '30-99999999-8')
+    Current.set(company_id: nil) do
+      Product.create!(company: other_co, sku: 'SKU-FOREIGN', name: 'Ajeno')
+    end
+  end
+
   describe 'successful creation' do
     subject(:order) { create_order([item]) }
 
@@ -94,6 +101,30 @@ RSpec.describe Orders::CreateOrder, type: :poro do
       stub_lock_acquisition(locked)
       create_order(reverse_ordered_items)
       expect(locked.first(2)).to eq([product.id, product2.id])
+    end
+
+    # La clave del advisory lock no lleva tenant (WithStockLock#lock_key), así
+    # que tomar locks antes de validar pertenencia dejaría que un request
+    # nombre un product_id ajeno y bloquee las escrituras legítimas de esa
+    # empresa con 409 mientras esta transacción viva.
+    it 'rejects a product of another company before acquiring locks' do
+      foreign = other_company_product
+      locked = []
+      stub_lock_acquisition(locked)
+
+      expect { create_order([item(product_id: foreign.id)]) }
+        .to raise_error(ActiveRecord::RecordNotSaved)
+    end
+
+    it 'never takes the lock of a product from another company' do
+      foreign = other_company_product
+      locked = []
+      stub_lock_acquisition(locked)
+      suppress(ActiveRecord::RecordNotSaved) do
+        create_order([item(product_id: foreign.id)])
+      end
+
+      expect(locked).not_to include(foreign.id)
     end
 
     it 'persists items in input order, not lock order' do

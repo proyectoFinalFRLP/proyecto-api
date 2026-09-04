@@ -25,8 +25,14 @@ module Orders
 
       ActiveRecord::Base.transaction do
         order = Order.create!(order_attributes)
-        acquire_locks_in_canonical_order!
-        @items.each { |item| create_item!(order, item) }
+        # Los productos se resuelven y validan ANTES de tomar locks: la clave
+        # del advisory lock no lleva el tenant (WithStockLock#lock_key), así
+        # que un product_id inexistente o de otra empresa no puede tomar el
+        # lock de ese producto y bloquear sus escrituras legítimas con 409
+        # mientras esta transacción vive.
+        products = resolve_products!
+        acquire_locks_in_canonical_order!(products)
+        @items.each { |item| create_item!(order, item, products) }
         order
       end
     end
@@ -37,8 +43,8 @@ module Orders
       @params.merge(company: @company, status: 'pending')
     end
 
-    def create_item!(order, item)
-      product = find_product!(item[:product_id])
+    def create_item!(order, item, products)
+      product = products.fetch(item[:product_id])
       validate_warehouse!(item[:warehouse_id])
 
       OrderItem.create!(
@@ -54,6 +60,15 @@ module Orders
         warehouse_id: item[:warehouse_id],
         wait: false
       ).call
+    end
+
+    # Resuelve y valida TODOS los productos del request antes de tomar un solo
+    # lock. find_product! traduce RecordNotFound a RecordNotSaved (422): un
+    # product_id inexistente o de otro tenant falla acá, no después de adquirir
+    # los locks. Devuelve un hash product_id → Product para reusar en
+    # create_item! sin volver a consultar.
+    def resolve_products!
+      @items.to_h { |item| [item[:product_id], find_product!(item[:product_id])] }
     end
 
     def find_product!(product_id)
@@ -97,11 +112,14 @@ module Orders
     # imposible por construcción. El orden canónico igual conviene: sin él,
     # dos órdenes concurrentes con los mismos productos en distinto orden
     # pueden tomar un lock cada una y fallar las dos; con él, una gana y la
-    # otra falla limpio. La creación de items se hace después, en el orden de
-    # input del usuario.
-    def acquire_locks_in_canonical_order!
-      @items.sort_by { |item| item[:product_id].to_i }.each do |item|
-        Catalog::WithStockLock.new(product_id: item[:product_id], wait: false).call { nil }
+    # otra falla limpio.
+    #
+    # products llega resuelto por resolve_products!, así que acá nunca cae un
+    # product_id que no pertenezca a la empresa: la clave del lock es global
+    # (sin tenant) y queda reservada para productos del propio tenant.
+    def acquire_locks_in_canonical_order!(products)
+      products.keys.sort_by(&:to_i).each do |product_id|
+        Catalog::WithStockLock.new(product_id: product_id, wait: false).call { nil }
       end
     end
   end
