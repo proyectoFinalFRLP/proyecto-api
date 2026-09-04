@@ -6,12 +6,24 @@ module Api
       before_action :set_product, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
+      rescue_from Catalog::StaleProductError, with: :render_precondition_failed
 
       def index
         page = [params[:page].to_i, 1].max
         per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
 
+        # La precarga es load-bearing: ProductListSerializer lee el depósito
+        # principal de cada fila, y sin ella son dos queries por producto
+        # (stocks + warehouse) en vez de dos para toda la página.
+        #
+        # preload y no includes: `includes` deja que Rails elija entre precargar
+        # y hacer un JOIN, y acá el JOIN rompe. with_total_stock ya agrupa por
+        # products.id con un SELECT propio; si Rails resolviera la asociación
+        # como eager_load, sumaría las columnas de stocks y warehouses a ese
+        # SELECT y Postgres rechazaría la consulta por columnas fuera del
+        # GROUP BY. preload garantiza las consultas separadas.
         products = policy_scope(Product).with_total_stock
+                                        .preload(stocks: :warehouse)
                                         .order(created_at: :desc)
                                         .offset((page - 1) * per_page)
                                         .limit(per_page)
@@ -27,7 +39,16 @@ module Api
       end
 
       def show
+        expose_version(@product)
         render json: ProductSerializer.render(@product)
+      end
+
+      # Vocabulario del Select de categoría. Existe para que el modal de alta y
+      # el filtro del listado no repitan la lista en el frontend: el origen es
+      # Product::CATEGORIES y nadie más la escribe.
+      def categories
+        skip_authorization
+        render json: { data: Product::CATEGORIES }
       end
 
       def create
@@ -46,9 +67,11 @@ module Api
         product = Products::UpdateProduct.new(
           product: @product,
           params: product_params,
-          stocks: stock_params
+          stocks: stock_params,
+          expected_version: expected_version
         ).call
 
+        expose_version(product)
         render json: ProductSerializer.render(product), status: :ok
       end
 
@@ -58,6 +81,33 @@ module Api
       end
 
       private
+
+      # La version del agregado viaja como ETag (TESIS-101). El cliente la
+      # devuelve en `If-Match` al guardar y el servidor rechaza la escritura si
+      # ya no es la vigente.
+      def expose_version(product)
+        response.set_header('ETag', %("#{Catalog::ProductVersion.new(product: product).call}"))
+      end
+
+      # `If-Match` puede venir con comillas, con el prefijo debil `W/` o como
+      # `*`. `*` significa "cualquier version, siempre que exista": el producto
+      # ya se resolvio en set_product, asi que equivale a no poner precondicion.
+      def expected_version
+        raw = request.headers['If-Match'].to_s.strip
+        return nil if raw.blank? || raw == '*'
+
+        raw.delete_prefix('W/').delete_prefix('"').delete_suffix('"')
+      end
+
+      # 412 y no 409, apartandose de lo que pedia la card. Es el codigo que HTTP
+      # define para una precondicion que no se cumple, y de paso resuelve solo el
+      # requisito de distinguirlo: este endpoint ya devuelve 409 por SKU
+      # duplicado y por lock de stock ocupado, y un tercer 409 obligaria al front
+      # a leer el cuerpo para saber cual es. Con 412 alcanza el status.
+      def render_precondition_failed(exception)
+        render json: { error: exception.message, current_version: exception.current_version },
+               status: :precondition_failed
+      end
 
       def set_product
         # Eager load de stocks y sus warehouses para evitar N+1 en el detalle.
@@ -69,9 +119,8 @@ module Api
         # permit (no expect) es intencional y load-bearing: expect usa
         # on_unpermitted: :raise, así que un body con company_id daría 400 en
         # vez de ignorarlo — rompiendo el requisito de la card.
-        # rubocop:disable Rails/StrongParametersExpect
-        params.require(:product).permit(:sku, :name, :description, :weight, :dimensions)
-        # rubocop:enable Rails/StrongParametersExpect
+        # rubocop:disable-next Rails/StrongParametersExpect
+        params.require(:product).permit(:sku, :name, :description, :category, :weight, :dimensions)
       end
 
       def stock_params

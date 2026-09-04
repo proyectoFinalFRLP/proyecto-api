@@ -158,6 +158,31 @@ Orders::ProcessWebhookOrder
 (si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
 ```
 
+### 4.2 Flujo de un webhook de courier (push tracking)
+
+Los eventos de courier tampoco siguen el flujo de arriba: no hay JWT, no hay usuario, y el proveedor no espera detrás de la lógica de negocio — el gateway persiste el evento crudo y suelta la conexión; la traducción y la actualización del envío corren en un worker aparte (ver [ADR-011](../adr/ADR-011-push-tracking-de-couriers.md)).
+
+```
+POST /api/webhooks/couriers/:company_integration_id   (sin autenticación)
+  ↓
+Api::Webhooks::CouriersController
+  - El tenant sale de la integración, no de Current
+  - WebhookLog.create!(status: 'pending')              (auditoría del evento crudo)
+  - Shipments::ProcessTrackingEventJob.perform_later   (sólo integraciones de tipo courier)
+  - head :accepted                                     (202, cuerpo vacío)
+  ↓
+Shipments::ProcessTrackingEventJob                     (cola realtime)
+  - with_tenant(company_id)
+  ↓
+Shipments::ProcessTrackingUpdate
+  - Traduce el payload con el response_mapper del Service (Shipments::TranslateTrackingPayload)
+  - Ubica el Shipment por tracking_number + company_integration_id
+  - Transacción: shipment.lock! + ShipmentEvent + actualización de shipments.status
+  - Marca el WebhookLog 'processed' o 'failed' + error_message
+  ↓
+(si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
+```
+
 ---
 
 ## 5. Multi-tenancy en detalle
@@ -249,10 +274,23 @@ El proyecto está organizado en 6 dominios correspondientes a los epics de Jira:
 | ------------ | ---------- | -------------------------------------------------------- |
 | `auth`       | TESIS-19   | Empresas, usuarios, depósitos, autenticación JWT         |
 | `integrations` | TESIS-20 | Plantillas de APIs externas, credenciales por empresa    |
-| `catalog`    | TESIS-21   | Productos, stock por depósito, sincronización multicanal |
+| `catalog`    | TESIS-21   | Productos, stock por depósito, transferencias entre depósitos, sincronización multicanal |
 | `webhooks`   | TESIS-22   | Gateway de webhooks, cola de mensajes, reintentos        |
 | `orders`     | TESIS-23   | Órdenes de compra, ítems, consolidación multicanal       |
 | `shipments`  | TESIS-24   | Envíos, cotización de couriers, tracking                 |
+
+> **Unidades en vuelo.** `stocks` responde "cuántas unidades hay en este
+> depósito", y no puede expresar unidades que salieron de uno y todavía no
+> llegaron a otro. Eso vive en `stock_transfers` (TESIS-103): al despachar se
+> descuentan del origen, al recibir se suman al destino, y mientras viajan no
+> pertenecen a ningún nodo — por eso **no** entran en `Product#total_stock` y se
+> exponen aparte como `in_transit_quantity`.
+>
+> Las tres transiciones mueven stock real bajo el advisory lock del producto
+> (§9), y el listado del catálogo agrega las unidades en vuelo con una
+> **subconsulta escalar**, no con un segundo `left_joins`: `with_total_stock` ya
+> hace join con `stocks` y agrupa, así que un segundo join a una tabla hija daría
+> producto cartesiano y multiplicaría el `SUM` de stock.
 
 Los POROs y Jobs se organizan por dominio:
 

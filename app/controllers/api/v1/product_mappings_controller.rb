@@ -70,10 +70,9 @@ module Api
       # El body va anidado bajo `product_mapping`, igual que `product` en
       # ProductsController: los dos endpoints del mismo árbol comparten contrato.
       def mapping_params
-        # rubocop:disable Rails/StrongParametersExpect
+        # rubocop:disable-next Rails/StrongParametersExpect
         params.require(:product_mapping)
               .permit(:company_integration_id, :external_product_id, :external_price)
-        # rubocop:enable Rails/StrongParametersExpect
       end
 
       # El índice único (company_integration_id, external_product_id) no tiene

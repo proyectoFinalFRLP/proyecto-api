@@ -18,8 +18,12 @@ default: &default
   # El pool debe cubrir los threads de los workers de Solid Queue (ver
   # config/queue.yml): con un pool menor, `bin/jobs` se niega a arrancar.
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 15 } %>
-  username: postgres
-  password: admin
+  username: <%= ENV.fetch('PROYECTO_API_DATABASE_USER', 'postgres') %>
+  # Sale del entorno, con el valor historico como default: la contrasena del
+  # postgres local no es la misma en todas las maquinas del equipo, y tenerla
+  # fija aca obliga a editar un archivo versionado para poder correr los tests.
+  # Quien tenga otra, exporta PROYECTO_API_DATABASE_PASSWORD y listo.
+  password: <%= ENV.fetch('PROYECTO_API_DATABASE_PASSWORD', 'admin') %>
   # 127.0.0.1 explícito: con "localhost" Windows resuelve primero a ::1 y la
   # conexión falla al crear bases nuevas.
   host: <%= ENV.fetch('PROYECTO_API_DATABASE_HOST', '127.0.0.1') %>

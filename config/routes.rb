@@ -10,10 +10,24 @@ Rails.application.routes.draw do
       post 'auth/register', to: 'auth/registrations#create'
       post 'auth/login', to: 'auth/sessions#create'
 
+      # La identidad de la sesión. Sin id por parámetro: siempre el usuario
+      # del token.
+      get 'me', to: 'me#show'
+
       resources :integrations, only: %i[index update], param: :service_id
       resources :warehouses, only: %i[index show create update destroy]
       resources :products, only: %i[index show create update destroy] do
+        # Vocabulario de categorías: ruta de colección, no depende de un producto.
+        get :categories, on: :collection
+
         resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
+      end
+
+      resources :stock_transfers, path: 'stock-transfers', only: %i[index create] do
+        member do
+          post :receive
+          post :cancel
+        end
       end
 
       resources :orders, only: %i[create] do
@@ -31,6 +45,7 @@ Rails.application.routes.draw do
     # Ruta pública: la consumen las plataformas externas, no el frontend.
     namespace :webhooks do
       post 'integrations/:company_integration_id', to: 'integrations#create'
+      post 'couriers/:company_integration_id', to: 'couriers#create'
     end
   end
 end

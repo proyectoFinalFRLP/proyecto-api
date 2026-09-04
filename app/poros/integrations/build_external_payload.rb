@@ -26,7 +26,7 @@ module Integrations
       @service.request_value_mapper.fetch(value.to_s, value)
     end
 
-    # Simétrico con ParseExternalResponse#dig_path: un segmento numérico crea un
+    # Simétrico con ParseExternalResponse.dig_path: un segmento numérico crea un
     # Array ({'items.0.sku' => ...} produce {"items" => [{"sku" => ...}]}).
     def set_nested(root, path, value)
       keys = path.split('.')
