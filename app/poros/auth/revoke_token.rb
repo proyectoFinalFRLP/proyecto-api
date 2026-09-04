@@ -26,6 +26,13 @@ module Auth
       true
     rescue JWT::DecodeError
       false
+    rescue ActiveRecord::RecordNotUnique
+      # `revoke_jwt` es un `find_or_create_by!`. Dos logouts del mismo token en
+      # paralelo pasan los dos por el find sin encontrar nada y chocan en el
+      # insert contra el indice unico de `jti`. Que lo haya insertado el otro es
+      # exactamente el resultado buscado: el token quedo revocado igual, asi que
+      # esto es un exito y no un 500.
+      true
     end
 
     private
