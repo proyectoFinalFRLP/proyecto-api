@@ -65,10 +65,9 @@ module Api
       def transfer_params
         # permit y no expect, igual que en productos: un body con company_id se
         # ignora en lugar de devolver 400.
-        # rubocop:disable Rails/StrongParametersExpect
+        # rubocop:disable-next Rails/StrongParametersExpect
         params.require(:stock_transfer)
               .permit(:product_id, :origin_warehouse_id, :destination_warehouse_id, :quantity)
-        # rubocop:enable Rails/StrongParametersExpect
       end
 
       def render_conflict(exception)
