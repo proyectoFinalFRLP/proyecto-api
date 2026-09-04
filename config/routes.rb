@@ -11,6 +11,10 @@ Rails.application.routes.draw do
       post 'auth/login', to: 'auth/sessions#create'
       delete 'auth/logout', to: 'auth/sessions#destroy'
 
+      # La identidad de la sesión. Sin id por parámetro: siempre el usuario
+      # del token.
+      get 'me', to: 'me#show'
+
       resources :integrations, only: %i[index update], param: :service_id
       resources :warehouses, only: %i[index show create update destroy]
       resources :products, only: %i[index show create update destroy] do
