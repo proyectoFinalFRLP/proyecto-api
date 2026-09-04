@@ -116,14 +116,22 @@ RSpec.describe Catalog::DeductStock, type: :poro do
   # descontar). Tomarlo de nuevo sería reentrante pero es una llamada al pedo
   # por ítem — por eso el modo existe.
   context 'when the caller already holds the lock' do
-    it 'deducts without taking the advisory lock again' do
-      stock = Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 10)
+    before do
+      Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 10)
       allow(Catalog::WithStockLock).to receive(:new)
+    end
 
+    it 'deducts the quantity without acquiring the advisory lock' do
       described_class.new(product: product, quantity: 3,
                           already_locked: true).call
 
-      expect(stock.reload.quantity).to eq(7)
+      expect(Stock.find_by(product: product).quantity).to eq(7)
+    end
+
+    it 'does not call WithStockLock' do
+      described_class.new(product: product, quantity: 3,
+                          already_locked: true).call
+
       expect(Catalog::WithStockLock).not_to have_received(:new)
     end
   end

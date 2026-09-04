@@ -44,10 +44,22 @@ RSpec.describe Orders::CreateOrder, type: :poro do
     end
   end
 
+  # Memoizado (a diferencia de other_company_warehouse): un mismo ejemplo lo
+  # usa dos veces — en attempt_order_with_foreign_product y en la aserción — y
+  # sin el @, cada llamada crearía una Company con el mismo tax_id y chocaría.
   def other_company_product
-    other_co = Company.create!(name: 'Other', tax_id: '30-99999999-8')
-    Current.set(company_id: nil) do
+    @other_company_product ||= Current.set(company_id: nil) do
+      other_co = Company.create!(name: 'Other', tax_id: '30-99999999-8')
       Product.create!(company: other_co, sku: 'SKU-FOREIGN', name: 'Ajeno')
+    end
+  end
+
+  # Corre create_order con un producto de otra empresa suprimiendo el error:
+  # deja el camino ejecutado para poder inspeccionar qué locks se tomaron.
+  def attempt_order_with_foreign_product(locked)
+    stub_lock_acquisition(locked)
+    suppress(ActiveRecord::RecordNotSaved) do
+      create_order([item(product_id: other_company_product.id)])
     end
   end
 
@@ -117,14 +129,10 @@ RSpec.describe Orders::CreateOrder, type: :poro do
     end
 
     it 'never takes the lock of a product from another company' do
-      foreign = other_company_product
       locked = []
-      stub_lock_acquisition(locked)
-      suppress(ActiveRecord::RecordNotSaved) do
-        create_order([item(product_id: foreign.id)])
-      end
+      attempt_order_with_foreign_product(locked)
 
-      expect(locked).not_to include(foreign.id)
+      expect(locked).not_to include(other_company_product.id)
     end
 
     it 'persists items in input order, not lock order' do
