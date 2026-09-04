@@ -151,6 +151,17 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
+      it 'does not leak schema or tenant scope in the error body' do
+        post_order(build_payload(items: [default_item.merge(product_id: -1)]))
+        expect(response.parsed_body['error'])
+          .to eq('product_id -1 does not exist')
+      end
+
+      it 'returns 400 when the order key is missing' do
+        post '/api/v1/orders', params: {}, headers: headers, as: :json
+        expect(response).to have_http_status(:bad_request)
+      end
+
       it 'does not create order when item validation fails' do
         expect { post_order(build_payload(items: [default_item.merge(quantity: 50)])) }
           .not_to change(Order, :count)

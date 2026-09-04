@@ -59,6 +59,13 @@ module Orders
     def find_product!(product_id)
       # CompanyScoped ya pone el default_scope WHERE company_id = ?
       Product.find(product_id)
+    rescue ActiveRecord::RecordNotFound
+      # El product_id es un dato del body, no de la ruta: es un 422, no un
+      # 404 (el 404 queda para show/index, TESIS-112). Se traduce a
+      # RecordNotSaved con mensaje propio para no filtrar el esquema y el
+      # scope multi-tenant que trae el mensaje crudo de ActiveRecord.
+      raise ActiveRecord::RecordNotSaved,
+            "product_id #{product_id} does not exist"
     end
 
     def validate_warehouse!(warehouse_id)
@@ -85,9 +92,13 @@ module Orders
     end
 
     # Adquiere los advisory locks en orden canónico (product_id ascendente)
-    # para evitar deadlocks entre órdenes que comparten productos en distinto
-    # orden. Los locks son xact y se sostienen hasta el COMMIT.
-    # La creación de items se hace después, en el orden de input del usuario.
+    # antes de crear los items. Con wait: false (este camino) el lock nunca
+    # bloquea — falla con 409 si ya está tomado — así que el deadlock ya es
+    # imposible por construcción. El orden canónico igual conviene: sin él,
+    # dos órdenes concurrentes con los mismos productos en distinto orden
+    # pueden tomar un lock cada una y fallar las dos; con él, una gana y la
+    # otra falla limpio. La creación de items se hace después, en el orden de
+    # input del usuario.
     def acquire_locks_in_canonical_order!
       @items.sort_by { |item| item[:product_id].to_i }.each do |item|
         Catalog::WithStockLock.new(product_id: item[:product_id], wait: false).call { nil }

@@ -4,8 +4,11 @@ module Api
   module V1
     class OrdersController < ApplicationController
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
-      rescue_from ActiveRecord::RecordNotFound, with: :render_unprocessable
       rescue_from Catalog::InsufficientStockError, with: :render_insufficient_stock
+      # ParameterMissing no es 422 de negocio: es un 400 de contrato. Rescatarlo
+      # acá mantiene la forma del body ({error: ...}) consistente con el resto
+      # de la API en vez del default de Rails.
+      rescue_from ActionController::ParameterMissing, with: :render_bad_request
 
       MAX_ITEMS = 100
 
@@ -49,6 +52,10 @@ module Api
 
           item.permit(:product_id, :quantity, :unit_price, :warehouse_id).to_h.symbolize_keys
         end
+      end
+
+      def render_bad_request(exception)
+        render json: { error: exception.message }, status: :bad_request
       end
 
       def render_unprocessable(exception)

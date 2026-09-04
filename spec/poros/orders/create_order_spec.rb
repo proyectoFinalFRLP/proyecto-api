@@ -115,7 +115,8 @@ RSpec.describe Orders::CreateOrder, type: :poro do
 
     it 'rolls back when product does not exist' do
       expect { create_order([item(product_id: -1)]) }
-        .to raise_error(ActiveRecord::RecordNotFound)
+        .to raise_error(ActiveRecord::RecordNotSaved,
+                        'product_id -1 does not exist')
     end
 
     it 'rolls back when warehouse belongs to another company' do
