@@ -11,8 +11,23 @@ class Product < ApplicationRecord
   # Sumar una categoría tiene que ser una línea acá, no una migración.
   CATEGORIES = %w[Electronics Machinery Cabling Power].freeze
 
+  # Unidades en vuelo hacia/desde depósitos, como subconsulta escalar.
+  #
+  # Subconsulta y no un segundo left_joins: `with_total_stock` ya hace join con
+  # `stocks` y agrupa por products.id. Sumar un join a `stock_transfers` daría
+  # producto cartesiano entre las dos tablas hijas y el SUM de stocks quedaría
+  # multiplicado por la cantidad de transferencias. Es una query igual —no N+1—
+  # pero sin contaminar la agregación existente.
+  IN_TRANSIT_SUBQUERY = <<~SQL.squish
+    SELECT COALESCE(SUM(st.quantity), 0) FROM stock_transfers st
+    WHERE st.product_id = products.id AND st.status = 'in_transit'
+  SQL
+
   belongs_to :company
   has_many :stocks, dependent: :destroy
+  # restrict_with_error: una transferencia en vuelo son unidades reales ya
+  # descontadas del origen. Borrar el producto las haría desaparecer sin rastro.
+  has_many :stock_transfers, dependent: :restrict_with_error
   has_many :product_mappings, dependent: :destroy
   # Bloquea el borrado si hay ítems de órdenes: son registros financieros y no
   # deben evaporarse por un DELETE. destroy! levanta RecordNotDestroyed -> 409 (API).
@@ -28,7 +43,8 @@ class Product < ApplicationRecord
   scope :with_total_stock, lambda {
     left_joins(:stocks)
       .group(:id)
-      .select('products.*', 'COALESCE(SUM(stocks.quantity), 0) AS total_stock')
+      .select('products.*', 'COALESCE(SUM(stocks.quantity), 0) AS total_stock',
+              "(#{IN_TRANSIT_SUBQUERY}) AS in_transit_quantity")
   }
 
   # Retorna el stock total consolidado. Si la fila fue cargada con el scope
@@ -38,6 +54,17 @@ class Product < ApplicationRecord
   # viene del scope, se suma por asociación (caso de detalle/creación).
   def total_stock
     has_attribute?(:total_stock) ? self[:total_stock].to_i : stocks.sum(:quantity)
+  end
+
+  # Unidades que salieron de un depósito y todavía no llegaron a otro. No están
+  # en `total_stock` a propósito: no son stock disponible en ningún nodo.
+  #
+  # Misma mecánica que total_stock: si la fila vino del scope, el alias del
+  # SELECT ya trae el agregado; si no, se suma por asociación (detalle, alta).
+  def in_transit_quantity
+    return self[:in_transit_quantity].to_i if has_attribute?(:in_transit_quantity)
+
+    stock_transfers.in_flight.sum(:quantity)
   end
 
   # Depósito donde está el grueso de las unidades. Lo consume la columna
