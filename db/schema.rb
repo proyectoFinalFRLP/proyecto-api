@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_25_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -169,6 +169,27 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipments_status_check"
   end
 
+  create_table "stock_transfers", force: :cascade do |t|
+    t.bigint "company_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "destination_warehouse_id", null: false
+    t.datetime "dispatched_at", null: false
+    t.bigint "origin_warehouse_id", null: false
+    t.bigint "product_id", null: false
+    t.integer "quantity", null: false
+    t.datetime "settled_at"
+    t.string "status", default: "in_transit", null: false
+    t.datetime "updated_at", null: false
+    t.index ["company_id", "status", "product_id"], name: "index_stock_transfers_on_company_id_and_status_and_product_id"
+    t.index ["company_id"], name: "index_stock_transfers_on_company_id"
+    t.index ["destination_warehouse_id"], name: "index_stock_transfers_on_destination_warehouse_id"
+    t.index ["origin_warehouse_id"], name: "index_stock_transfers_on_origin_warehouse_id"
+    t.index ["product_id"], name: "index_stock_transfers_on_product_id"
+    t.check_constraint "origin_warehouse_id <> destination_warehouse_id", name: "stock_transfers_distinct_warehouses"
+    t.check_constraint "quantity > 0", name: "stock_transfers_quantity_positive"
+    t.check_constraint "status::text = ANY (ARRAY['in_transit'::character varying, 'received'::character varying, 'cancelled'::character varying]::text[])", name: "stock_transfers_status_check"
+  end
+
   create_table "stocks", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "product_id", null: false
@@ -235,6 +256,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_120000) do
   add_foreign_key "shipments", "companies", on_delete: :cascade
   add_foreign_key "shipments", "company_integrations", on_delete: :nullify
   add_foreign_key "shipments", "orders", on_delete: :cascade
+  add_foreign_key "stock_transfers", "companies", on_delete: :cascade
+  add_foreign_key "stock_transfers", "products", on_delete: :restrict
+  add_foreign_key "stock_transfers", "warehouses", column: "destination_warehouse_id", on_delete: :restrict
+  add_foreign_key "stock_transfers", "warehouses", column: "origin_warehouse_id", on_delete: :restrict
   add_foreign_key "stocks", "products", on_delete: :cascade
   add_foreign_key "stocks", "warehouses", on_delete: :restrict
   add_foreign_key "users", "companies", on_delete: :cascade
