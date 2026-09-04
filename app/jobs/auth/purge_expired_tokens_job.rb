@@ -15,9 +15,13 @@ module Auth
     BATCH_SIZE = 1_000
 
     # Techo de la corrida. Un solo `delete_all` sin `limit` bloquearia la tabla
-    # entera; iterar sin techo dejaria el job colgado si algo va mal. Con estos
-    # numeros una corrida limpia hasta 100.000 filas y, si quedaran mas, las
-    # levanta la del dia siguiente.
+    # entera; iterar sin techo dejaria el job colgado si algo va mal.
+    #
+    # 100 lotes = 100.000 filas por corrida. Eso alcanza mientras el ingreso
+    # diario quede por debajo de ese numero: si se lo pasara, cada corrida
+    # borraria 100.000 mientras llegan mas y la tabla creceria igual, que es el
+    # problema que este job existe para evitar. Por eso el corte por techo se
+    # loguea: es la senial de que hay que subir el numero o correrlo mas seguido.
     MAX_BATCHES = 100
 
     def perform
@@ -26,8 +30,14 @@ module Auth
       # en un dia, que es justo el escenario que este job existe para evitar.
       MAX_BATCHES.times do
         deleted = JwtDenylist.expired.limit(BATCH_SIZE).delete_all
-        break if deleted < BATCH_SIZE
+        return if deleted < BATCH_SIZE
       end
+
+      # Se agoto el techo y todavia quedaban vencidos: silencioso, la tabla
+      # seguiria creciendo sin que nadie se entere.
+      Rails.logger.warn(
+        "[PurgeExpiredTokensJob] techo de #{MAX_BATCHES} lotes alcanzado, quedan vencidos"
+      )
     end
   end
 end

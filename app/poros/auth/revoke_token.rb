@@ -37,8 +37,13 @@ module Auth
 
     private
 
+    # `split[1]` y no `split.last`: es lo que hace
+    # Warden::JWTAuth::HeaderParser al autenticar. Con un header bien formado
+    # dan lo mismo, pero ante uno raro cada uno tomaria un pedazo distinto, y
+    # este PORO es el par simetrico del autenticador — que no lean el mismo
+    # token seria una divergencia latente.
     def token
-      @token ||= @header.to_s.split.last
+      @token ||= @header.to_s.split[1]
     end
   end
 end
