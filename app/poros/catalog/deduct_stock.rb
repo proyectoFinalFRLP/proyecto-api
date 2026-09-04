@@ -24,27 +24,41 @@ module Catalog
     # wait: pasa directo a WithStockLock. En requests HTTP (TESIS-42)
     # conviene wait: false para fallar rápido con 409; en jobs de
     # background (TESIS-43) el default true permite esperar y reintentar.
-    def initialize(product:, quantity:, warehouse_id: nil, wait: true)
+    #
+    # already_locked: true cuando el caller YA tomó el advisory lock del
+    # producto en la misma transacción (Orders::CreateOrder los adquiere
+    # todos en orden canónico antes de descontar). Tomarlo de nuevo sería
+    # reentrante pero es una llamada al pedo por ítem. El default false
+    # conserva el comportamiento del camino de webhooks (TESIS-43), donde
+    # DeductStock es el único que toma el lock.
+    def initialize(product:, quantity:, warehouse_id: nil, wait: true, already_locked: false)
       super()
       @product = product
       @quantity = quantity.to_i
       @warehouse_id = warehouse_id
       @wait = wait
+      @already_locked = already_locked
     end
 
     def call
       raise ArgumentError, 'quantity must be positive' unless @quantity.positive?
 
-      WithStockLock.new(product_id: @product.id, wait: @wait).call do
-        stock = fulfilling_stock
-        raise InsufficientStockError.new(product: @product, quantity: @quantity) if stock.nil?
-
-        stock.update!(quantity: stock.quantity - @quantity)
-        stock
+      if @already_locked
+        deduct!
+      else
+        WithStockLock.new(product_id: @product.id, wait: @wait).call { deduct! }
       end
     end
 
     private
+
+    def deduct!
+      stock = fulfilling_stock
+      raise InsufficientStockError.new(product: @product, quantity: @quantity) if stock.nil?
+
+      stock.update!(quantity: stock.quantity - @quantity)
+      stock
+    end
 
     # Con warehouse_id: busca esa fila específica. Sin warehouse_id: picking
     # automático por orden de warehouse_id (comportamiento heredado TESIS-43).

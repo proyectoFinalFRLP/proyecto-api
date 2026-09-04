@@ -54,11 +54,16 @@ module Orders
         unit_price: item[:unit_price]
       )
 
+      # already_locked: true — el advisory lock del producto ya lo tomó
+      # acquire_locks_in_canonical_order! en esta misma transacción; que
+      # DeductStock lo tome de nuevo sería reentrante pero es una llamada al
+      # pedo por ítem.
       Catalog::DeductStock.new(
         product: product,
         quantity: item[:quantity],
         warehouse_id: item[:warehouse_id],
-        wait: false
+        wait: false,
+        already_locked: true
       ).call
     end
 
