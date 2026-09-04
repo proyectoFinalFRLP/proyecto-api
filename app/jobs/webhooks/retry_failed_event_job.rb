@@ -22,11 +22,10 @@ module Webhooks
     # `claimable` incluye los claims vencidos: si no, un worker que muere después
     # de reclamar dejaría el evento en processing para siempre.
     def claimed?(failed_event_id)
-      # rubocop:disable Rails/SkipsModelValidations
+      # rubocop:disable-next Rails/SkipsModelValidations
       claimed = FailedEvent.claimable.where(id: failed_event_id)
                            .update_all(status: 'processing', claimed_at: Time.current,
                                        updated_at: Time.current)
-      # rubocop:enable Rails/SkipsModelValidations
       claimed == 1
     end
   end

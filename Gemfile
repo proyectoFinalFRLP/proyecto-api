@@ -72,6 +72,6 @@ gem 'blueprinter', '~> 1.2'
 
 gem 'rack-cors', '~> 3.0'
 
-gem 'avo', '~> 4.0'
+gem 'avo', '~> 4.1'
 
 gem 'propshaft', '~> 1.3'
