@@ -32,11 +32,15 @@ FROM base AS build
 
 # Install packages needed to build gems
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config && \
+    # libffi-dev: fiddle (dependencia de IRB/reline, grupo development) se
+    # compila de fuente en arm64 y necesita los headers de libffi.
+    apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev libffi-dev pkg-config && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Install application gems
-COPY vendor/* ./vendor/
+# (sin `vendor/`: el repo no trae gems cacheadas y `COPY vendor/*` falla con el
+# directorio vacío. Si algún día se corre `bundle cache`, se puede volver a
+# copiar vendor/ para builds sin red.)
 COPY Gemfile Gemfile.lock ./
 
 RUN bundle install && \
