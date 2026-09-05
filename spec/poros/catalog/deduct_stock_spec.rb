@@ -13,6 +13,14 @@ RSpec.describe Catalog::DeductStock, type: :poro do
     Warehouse.create!(company: company, name: name, zip_code: zip, address: "#{name} 1")
   end
 
+  def create_stock(quantity:, name: 'W', zip: '1900')
+    Stock.create!(product: product, warehouse: warehouse(name, zip), quantity: quantity)
+  end
+
+  def deduct_with(wh_id, qty)
+    described_class.new(product: product, quantity: qty, warehouse_id: wh_id).call
+  end
+
   before { Current.company_id = company.id }
 
   context 'when a single warehouse holds the stock' do
@@ -91,6 +99,63 @@ RSpec.describe Catalog::DeductStock, type: :poro do
 
     deduct.call
 
-    expect(Catalog::WithStockLock).to have_received(:new).with(product_id: product.id)
+    expect(Catalog::WithStockLock).to have_received(:new).with(product_id: product.id, wait: true)
+  end
+
+  it 'forwards wait: to WithStockLock (ADR-009)' do
+    Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 10)
+    allow(Catalog::WithStockLock).to receive(:new).and_call_original
+
+    described_class.new(product: product, quantity: 3, wait: false).call
+
+    expect(Catalog::WithStockLock).to have_received(:new).with(product_id: product.id, wait: false)
+  end
+
+  # El caller ya tomó el advisory lock del producto en la misma transacción
+  # (Orders::CreateOrder los adquiere todos en orden canónico antes de
+  # descontar). Tomarlo de nuevo sería reentrante pero es una llamada al pedo
+  # por ítem — por eso el modo existe.
+  context 'when the caller already holds the lock' do
+    before do
+      Stock.create!(product: product, warehouse: warehouse('Central', '1900'), quantity: 10)
+      allow(Catalog::WithStockLock).to receive(:new)
+    end
+
+    it 'deducts the quantity without acquiring the advisory lock' do
+      described_class.new(product: product, quantity: 3,
+                          already_locked: true).call
+
+      expect(Stock.find_by(product: product).quantity).to eq(7)
+    end
+
+    it 'does not call WithStockLock' do
+      described_class.new(product: product, quantity: 3,
+                          already_locked: true).call
+
+      expect(Catalog::WithStockLock).not_to have_received(:new)
+    end
+  end
+
+  # TESIS-42: warehouse_id explícito para ventas offline
+  context 'with explicit warehouse_id' do
+    it 'deducts from the specified warehouse' do
+      north = create_stock(quantity: 10, name: 'Norte', zip: '1602')
+      described_class.new(product: product, quantity: 3, warehouse_id: north.warehouse_id).call
+      expect(north.reload.quantity).to eq(7)
+    end
+
+    it 'raises when the specified warehouse has insufficient stock' do
+      stock = create_stock(quantity: 3)
+      expect do
+        described_class.new(product: product, quantity: 5, warehouse_id: stock.warehouse_id).call
+      end.to raise_error(Catalog::InsufficientStockError)
+    end
+
+    it 'ignores other warehouses even if they could cover the sale' do
+      low = create_stock(quantity: 3)
+      high = create_stock(quantity: 10, name: 'Norte')
+      suppress(Catalog::InsufficientStockError) { deduct_with(low.warehouse_id, 5) }
+      expect(high.reload.quantity).to eq(10)
+    end
   end
 end

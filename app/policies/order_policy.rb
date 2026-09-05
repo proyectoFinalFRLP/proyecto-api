@@ -11,6 +11,10 @@ class OrderPolicy < ApplicationPolicy
     show?
   end
 
-  # Sin `Scope`: ninguna accion lista ordenes todavia. El listado llega con
-  # TESIS-42 y define ahi el suyo, en vez de dejar codigo anticipado.
+  def create?
+    user.present?
+  end
+
+  # Sin `Scope`: ninguna accion lista ordenes todavia. El listado tendra su
+  # propia card (ver TESIS-112).
 end
