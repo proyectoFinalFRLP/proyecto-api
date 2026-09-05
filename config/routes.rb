@@ -9,6 +9,7 @@ Rails.application.routes.draw do
     namespace :v1 do
       post 'auth/register', to: 'auth/registrations#create'
       post 'auth/login', to: 'auth/sessions#create'
+      delete 'auth/logout', to: 'auth/sessions#destroy'
 
       # La identidad de la sesión. Sin id por parámetro: siempre el usuario
       # del token.

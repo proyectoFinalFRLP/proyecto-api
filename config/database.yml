@@ -18,12 +18,18 @@ default: &default
   # El pool debe cubrir los threads de los workers de Solid Queue (ver
   # config/queue.yml): con un pool menor, `bin/jobs` se niega a arrancar.
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 15 } %>
-  username: <%= ENV.fetch('PROYECTO_API_DATABASE_USER', 'postgres') %>
+  username: <%= ENV.fetch('PROYECTO_API_DATABASE_USER', 'postgres').to_json %>
   # Sale del entorno, con el valor historico como default: la contrasena del
   # postgres local no es la misma en todas las maquinas del equipo, y tenerla
   # fija aca obliga a editar un archivo versionado para poder correr los tests.
   # Quien tenga otra, exporta PROYECTO_API_DATABASE_PASSWORD y listo.
-  password: <%= ENV.fetch('PROYECTO_API_DATABASE_PASSWORD', 'admin') %>
+  #
+  # El `.to_json` no es cosmetico: ERB interpola el valor CRUDO en el YAML, asi
+  # que sin comillas lo re-tipa el parser. Una contrasena `on` llega como `true`,
+  # una que empieza con `#` llega como `nil`, y una que contiene `: ` rompe el
+  # parseo y la app no arranca. Justo las maquinas que este cambio existe para
+  # servir.
+  password: <%= ENV.fetch('PROYECTO_API_DATABASE_PASSWORD', 'admin').to_json %>
   # 127.0.0.1 explícito: con "localhost" Windows resuelve primero a ::1 y la
   # conexión falla al crear bases nuevas.
   host: <%= ENV.fetch('PROYECTO_API_DATABASE_HOST', '127.0.0.1') %>
@@ -104,8 +110,11 @@ production:
   primary: &primary_production
     <<: *default
     database: proyecto_api_production
-    username: proyecto_api
-    password: <%= ENV["PROYECTO_API_DATABASE_PASSWORD"] %>
+    # Mismo criterio que el default, y por el mismo motivo el valor va citado.
+    # Antes esto ignoraba en silencio PROYECTO_API_DATABASE_USER: el `<<:` traia
+    # el del default y esta linea lo pisaba con el literal.
+    username: <%= ENV.fetch('PROYECTO_API_DATABASE_USER', 'proyecto_api').to_json %>
+    password: <%= ENV.fetch('PROYECTO_API_DATABASE_PASSWORD', '').to_json %>
   cache:
     <<: *primary_production
     database: proyecto_api_production_cache
