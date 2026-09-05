@@ -15,7 +15,7 @@ RSpec.describe 'Orders API', type: :request do
   end
 
   def auth_headers(user)
-    post '/api/v1/auth/login', params: { email: user.email, password: 'pass123' }
+    post '/api/v1/auth/login', params: { email: user.email, password: 'pass123' }, headers: { 'X-Tenant-Slug' => user.company.slug }
     { 'Authorization' => "Bearer #{response.parsed_body['token']}" }
   end
 

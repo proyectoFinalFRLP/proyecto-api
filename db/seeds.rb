@@ -15,7 +15,21 @@ companies = [
   {
     name: 'Distribuidora Norte S.A.',
     tax_id: '30-11111111-1',
+    slug: 'norte',
     is_active: true,
+    # Norte tiene integraciones habilitadas y Sur no: es el flag que el frontend
+    # usa para mostrar u ocultar la sección, y lo que se demuestra en la demo.
+    features: { 'integrations' => true },
+    # Norte **no** declara colores a propósito: es el tenant que se queda con la
+    # paleta canónica del design system. Sin esto los dos tenants pisarían la
+    # marca del producto y el camino de fallback —el que corre para toda empresa
+    # que compra sin branding propio— no se vería nunca, ni en la demo ni en
+    # desarrollo local, donde `norte` es el tenant por defecto.
+    branding: {
+      'display_name' => 'Distribuidora Norte',
+      'logo_url' => nil,
+      'tagline' => 'Logística del norte'
+    },
     users: [
       { email: 'admin@norte.com', password: 'password123' },
       { email: 'operador@norte.com', password: 'password123' }
@@ -28,7 +42,16 @@ companies = [
   {
     name: 'Comercial Sur S.R.L.',
     tax_id: '30-22222222-2',
+    slug: 'sur',
     is_active: true,
+    features: { 'integrations' => false },
+    branding: {
+      'display_name' => 'Comercial Sur',
+      'primary_color' => '#1565C0',
+      'accent_color' => '#FFA726',
+      'logo_url' => nil,
+      'tagline' => 'Distribución para el sur'
+    },
     users: [
       { email: 'admin@sur.com', password: 'password123' },
       { email: 'deposito@sur.com', password: 'password123' }
@@ -41,7 +64,16 @@ companies = [
     # Tenant inactivo: representa una empresa dada de baja (is_active: false).
     name: 'Importadora Vieja S.A. (inactiva)',
     tax_id: '30-33333333-3',
+    slug: 'importadora',
     is_active: false,
+    features: { 'integrations' => false },
+    branding: {
+      'display_name' => 'Importadora Vieja',
+      'primary_color' => '#6D4C41',
+      'accent_color' => '#A1887F',
+      'logo_url' => nil,
+      'tagline' => 'Empresa dada de baja'
+    },
     users: [
       { email: 'admin@vieja.com', password: 'password123' }
     ],
@@ -55,7 +87,23 @@ companies.each do |attrs|
   company = Company.find_or_create_by!(tax_id: attrs[:tax_id]) do |c|
     c.name = attrs[:name]
     c.is_active = attrs[:is_active]
+    c.slug = attrs[:slug]
+    c.features = attrs[:features]
+    c.branding = attrs[:branding]
   end
+
+  # El bloque de find_or_create_by! sólo corre en el alta, así que una base que
+  # ya tenía estas companies (cualquiera creada antes de TESIS-120) se quedaría
+  # sin slug ni branding. Reasignar acá mantiene el seed idempotente y además
+  # convergente: correrlo dos veces deja el mismo estado, y correrlo sobre una
+  # base vieja la actualiza.
+  company.update!(
+    name: attrs[:name],
+    is_active: attrs[:is_active],
+    slug: attrs[:slug],
+    features: attrs[:features],
+    branding: attrs[:branding]
+  )
 
   attrs[:users].each do |user_attrs|
     User.find_or_create_by!(email: user_attrs[:email]) do |u|

@@ -8,7 +8,7 @@ RSpec.describe 'Products API', type: :request do
   let(:headers) { auth_headers(user) }
 
   def auth_headers(user)
-    post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }
+    post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }, headers: { 'X-Tenant-Slug' => user.company.slug }
     { 'Authorization' => "Bearer #{response.parsed_body['token']}" }
   end
 
