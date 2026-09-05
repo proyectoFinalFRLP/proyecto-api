@@ -20,10 +20,13 @@ companies = [
     # Norte tiene integraciones habilitadas y Sur no: es el flag que el frontend
     # usa para mostrar u ocultar la sección, y lo que se demuestra en la demo.
     features: { 'integrations' => true },
+    # Norte **no** declara colores a propósito: es el tenant que se queda con la
+    # paleta canónica del design system. Sin esto los dos tenants pisarían la
+    # marca del producto y el camino de fallback —el que corre para toda empresa
+    # que compra sin branding propio— no se vería nunca, ni en la demo ni en
+    # desarrollo local, donde `norte` es el tenant por defecto.
     branding: {
       'display_name' => 'Distribuidora Norte',
-      'primary_color' => '#2E7D32',
-      'accent_color' => '#66BB6A',
       'logo_url' => nil,
       'tagline' => 'Logística del norte'
     },
