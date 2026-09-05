@@ -11,6 +11,10 @@ Rails.application.routes.draw do
       post 'auth/login', to: 'auth/sessions#create'
       delete 'auth/logout', to: 'auth/sessions#destroy'
 
+      # Ruta pública: el frontend la pide antes del login para resolver branding
+      # y feature flags del tenant (por header X-Tenant-Slug o ?slug=).
+      get 'tenant-config', to: 'tenant_config#show'
+
       # La identidad de la sesión. Sin id por parámetro: siempre el usuario
       # del token.
       get 'me', to: 'me#show'
