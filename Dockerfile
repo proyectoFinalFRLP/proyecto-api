@@ -55,6 +55,13 @@ COPY . .
 # -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
 RUN bundle exec bootsnap precompile -j 1 app/ lib/
 
+# Precompilar los assets (Propshaft) en build y no en runtime: el backoffice de
+# Avo sirve CSS/JS con nombre digest desde public/assets, y sin este paso las
+# páginas del panel piden esos archivos y reciben 404 (panel sin estilos).
+# SECRET_KEY_BASE_DUMMY evita que el boot de Rails pida credenciales reales
+# durante la compilación, cuando no hay base de datos ni secrets disponibles.
+RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
+
 # Adjust binfiles to be executable on Linux
 RUN chmod +x bin/* && \
     sed -i "s/\r$//g" bin/* && \
