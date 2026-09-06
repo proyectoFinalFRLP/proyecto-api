@@ -47,10 +47,16 @@ companies = [
     features: { 'integrations' => false },
     branding: {
       'display_name' => 'Comercial Sur',
-      'primary_color' => '#1565C0',
-      'accent_color' => '#FFA726',
+      # Demo: Sur tiene que distinguirse de Norte a primera vista. Naranja
+      # industrial (identidad de herramienta, acorde a su catálogo) contra el
+      # celeste del DS que Norte hereda, y su portal en modo claro contra el
+      # dark canónico de Norte. `theme_mode` es el default con el que arranca
+      # el frontend; el toggle del usuario siempre gana sobre él.
+      'primary_color' => '#F97316',
+      'accent_color' => '#FB923C',
       'logo_url' => nil,
-      'tagline' => 'Distribución para el sur'
+      'tagline' => 'Distribución para el sur',
+      'theme_mode' => 'light'
     },
     users: [
       { email: 'admin@sur.com', password: 'password123' },
