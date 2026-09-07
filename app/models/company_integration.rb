@@ -12,4 +12,8 @@ class CompanyIntegration < ApplicationRecord
   encrypts :credentials
 
   validates :service_id, uniqueness: { scope: :company_id }
+
+  def display_name
+    "#{company&.name} \u2194 #{service&.service_name}"
+  end
 end
