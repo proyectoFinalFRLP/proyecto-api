@@ -4,13 +4,21 @@ module Api
   module V1
     module Auth
       class SessionsController < ApplicationController
+        include TenantFromSlug
+
         skip_before_action :authenticate_user!, only: :create
         skip_after_action :verify_authorized, :verify_policy_scoped
 
+        # El login está scoped al tenant del slug: un usuario de Norte no obtiene
+        # token en el portal de Sur. Los cinco casos de fallo (tenant no
+        # resuelto, email desconocido, usuario de otro tenant, password
+        # incorrecta) comparten esta única rama y responden idéntico, así que la
+        # respuesta no permite enumerar usuarios ni tenants.
         def create
           token = ::Auth::AuthenticateUser.new(
             email: params[:email],
-            password: params[:password]
+            password: params[:password],
+            company: tenant_company
           ).call
 
           if token

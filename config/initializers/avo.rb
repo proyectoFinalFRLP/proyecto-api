@@ -167,19 +167,28 @@ Avo.configure do |config|
   # end
 
   ## == Menus ==
-  # config.main_menu = -> {
-  #   section "Dashboards", icon: "tabler/outline/layout-dashboard" do
-  #     all_dashboards
-  #   end
+  config.main_menu = -> {
+    section 'Tenant Configuration', icon: 'tabler/outline/buildings' do
+      resource :companies
+      resource :users
+    end
 
-  #   section "Resources", icon: "tabler/outline/chart-bar-popular" do
-  #     all_resources
-  #   end
+    section 'Integrations', icon: 'tabler/outline/plug' do
+      resource :company_integrations
+      resource :services
+    end
 
-  #   section "Tools", icon: "tabler/outline/tool" do
-  #     all_tools
-  #   end
-  # }
+    section 'Catalog', icon: 'tabler/outline/package' do
+      resource :products
+      resource :warehouses
+      resource :stocks
+    end
+
+    section 'Operations', icon: 'tabler/outline/truck-delivery' do
+      resource :orders
+      resource :shipments
+    end
+  }
   # config.profile_menu = -> {
   #   link "Profile", path: "/avo/profile", icon: "tabler/outline/user-circle"
   # }

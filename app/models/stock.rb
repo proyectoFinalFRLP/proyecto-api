@@ -8,6 +8,10 @@ class Stock < ApplicationRecord
   validates :warehouse_id, uniqueness: { scope: :product_id }
   validate :product_and_warehouse_must_belong_to_same_company
 
+  def display_name
+    "#{product&.name} @ #{warehouse&.name}"
+  end
+
   # El disparo del sync saliente vive acá y no en el ABM porque la condición es
   # "cambió la tabla stocks", no "alguien usó tal endpoint": así queda cubierto
   # todo camino que escriba stock (ABM, descuento por venta, importaciones,

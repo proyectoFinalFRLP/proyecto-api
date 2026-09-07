@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_30_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_05_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -24,11 +24,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_30_120000) do
   end
 
   create_table "companies", force: :cascade do |t|
+    t.jsonb "branding", default: {}, null: false
     t.datetime "created_at", null: false
+    t.jsonb "features", default: {}, null: false
     t.boolean "is_active", default: true, null: false
     t.string "name", null: false
+    t.string "slug", null: false
     t.string "tax_id", null: false
     t.datetime "updated_at", null: false
+    t.index ["slug"], name: "index_companies_on_slug", unique: true
     t.index ["tax_id"], name: "index_companies_on_tax_id", unique: true
   end
 
@@ -146,7 +150,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_30_120000) do
     t.datetime "updated_at", null: false
     t.string "uri", null: false
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
-    t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying::text, 'courier'::character varying::text])", name: "services_type_check"
+    t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
   end
 
   create_table "shipment_events", force: :cascade do |t|

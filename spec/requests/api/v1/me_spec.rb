@@ -7,7 +7,7 @@ RSpec.describe 'Me API', type: :request do
   let(:user) { User.create!(email: 'me@example.com', password: 'password123', company: company) }
 
   def token_for(user)
-    post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }
+    post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }, headers: { 'X-Tenant-Slug' => user.company.slug }
     response.parsed_body['token']
   end
 

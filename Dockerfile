@@ -32,11 +32,15 @@ FROM base AS build
 
 # Install packages needed to build gems
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev pkg-config && \
+    # libffi-dev: fiddle (dependencia de IRB/reline, grupo development) se
+    # compila de fuente en arm64 y necesita los headers de libffi.
+    apt-get install --no-install-recommends -y build-essential git libpq-dev libyaml-dev libffi-dev pkg-config && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Install application gems
-COPY vendor/* ./vendor/
+# (sin `vendor/`: el repo no trae gems cacheadas y `COPY vendor/*` falla con el
+# directorio vacío. Si algún día se corre `bundle cache`, se puede volver a
+# copiar vendor/ para builds sin red.)
 COPY Gemfile Gemfile.lock ./
 
 RUN bundle install && \
@@ -50,6 +54,13 @@ COPY . .
 # Precompile bootsnap code for faster boot times.
 # -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
 RUN bundle exec bootsnap precompile -j 1 app/ lib/
+
+# Precompilar los assets (Propshaft) en build y no en runtime: el backoffice de
+# Avo sirve CSS/JS con nombre digest desde public/assets, y sin este paso las
+# páginas del panel piden esos archivos y reciben 404 (panel sin estilos).
+# SECRET_KEY_BASE_DUMMY evita que el boot de Rails pida credenciales reales
+# durante la compilación, cuando no hay base de datos ni secrets disponibles.
+RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
 
 # Adjust binfiles to be executable on Linux
 RUN chmod +x bin/* && \

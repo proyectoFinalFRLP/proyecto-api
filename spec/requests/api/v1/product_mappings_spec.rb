@@ -9,7 +9,7 @@ RSpec.describe 'Product Mappings API', type: :request do
   let(:product) { Product.create!(company: company, sku: 'A-001', name: 'Alpha') }
 
   def auth_headers(user)
-    post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }
+    post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }, headers: { 'X-Tenant-Slug' => user.company.slug }
     { 'Authorization' => "Bearer #{response.parsed_body['token']}" }
   end
 

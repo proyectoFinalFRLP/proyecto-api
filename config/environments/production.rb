@@ -84,4 +84,12 @@ Rails.application.configure do
   #
   # Skip DNS rebinding protection for the default health check endpoint.
   # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+
+  # Despliegue en contenedor detrás de un proxy TLS (Caddy + DuckDNS): el Host
+  # que ve Rails es el subdominio público, y sin listarlo acá la protección
+  # contra DNS rebinding responde 403. Se configura por entorno
+  # (RAILS_ALLOWED_HOSTS, separado por comas); sin la variable se mantiene el
+  # comportamiento por defecto.
+  allowed_hosts = ENV.fetch('RAILS_ALLOWED_HOSTS', '').split(',').map(&:strip).reject(&:empty?)
+  config.hosts.concat(allowed_hosts) if allowed_hosts.any?
 end
