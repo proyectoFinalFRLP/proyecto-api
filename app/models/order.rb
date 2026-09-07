@@ -17,6 +17,11 @@ class Order < ApplicationRecord
   validates :external_order_id, uniqueness: { scope: :company_id }, allow_nil: true
   validate :company_integration_belongs_to_company
 
+  def display_name
+    label = customer_name || "Order ##{id}"
+    external_order_id ? "#{label} (#{external_order_id})" : label
+  end
+
   private
 
   # La integración debe pertenecer a la misma empresa que la orden: evita que

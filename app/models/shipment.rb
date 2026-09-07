@@ -18,6 +18,11 @@ class Shipment < ApplicationRecord
   # único sobre order_id (migración) es la garantía a nivel motor; la validación
   # del modelo da un mensaje de error limpio antes de llegar a la DB.
   validates :order_id, uniqueness: true
+
+  def display_name
+    tracking_number || "Shipment ##{id}"
+  end
+
   validate :order_belongs_to_company
   validate :company_integration_belongs_to_company
 
