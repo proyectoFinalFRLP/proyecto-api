@@ -4,9 +4,11 @@ module Avo
   module Resources
     class Product < Avo::BaseResource
       self.title = :name
-      self.includes = [:company, :stocks]
+      self.includes = %i[company stocks]
       self.search = {
-        query: -> { query.where('name ILIKE ? OR sku ILIKE ?', "%#{search_term}%", "%#{search_term}%") }
+        query: lambda {
+          query.where('name ILIKE ? OR sku ILIKE ?', "%#{search_term}%", "%#{search_term}%")
+        }
       }
 
       def fields

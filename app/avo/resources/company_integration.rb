@@ -4,7 +4,7 @@ module Avo
   module Resources
     class CompanyIntegration < Avo::BaseResource
       self.title = :display_name
-      self.includes = [:company, :service]
+      self.includes = %i[company service]
 
       def fields
         field :id, as: :id

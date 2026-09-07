@@ -4,7 +4,7 @@ module Avo
   module Resources
     class Order < Avo::BaseResource
       self.title = :display_name
-      self.includes = [:company, :company_integration, :order_items]
+      self.includes = %i[company company_integration order_items]
 
       def fields
         field :id, as: :id
