@@ -6,7 +6,10 @@ module Avo
       self.title = :name
       self.includes = []
       self.search = {
-        query: -> { query.where('name ILIKE ? OR slug ILIKE ? OR tax_id ILIKE ?', "%#{search_term}%", "%#{search_term}%", "%#{search_term}%") }
+        query: lambda {
+          query.where('name ILIKE ? OR slug ILIKE ? OR tax_id ILIKE ?', "%#{search_term}%",
+                      "%#{search_term}%", "%#{search_term}%")
+        }
       }
 
       def fields

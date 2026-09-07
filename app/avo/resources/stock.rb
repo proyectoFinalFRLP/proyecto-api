@@ -4,7 +4,7 @@ module Avo
   module Resources
     class Stock < Avo::BaseResource
       self.title = :display_name
-      self.includes = [:product, :warehouse]
+      self.includes = %i[product warehouse]
 
       def fields
         field :id, as: :id
@@ -12,8 +12,6 @@ module Avo
         field :warehouse, as: :belongs_to
         field :quantity, as: :number, required: true
       end
-
-
     end
   end
 end
