@@ -2,12 +2,16 @@
 
 module Api
   module V1
-    # Sólo lectura. Nada en la API crea ni modifica envíos todavía: nacen al
-    # confirmar el despacho (TESIS-105) y avanzan solos con el push de tracking
-    # del courier (TESIS-48). Hasta que entre TESIS-105, los únicos envíos que
-    # este endpoint devuelve son los sembrados por db/seeds.rb.
+    # Lista, detalle y alta de envíos. El alta (TESIS-105) cuelga de la orden
+    # —POST /api/v1/orders/:order_id/shipment— porque un envío nace siempre de
+    # una: es el punto de entrada de la épica logística. Después de eso el envío
+    # no se edita por esta API; avanza con el push de tracking del courier
+    # (TESIS-48) y con la confirmación del despacho (TESIS-47).
     class ShipmentsController < ApplicationController
       before_action :set_shipment, only: %i[show]
+
+      rescue_from Shipments::UnshippableOrderError, with: :render_unprocessable
+      rescue_from Shipments::DuplicateShipmentError, with: :render_conflict
 
       def index
         page = [params[:page].to_i, 1].max
@@ -33,6 +37,20 @@ module Api
         render json: ShipmentSerializer.render(@shipment)
       end
 
+      def create
+        # find y no find_by: Order es CompanyScoped, así que una orden de otra
+        # empresa levanta RecordNotFound -> 404 y no confirma que exista.
+        order = Order.find(params.expect(:order_id))
+        # Se autoriza la orden y no el envío, igual que la cotización de
+        # TESIS-46: el envío todavía no existe cuando corre el chequeo, y el
+        # permiso es sobre la orden. ShipmentPolicy sigue siendo de sólo lectura.
+        authorize order, :ship?
+
+        shipment = Shipments::CreateShipment.new(order: order).call
+
+        render json: ShipmentSerializer.render(shipment), status: :created
+      end
+
       private
 
       # Un status desconocido no se filtra ni se rechaza: `where` lo busca igual
@@ -52,6 +70,12 @@ module Api
         @shipment = Shipment.includes(:shipment_events, company_integration: :service)
                             .find(params.expect(:id))
         authorize @shipment
+      end
+
+      # 409 y no 422: la orden ya tiene su envío, y no hay nada que el cliente
+      # pueda corregir en el body para que el mismo request funcione.
+      def render_conflict(exception)
+        render json: { error: exception.message }, status: :conflict
       end
     end
   end
