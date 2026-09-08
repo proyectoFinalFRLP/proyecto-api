@@ -35,6 +35,11 @@ Rails.application.routes.draw do
         resources :quotes, only: %i[create], controller: 'shipment_quotes'
       end
 
+      # Sólo lectura: los envíos no se crean por esta API (ver ShipmentsController).
+      # El filtro por orden viaja como query param (?order_id=) y no como ruta
+      # anidada: el listado es la vista principal, y la orden es un filtro más.
+      resources :shipments, only: %i[index show]
+
       resources :failed_events, path: 'failed-events', only: %i[index] do
         member do
           post :retry, action: :requeue
