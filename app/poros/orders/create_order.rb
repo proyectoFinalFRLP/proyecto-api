@@ -33,6 +33,9 @@ module Orders
         products = resolve_products!
         acquire_locks_in_canonical_order!(products)
         @items.each { |item| create_item!(order, item, products) }
+        # Dentro de la misma transacción que las líneas: o queda la orden con su
+        # total escrito, o no queda la orden (TESIS-114).
+        order.update!(total_amount: order.items_total)
         order
       end
     end
