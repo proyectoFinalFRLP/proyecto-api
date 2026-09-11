@@ -67,6 +67,9 @@ module Orders
     def create_order(items)
       order = Order.create!(order_attributes)
       items.each { |item, mapping| register_item(order, item, mapping) }
+      # Dentro de la misma transacción que las líneas y el descuento de stock:
+      # el total es parte de la venta, no un paso posterior (TESIS-114).
+      order.update!(total_amount: order.items_total)
       order
     end
 

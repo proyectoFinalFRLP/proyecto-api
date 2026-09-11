@@ -176,4 +176,42 @@ RSpec.describe Orders::CreateOrder, type: :poro do
         .to raise_error(ActiveRecord::RecordNotSaved, /quantity is required/)
     end
   end
+
+  # ------------------------------------------------------------------ TESIS-114
+  describe 'total_amount' do
+    let(:product2) { Product.create!(company: company, sku: 'SKU-003', name: 'Cargador') }
+
+    it 'writes the total of a single line' do
+      order = create_order([item(quantity: 2, unit_price: 150.00)])
+
+      expect(order.reload.total_amount).to eq(300.00)
+    end
+
+    it 'adds up every line' do
+      Stock.create!(product: product2, warehouse: warehouse, quantity: 10)
+
+      order = create_order([item(quantity: 2, unit_price: 150.00),
+                            item(product_id: product2.id, quantity: 1, unit_price: 49.99)])
+
+      expect(order.reload.total_amount).to eq(349.99)
+    end
+
+    # El total sale de lo que se envió en el request, no del precio del
+    # catálogo: es lo que se facturó.
+    it 'uses the unit price of the request and not the catalog price' do
+      order = create_order([item(quantity: 1, unit_price: 1.00)])
+
+      expect(order.reload.total_amount).to eq(1.00)
+    end
+
+    # Si el alta falla después de crear la orden, no puede quedar una orden sin
+    # total ni un total sin sus líneas: la escritura va en la misma transacción.
+    it 'does not leave an order behind when a later line fails' do
+      expect do
+        create_order([item(quantity: 1), item(product_id: -1)])
+      rescue ActiveRecord::RecordNotSaved
+        nil
+      end.not_to change(Order, :count)
+    end
+  end
 end
