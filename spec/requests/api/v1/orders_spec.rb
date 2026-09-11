@@ -61,6 +61,244 @@ RSpec.describe 'Orders API', type: :request do
     end
   end
 
+  # ------------------------------------------------------------------ TESIS-112
+  # Cuenta las consultas que matchean un patrón mientras corre el bloque. Mismo
+  # helper que products_spec: acá fija que el detalle no haga N+1 sobre los
+  # productos de las líneas.
+  def count_queries(matching:, &block)
+    count = 0
+    counter = lambda do |_name, _started, _finished, _id, payload|
+      count += 1 if payload[:sql].to_s.match?(matching)
+    end
+
+    ActiveSupport::Notifications.subscribed(counter, 'sql.active_record', &block)
+
+    count
+  end
+
+  # Crea una orden sin pasar por el endpoint: los ejemplos de lectura no
+  # necesitan ejercitar el alta ni descontar stock.
+  def make_order(name: 'Juan Pérez', status: 'pending', external_id: nil, items: 1)
+    order = Order.create!(company: company, customer_name: name, status: status,
+                          external_order_id: external_id)
+    items.times do
+      OrderItem.create!(order: order, product: product, quantity: 1, unit_price: 100)
+    end
+    order
+  end
+
+  def order_of_another_company
+    other_co = Company.create!(name: 'Rival', tax_id: '30-88888888-1')
+    Current.set(company_id: other_co.id) do
+      Order.create!(company: other_co, customer_name: 'Ajeno', status: 'pending')
+    end
+  end
+
+  describe 'GET /api/v1/orders' do
+    it 'returns 401 without a token' do
+      get '/api/v1/orders'
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    context 'when authenticated' do
+      it 'returns 200' do
+        make_order
+        get '/api/v1/orders', headers: headers
+
+        expect(response).to have_http_status(:ok)
+      end
+
+      it 'returns only the orders of the company in the token' do
+        mine = make_order(name: 'Mía')
+        order_of_another_company
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].pluck('id')).to eq([mine.id])
+      end
+
+      it 'reports the total in meta' do
+        2.times { make_order }
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['meta']['total']).to eq(2)
+      end
+
+      it 'returns the newest order first' do
+        make_order(name: 'Vieja')
+        newest = make_order(name: 'Nueva')
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].first['id']).to eq(newest.id)
+      end
+
+      it 'counts the items of each row' do
+        make_order(items: 3)
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].first['item_count']).to eq(3)
+      end
+
+      it 'does not include the order items in the list' do
+        make_order
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].first).not_to have_key('order_items')
+      end
+
+      it 'limits the page to per_page rows' do
+        3.times { make_order }
+
+        get '/api/v1/orders', params: { per_page: 2 }, headers: headers
+
+        expect(response.parsed_body['data'].size).to eq(2)
+      end
+
+      it 'caps per_page at 100' do
+        make_order
+
+        get '/api/v1/orders', params: { per_page: 500 }, headers: headers
+
+        expect(response.parsed_body['meta']['per_page']).to eq(100)
+      end
+    end
+
+    context 'when filtering by status' do
+      before do
+        make_order(name: 'Pendiente', status: 'pending')
+        make_order(name: 'Cancelada', status: 'cancelled')
+      end
+
+      it 'returns only the rows of that status' do
+        get '/api/v1/orders', params: { status: 'cancelled' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('status')).to eq(['cancelled'])
+      end
+
+      # De este número salen los KPIs de TESIS-53, que los pide con
+      # `?status=pending&per_page=1` y lee sólo el meta: si el total contara la
+      # tabla entera en vez del filtro, el KPI mentiría.
+      it 'counts only the filtered rows in meta.total' do
+        get '/api/v1/orders', params: { status: 'cancelled' }, headers: headers
+
+        expect(response.parsed_body['meta']['total']).to eq(1)
+      end
+
+      it 'returns an empty list for an unknown status, without failing' do
+        get '/api/v1/orders', params: { status: 'nope' }, headers: headers
+
+        expect(response.parsed_body['data']).to be_empty
+      end
+    end
+
+    context 'when searching' do
+      before do
+        make_order(name: 'Ferretería Pérez', external_id: 'ML-1001')
+        make_order(name: 'Otra Cosa', external_id: 'TN-2002')
+      end
+
+      it 'matches by customer name' do
+        get '/api/v1/orders', params: { search: 'ferret' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('customer_name'))
+          .to eq(['Ferretería Pérez'])
+      end
+
+      it 'matches by external order id' do
+        get '/api/v1/orders', params: { search: 'TN-20' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('external_order_id'))
+          .to eq(['TN-2002'])
+      end
+
+      it 'ignores case' do
+        get '/api/v1/orders', params: { search: 'FERRET' }, headers: headers
+
+        expect(response.parsed_body['data'].size).to eq(1)
+      end
+
+      it 'counts only the matching rows in meta.total' do
+        get '/api/v1/orders', params: { search: 'ferret' }, headers: headers
+
+        expect(response.parsed_body['meta']['total']).to eq(1)
+      end
+
+      # Un `%` tipeado por el usuario es texto a buscar, no un comodín: sin
+      # escaparlo, buscar "%" devolvería la tabla entera.
+      it 'treats a literal % as text and not as a wildcard' do
+        get '/api/v1/orders', params: { search: '%' }, headers: headers
+
+        expect(response.parsed_body['data']).to be_empty
+      end
+    end
+  end
+
+  describe 'GET /api/v1/orders/:id' do
+    it 'returns 401 without a token' do
+      get "/api/v1/orders/#{make_order.id}"
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    context 'when authenticated' do
+      it 'returns 200' do
+        get "/api/v1/orders/#{make_order.id}", headers: headers
+
+        expect(response).to have_http_status(:ok)
+      end
+
+      it 'returns the order items' do
+        get "/api/v1/orders/#{make_order(items: 2).id}", headers: headers
+
+        expect(response.parsed_body['order_items'].size).to eq(2)
+      end
+
+      it 'returns the product of each line' do
+        get "/api/v1/orders/#{make_order.id}", headers: headers
+
+        expect(response.parsed_body['order_items'].first['product'])
+          .to include('id' => product.id, 'sku' => product.sku, 'name' => product.name)
+      end
+
+      it 'returns unit_price as a number, not a string' do
+        get "/api/v1/orders/#{make_order.id}", headers: headers
+
+        expect(response.parsed_body['order_items'].first['unit_price']).to be_a(Numeric)
+      end
+
+      # Fija la precarga: con tres líneas del mismo producto tiene que haber UN
+      # solo SELECT sobre products. Sin `includes(order_items: :product)` serían
+      # tres, y con diez líneas, diez.
+      it 'loads the products of the lines in a single query' do
+        order = make_order(items: 3)
+
+        queries = count_queries(matching: /FROM "products"/) do
+          get "/api/v1/orders/#{order.id}", headers: headers
+        end
+
+        expect(queries).to eq(1)
+      end
+
+      # 404 y no 403: un 403 confirmaría que esa orden existe.
+      it 'returns 404 for an order of another company' do
+        get "/api/v1/orders/#{order_of_another_company.id}", headers: headers
+
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it 'returns 404 for an id that does not exist' do
+        get '/api/v1/orders/999999', headers: headers
+
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+  end
+
   describe 'POST /api/v1/orders' do
     it 'returns 401 without a token' do
       post '/api/v1/orders', params: build_payload, as: :json
