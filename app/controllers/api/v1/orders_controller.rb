@@ -12,18 +12,21 @@ module Api
 
       MAX_ITEMS = 100
 
-      # Campos sobre los que corre el buscador del listado (TESIS-52). Son los
-      # dos por los que un operador busca una venta: el nombre con el que la
-      # cargó, o el id con el que la conoce el canal externo.
-      SEARCH_FIELDS = %w[customer_name external_order_id].freeze
+      # Campos sobre los que corre el buscador del listado (TESIS-52). Son las
+      # tres formas en que un operador nombra una venta: el id con el que la
+      # conoce el canal externo, el nombre con el que la cargó, y a dónde va.
+      # La dirección está acá porque la pantalla ofrece buscar «por ID o
+      # destino»: sin ella, la mitad de esa promesa no se cumple.
+      SEARCH_FIELDS = %w[customer_name external_order_id customer_address].freeze
 
       def index
         page = [params[:page].to_i, 1].max
         per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
 
-        # La precarga alimenta `item_count` del serializer: sin ella es un
-        # SELECT de order_items por fila de la página.
-        orders = filtered_orders.preload(:order_items)
+        # La precarga alimenta dos columnas del serializer: `item_count` sale de
+        # order_items y `carrier` de la cadena envío → integración → servicio.
+        # Sin ella, cada fila de la página dispara sus propias consultas.
+        orders = filtered_orders.preload(:order_items, shipment: { company_integration: :service })
                                 .order(created_at: :desc, id: :desc)
                                 .offset((page - 1) * per_page)
                                 .limit(per_page)

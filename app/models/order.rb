@@ -31,6 +31,16 @@ class Order < ApplicationRecord
     order_items.sum { |item| item.quantity * item.unit_price }
   end
 
+  # El courier que lleva la orden, para la columna «Operador logístico» del
+  # listado (TESIS-52). Cuelga del envío y no de la orden, y las dos
+  # asociaciones del camino son opcionales: una orden puede no tener envío
+  # todavía, y el envío nace sin integración —se completa al confirmar el
+  # despacho—. En cualquiera de los dos casos devuelve nil.
+  def carrier_name
+    integration = shipment&.company_integration
+    integration&.service&.service_name
+  end
+
   private
 
   # La integración debe pertenecer a la misma empresa que la orden: evita que
