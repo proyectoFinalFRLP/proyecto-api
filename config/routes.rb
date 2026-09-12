@@ -33,11 +33,18 @@ Rails.application.routes.draw do
 
       resources :orders, only: %i[create] do
         resources :quotes, only: %i[create], controller: 'shipment_quotes'
+
+        # `resource` en singular: la restricción 1 a 1 de TESIS-45 (índice único
+        # sobre shipments.order_id) hace que la orden tenga a lo sumo un envío,
+        # así que no hay id que poner en la URL.
+        resource :shipment, only: %i[create]
       end
 
-      # Sólo lectura: los envíos no se crean por esta API (ver ShipmentsController).
-      # El filtro por orden viaja como query param (?order_id=) y no como ruta
-      # anidada: el listado es la vista principal, y la orden es un filtro más.
+      # El alta cuelga de la orden (POST /orders/:order_id/shipment, arriba): un
+      # envío nace siempre de una. Acá quedan la lista y el detalle, que se leen
+      # por envío. El filtro por orden viaja como query param (?order_id=) y no
+      # como ruta anidada: el listado es la vista principal, y la orden es un
+      # filtro más.
       resources :shipments, only: %i[index show]
 
       resources :failed_events, path: 'failed-events', only: %i[index] do

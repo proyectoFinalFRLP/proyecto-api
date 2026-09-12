@@ -244,4 +244,134 @@ RSpec.describe 'Shipments API', type: :request do
       expect(response).to have_http_status(:not_found)
     end
   end
+
+  describe 'POST /api/v1/orders/:order_id/shipment' do
+    let(:order) { order_with('pending') }
+
+    def order_with(status, owner: company)
+      Order.create!(company: owner, customer_name: 'Ana', customer_zip_code: '5000',
+                    customer_address: 'Av. Siempreviva 742', status: status)
+    end
+
+    def create_shipment(order_id, auth: headers)
+      post "/api/v1/orders/#{order_id}/shipment", headers: auth, as: :json
+    end
+
+    # Mismo motivo que foreign_shipment: assign_current_company pisa el company:
+    # manual si Current.company_id quedó seteado por un request previo.
+    def foreign_order
+      @foreign_order ||= Current.set(company_id: nil) do
+        other = Company.create!(name: 'Tenant C', tax_id: '30-33333333-3')
+        order_with('pending', owner: other)
+      end
+    end
+
+    it 'returns 401 without a token' do
+      post "/api/v1/orders/#{order.id}/shipment", as: :json
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    context 'with an order of the company' do
+      before { create_shipment(order.id) }
+
+      it 'returns 201' do
+        expect(response).to have_http_status(:created)
+      end
+
+      # El estado inicial del circuito logístico: pendiente y sin operador. El
+      # courier, el tracking y el costo los completa el despacho (TESIS-47).
+      it 'returns the shipment pending and without courier', :aggregate_failures do
+        expect(response.parsed_body).to include('order_id' => order.id, 'status' => 'pending')
+        expect(response.parsed_body['courier']).to be_nil
+        expect(response.parsed_body['tracking_number']).to be_nil
+        expect(response.parsed_body['shipping_cost']).to be_nil
+      end
+
+      # De esta respuesta sale el id que necesitan el despacho (TESIS-47) y la
+      # cotización (TESIS-46): sin él la card no encadena con el resto de la épica.
+      it 'returns the id of the created shipment' do
+        expect(response.parsed_body['id']).to eq(order.reload.shipment.id)
+      end
+
+      it 'starts with an empty tracking log' do
+        expect(response.parsed_body['events']).to eq([])
+      end
+    end
+
+    it 'creates the shipment' do
+      expect { create_shipment(order.id) }.to change(Shipment, :count).by(1)
+    end
+
+    it 'creates the shipment of an order already marked as paid' do
+      create_shipment(order_with('paid').id)
+
+      expect(response).to have_http_status(:created)
+    end
+
+    describe 'when the order is cancelled' do
+      let(:order) { order_with('cancelled') }
+
+      it 'returns 422' do
+        create_shipment(order.id)
+
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
+      it 'explains why it was rejected' do
+        create_shipment(order.id)
+
+        expect(response.parsed_body['error']).to include('cannot be shipped')
+      end
+
+      it 'does not create the shipment' do
+        expect { create_shipment(order.id) }.not_to change(Shipment, :count)
+      end
+    end
+
+    describe 'when the order already has a shipment' do
+      before { create_shipment(order.id) }
+
+      # 409 y no 422: la restricción 1 a 1 de TESIS-45 es definitiva, no hay
+      # nada que el cliente pueda corregir para que el mismo request funcione.
+      it 'returns 409' do
+        create_shipment(order.id)
+
+        expect(response).to have_http_status(:conflict)
+      end
+
+      it 'says the order already has one' do
+        create_shipment(order.id)
+
+        expect(response.parsed_body['error']).to eq('this order already has a shipment')
+      end
+
+      # "sin dejar basura": el segundo intento no puede dejar una fila a medias.
+      it 'does not create a second shipment' do
+        expect { create_shipment(order.id) }.not_to change(Shipment, :count)
+      end
+    end
+
+    describe 'tenant isolation' do
+      # 404 y no 403: confirmar que la orden existe ya sería filtrar información
+      # de otro tenant.
+      it 'returns 404 for an order of another company' do
+        create_shipment(foreign_order.id)
+
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it 'does not create a shipment for an order of another company' do
+        target = foreign_order
+
+        expect { create_shipment(target.id) }.not_to change(Shipment, :count)
+      end
+
+      it 'returns 404 for an unknown order' do
+        create_shipment(0)
+
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+  end
 end

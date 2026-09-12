@@ -27,8 +27,9 @@ RSpec.describe ShipmentPolicy, type: :policy do
     expect(policy.show?).to be(true)
   end
 
-  # Los envíos son de sólo lectura por ahora: nacen al confirmar el despacho,
-  # no por la API.
+  # El alta de TESIS-105 no pasa por esta policy: cuelga de la orden y se
+  # autoriza con OrderPolicy#ship?, porque cuando corre el chequeo el envío
+  # todavía no existe. Sobre el envío en sí no hay escritura por la API.
   it 'denies every write action', :aggregate_failures do
     expect(policy.create?).to be(false)
     expect(policy.update?).to be(false)

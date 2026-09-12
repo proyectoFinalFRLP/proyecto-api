@@ -11,6 +11,14 @@ class OrderPolicy < ApplicationPolicy
     show?
   end
 
+  # Dar de alta el envío de la orden (TESIS-105). Mismo criterio que cotizar: el
+  # permiso es sobre la orden —que sea del tenant del usuario—, y qué estados
+  # admiten despacho es una regla de negocio que vive en Shipments::CreateShipment,
+  # no acá.
+  def ship?
+    show?
+  end
+
   def create?
     user.present?
   end
