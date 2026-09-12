@@ -412,4 +412,64 @@ RSpec.describe 'Orders API', type: :request do
       end
     end
   end
+
+  # ------------------------------------------------------------------ TESIS-114
+  describe 'total_amount' do
+    it 'comes back in the body of the order just created' do
+      post_order
+
+      expect(response.parsed_body['total_amount']).to eq(300.0)
+    end
+
+    it 'adds up every item of the order' do
+      product2 = create_second_product
+      post_order(build_payload(items: multi_item_payload(product, product2)))
+
+      expect(response.parsed_body['total_amount']).to eq(750.0)
+    end
+
+    it 'is a number and not a string' do
+      post_order
+
+      expect(response.parsed_body['total_amount']).to be_a(Numeric)
+    end
+
+    it 'is not taken from the request body' do
+      payload = build_payload
+      payload[:order][:total_amount] = 999_999
+
+      post_order(payload)
+
+      expect(response.parsed_body['total_amount']).to eq(300.0)
+    end
+
+    it 'comes back in the detail' do
+      post_order
+      id = response.parsed_body['id']
+
+      get "/api/v1/orders/#{id}", headers: headers
+
+      expect(response.parsed_body['total_amount']).to eq(300.0)
+    end
+
+    # Es la columna Total del listado (TESIS-52): tiene que estar en la fila,
+    # sin abrir el detalle.
+    it 'comes back in each row of the list' do
+      post_order
+
+      get '/api/v1/orders', headers: headers
+
+      expect(response.parsed_body['data'].first['total_amount']).to eq(300.0)
+    end
+
+    # Las órdenes anteriores a esta card sin líneas quedaron en NULL: el
+    # listado tiene que devolverlas igual, con el campo vacío.
+    it 'is null, without failing, for an order that has none' do
+      make_order(items: 0)
+
+      get '/api/v1/orders', headers: headers
+
+      expect(response.parsed_body['data'].first['total_amount']).to be_nil
+    end
+  end
 end

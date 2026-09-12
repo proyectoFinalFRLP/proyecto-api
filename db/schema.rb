@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_30_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_11_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -99,11 +99,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_30_120000) do
     t.string "customer_zip_code"
     t.string "external_order_id"
     t.string "status", default: "pending", null: false
+    t.decimal "total_amount", precision: 10, scale: 2
     t.datetime "updated_at", null: false
     t.index ["company_id", "external_order_id"], name: "index_orders_on_company_id_and_external_order_id", unique: true
     t.index ["company_id"], name: "index_orders_on_company_id"
     t.index ["company_integration_id"], name: "index_orders_on_company_integration_id"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'paid'::character varying, 'cancelled'::character varying]::text[])", name: "orders_status_check"
+    t.check_constraint "total_amount >= 0::numeric", name: "orders_total_amount_non_negative"
   end
 
   create_table "product_mappings", force: :cascade do |t|
