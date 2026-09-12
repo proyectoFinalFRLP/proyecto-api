@@ -12,6 +12,41 @@ module Api
 
       MAX_ITEMS = 100
 
+      # Campos sobre los que corre el buscador del listado (TESIS-52). Son los
+      # dos por los que un operador busca una venta: el nombre con el que la
+      # cargó, o el id con el que la conoce el canal externo.
+      SEARCH_FIELDS = %w[customer_name external_order_id].freeze
+
+      def index
+        page = [params[:page].to_i, 1].max
+        per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
+
+        # La precarga alimenta `item_count` del serializer: sin ella es un
+        # SELECT de order_items por fila de la página.
+        orders = filtered_orders.preload(:order_items)
+                                .order(created_at: :desc, id: :desc)
+                                .offset((page - 1) * per_page)
+                                .limit(per_page)
+
+        render json: {
+          data: OrderListSerializer.render_as_hash(orders),
+          # El total se cuenta sobre el scope YA FILTRADO, no sobre la tabla de
+          # la empresa: de este número salen los KPIs de TESIS-53, que los pide
+          # con `?status=pending&per_page=1` y lee sólo el meta. Si contara de
+          # más, los KPIs mentirían.
+          meta: { page: page, per_page: per_page, total: filtered_orders.count }
+        }
+      end
+
+      def show
+        # find y no find_by: Order es CompanyScoped, así que una orden de otra
+        # empresa levanta RecordNotFound -> 404 y no confirma que exista.
+        order = Order.includes(order_items: :product).find(params.expect(:id))
+        authorize order
+
+        render json: OrderSerializer.render(order)
+      end
+
       def create
         authorize Order
 
@@ -21,10 +56,40 @@ module Api
           company: current_company
         ).call
 
-        render json: OrderSerializer.render(order), status: :created
+        render json: OrderSerializer.render(with_items(order)), status: :created
       end
 
       private
+
+      # Blueprinter relee `order_items` de la base al serializar, así que los
+      # productos que CreateOrder ya tenía en memoria no le sirven: sin esta
+      # precarga, el alta haría una consulta por línea para el `product` del
+      # OrderItemSerializer (hasta MAX_ITEMS por request).
+      def with_items(order)
+        Order.includes(order_items: :product).find(order.id)
+      end
+
+      # Un status desconocido no se rechaza: `where` lo busca igual y devuelve
+      # la lista vacía, que es la respuesta honesta para un filtro que no
+      # matchea nada. Mismo criterio que el listado de envíos.
+      def filtered_orders
+        orders = policy_scope(Order)
+        orders = orders.where(status: params[:status]) if params[:status].present?
+        apply_search(orders)
+      end
+
+      # ILIKE y no `LIKE`: el operador busca "perez" y espera encontrar "Pérez
+      # S.A.". El término se escapa con `sanitize_sql_like` para que un `%` o un
+      # `_` tipeados por el usuario se busquen literalmente en vez de comportarse
+      # como comodines.
+      def apply_search(orders)
+        term = params[:search].to_s.strip
+        return orders if term.blank?
+
+        pattern = "%#{Order.sanitize_sql_like(term)}%"
+        condition = SEARCH_FIELDS.map { |field| "#{field} ILIKE :pattern" }.join(' OR ')
+        orders.where(condition, pattern: pattern)
+      end
 
       def order_params
         order = params.require(:order)

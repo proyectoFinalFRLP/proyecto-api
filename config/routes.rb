@@ -31,7 +31,7 @@ Rails.application.routes.draw do
         end
       end
 
-      resources :orders, only: %i[create] do
+      resources :orders, only: %i[index show create] do
         resources :quotes, only: %i[create], controller: 'shipment_quotes'
       end
 
