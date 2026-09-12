@@ -22,15 +22,12 @@ module Api
         # como eager_load, sumaría las columnas de stocks y warehouses a ese
         # SELECT y Postgres rechazaría la consulta por columnas fuera del
         # GROUP BY. preload garantiza las consultas separadas.
-        products = policy_scope(Product).with_total_stock
-                                        .preload(stocks: :warehouse)
-                                        .order(created_at: :desc)
-                                        .offset((page - 1) * per_page)
-                                        .limit(per_page)
+        products = filtered_products.preload(stocks: :warehouse)
+                                    .order(created_at: :desc)
+                                    .offset((page - 1) * per_page)
+                                    .limit(per_page)
 
-        # total se cuenta sobre el scope sin with_total_stock: al estar agrupado,
-        # .count sobre el scope con with_total_stock devolvería un Hash, no entero.
-        total = policy_scope(Product).count
+        total = count_of(filtered_products)
 
         render json: {
           data: ProductListSerializer.render_as_hash(products),
@@ -81,6 +78,28 @@ module Api
       end
 
       private
+
+      # Las tres pestañas del catálogo más el buscador y la categoría. El orden
+      # importa: `with_total_stock` arma el GROUP BY y `by_stock_status` cuelga
+      # su HAVING de esa agregación.
+      def filtered_products
+        policy_scope(Product)
+          .search_catalog(params[:search])
+          .by_category(params[:category])
+          .with_total_stock
+          .by_stock_status(params[:status])
+      end
+
+      # Cuántas filas matchean, sobre el scope YA filtrado.
+      #
+      # `.count` no sirve acá: el scope está agrupado por products.id, así que
+      # devolvería un Hash de id → cantidad en vez de un entero, y con el HAVING
+      # del filtro de stock ni siquiera se puede quitar el GROUP BY sin cambiar
+      # qué filas entran. Envolverlo como subconsulta cuenta sus filas y deja el
+      # agrupamiento intacto.
+      def count_of(scope)
+        Product.unscoped.from(scope, :products).count
+      end
 
       # La version del agregado viaja como ETag (TESIS-101). El cliente la
       # devuelve en `If-Match` al guardar y el servidor rechaza la escritura si
