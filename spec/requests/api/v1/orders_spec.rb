@@ -526,6 +526,18 @@ RSpec.describe 'Orders API', type: :request do
 
         expect(first_row['customer_address']).to be_nil
       end
+
+      # La pantalla ofrece buscar «por ID o destino», así que la dirección
+      # entra en el buscador junto al id externo y al nombre del cliente.
+      it 'is searchable' do
+        located_order(address: 'Av. Rivadavia 1234')
+        located_order(address: 'Calle Falsa 123')
+
+        get '/api/v1/orders', params: { search: 'rivadavia' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('customer_address'))
+          .to eq(['Av. Rivadavia 1234'])
+      end
     end
 
     describe 'the carrier' do
