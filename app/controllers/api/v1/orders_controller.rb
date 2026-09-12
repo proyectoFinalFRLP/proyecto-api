@@ -21,9 +21,10 @@ module Api
         page = [params[:page].to_i, 1].max
         per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
 
-        # La precarga alimenta `item_count` del serializer: sin ella es un
-        # SELECT de order_items por fila de la página.
-        orders = filtered_orders.preload(:order_items)
+        # La precarga alimenta dos columnas del serializer: `item_count` sale de
+        # order_items y `carrier` de la cadena envío → integración → servicio.
+        # Sin ella, cada fila de la página dispara sus propias consultas.
+        orders = filtered_orders.preload(:order_items, shipment: { company_integration: :service })
                                 .order(created_at: :desc, id: :desc)
                                 .offset((page - 1) * per_page)
                                 .limit(per_page)

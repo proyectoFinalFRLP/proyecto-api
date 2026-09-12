@@ -472,4 +472,98 @@ RSpec.describe 'Orders API', type: :request do
       expect(response.parsed_body['data'].first['total_amount']).to be_nil
     end
   end
+
+  # ------------------------------------------------------------------- TESIS-52
+  # Las dos columnas del listado de órdenes que no salen de la propia orden:
+  # «Destino», que se arma con la dirección del cliente, y «Operador logístico»,
+  # que cuelga del envío.
+  describe 'the columns of the orders screen' do
+    def courier(name = 'Andreani')
+      Service.create!(service_name: name, type: 'courier', http_method: 'POST',
+                      uri: "https://api.#{name.downcase}.test/shipments")
+    end
+
+    def integration(service = courier)
+      CompanyIntegration.create!(company: company, service: service)
+    end
+
+    def ship(order, company_integration: nil)
+      Shipment.create!(company: company, order: order, status: 'pending',
+                       company_integration: company_integration)
+    end
+
+    def located_order(address: 'Av. Rivadavia 1234', zip: '1406')
+      Order.create!(company: company, customer_name: 'Juan Pérez', status: 'pending',
+                    customer_address: address, customer_zip_code: zip)
+    end
+
+    def first_row
+      get '/api/v1/orders', headers: headers
+      response.parsed_body['data'].first
+    end
+
+    def ship_with_each_courier(names)
+      names.each { |name| ship(make_order, company_integration: integration(courier(name))) }
+    end
+
+    describe 'the destination' do
+      it 'returns the customer address' do
+        located_order
+
+        expect(first_row['customer_address']).to eq('Av. Rivadavia 1234')
+      end
+
+      it 'returns the zip code' do
+        located_order
+
+        expect(first_row['customer_zip_code']).to eq('1406')
+      end
+
+      # Ninguno de los dos campos es obligatorio en el modelo: una venta cargada
+      # a mano puede no tener dirección y la fila tiene que viajar igual.
+      it 'returns null for an order without an address, without failing' do
+        make_order
+
+        expect(first_row['customer_address']).to be_nil
+      end
+    end
+
+    describe 'the carrier' do
+      it 'returns the name of the courier that carries the order' do
+        ship(make_order, company_integration: integration)
+
+        expect(first_row['carrier']).to eq('Andreani')
+      end
+
+      it 'is null when the order has no shipment yet' do
+        make_order
+
+        expect(first_row['carrier']).to be_nil
+      end
+
+      # El envío nace antes de que se sepa el courier: `company_integration` se
+      # completa recién al confirmar el despacho.
+      it 'is null when the shipment has no integration assigned' do
+        ship(make_order)
+
+        expect(first_row['carrier']).to be_nil
+      end
+
+      # Fija la precarga del controller. Sin `shipment: { company_integration:
+      # :service }`, tres filas con envío son tres SELECT sobre services, y con
+      # una página de veinte serían veinte.
+      # Tres couriers distintos y no el mismo tres veces: una empresa no puede
+      # tener dos integraciones contra el mismo servicio, y además así el
+      # ejemplo no pasaría por casualidad si el preload agrupara mal.
+      it 'resolves the courier of every row in a single query' do
+        ship_with_each_courier(%w[Andreani Moova OCASA])
+
+        queries = count_queries(matching: /FROM "services"/) do
+          get '/api/v1/orders', headers: headers
+        end
+
+        expect(queries).to eq(1)
+      end
+    end
+  end
 end
