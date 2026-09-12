@@ -45,6 +45,19 @@ RSpec.describe 'Products API', type: :request do
     end
   end
 
+  # Segundo lote con otro prefijo: `create_products_with_stock` usa SKUs fijos
+  # y el SKU es único por empresa, así que llamarlo dos veces choca.
+  def create_more_products_with_stock(total)
+    total.times do |i|
+      product = Product.create!(company: company, sku: "N2-#{i}", name: "N2-#{i}")
+      Stock.create!(product: product, warehouse: warehouse, quantity: i)
+    end
+  end
+
+  def aggregation_queries
+    count_queries(matching: /SUM.*stocks/i) { get '/api/v1/products', headers: headers }
+  end
+
   def add_extra_stocks(product)
     north = Warehouse.create!(company: company, name: 'North', zip_code: '1901', address: 'Calle 2')
     south = Warehouse.create!(company: company, name: 'South', zip_code: '1902', address: 'Calle 3')
@@ -103,6 +116,114 @@ RSpec.describe 'Products API', type: :request do
       expect(response).to have_http_status(:unauthorized)
     end
 
+    # ----------------------------------------------------------------- TESIS-62
+    # Las pestañas y el buscador del catálogo maestro. Los ejemplos van planos:
+    # anidar un nivel más por cada filtro pasa el máximo del linter y no agrega
+    # nada que el nombre del ejemplo no diga.
+    describe 'the catalog filters' do
+      def stocked(sku, quantity, category: nil, name: nil)
+        product = Product.create!(company: company, sku: sku, name: name || sku,
+                                  category: category)
+        Stock.create!(product: product, warehouse: warehouse, quantity: quantity)
+        product
+      end
+
+      def skus(params)
+        get '/api/v1/products', params: params, headers: headers
+        response.parsed_body['data'].pluck('sku')
+      end
+
+      before do
+        stocked('SIN-STOCK', 0, name: 'Fuente redundante')
+        stocked('BAJO', Product::LOW_STOCK_THRESHOLD, category: 'Cabling', name: 'Cable de red')
+        stocked('DISPONIBLE', Product::LOW_STOCK_THRESHOLD + 1,
+                category: 'Electronics', name: 'Sensor de presión')
+      end
+
+      it 'returns every product without a status' do
+        expect(skus({}).size).to eq(3)
+      end
+
+      it 'finds by availability the ones with no units at all' do
+        expect(skus(status: 'out_of_stock')).to eq(['SIN-STOCK'])
+      end
+
+      it 'finds by availability the ones at or below the threshold' do
+        expect(skus(status: 'low')).to eq(['BAJO'])
+      end
+
+      it 'finds by availability the ones above the threshold' do
+        expect(skus(status: 'available')).to eq(['DISPONIBLE'])
+      end
+
+      # El umbral es inclusivo: con exactamente el umbral el producto está en
+      # falta, no disponible. De ese borde depende que las tres pestañas sumen
+      # el total del catálogo.
+      it 'counts a product at exactly the threshold as low' do
+        get '/api/v1/products', params: { status: 'low' }, headers: headers
+
+        expect(response.parsed_body['data'].first['total_stock'])
+          .to eq(Product::LOW_STOCK_THRESHOLD)
+      end
+
+      # Las tres pestañas particionan el catálogo: sin esto un producto podría
+      # no aparecer en ninguna, o aparecer en dos.
+      it 'splits the catalog with no gaps and no overlap' do
+        expect(Product::STOCK_STATUSES.sum { |s| skus(status: s).size }).to eq(3)
+      end
+
+      it 'returns the whole catalog for an unknown status, without failing' do
+        expect(skus(status: 'nope').size).to eq(3)
+      end
+
+      it 'counts only the filtered rows in meta.total' do
+        get '/api/v1/products', params: { status: 'low' }, headers: headers
+
+        expect(response.parsed_body['meta']['total']).to eq(1)
+      end
+
+      it 'searches by sku' do
+        expect(skus(search: 'dispon')).to eq(['DISPONIBLE'])
+      end
+
+      it 'searches by name' do
+        expect(skus(search: 'sensor')).to eq(['DISPONIBLE'])
+      end
+
+      it 'ignores case when searching' do
+        expect(skus(search: 'CABLE')).to eq(['BAJO'])
+      end
+
+      # Un `%` tipeado por el usuario es texto a buscar, no un comodín.
+      it 'treats a literal % as text and not as a wildcard' do
+        expect(skus(search: '%')).to be_empty
+      end
+
+      it 'filters by category' do
+        expect(skus(category: 'Cabling')).to eq(['BAJO'])
+      end
+
+      it 'combines the category with the availability filter' do
+        expect(skus(category: 'Cabling', status: 'available')).to be_empty
+      end
+
+      it 'reports the availability of each row' do
+        skus({})
+
+        expect(response.parsed_body['data'].pluck('stock_status'))
+          .to contain_exactly('out_of_stock', 'low', 'available')
+      end
+
+      # El badge de la fila y el filtro salen del mismo umbral: si se calculara
+      # en el cliente, pedir «stock bajo» y contar las filas amarillas podían
+      # dar distinto.
+      it 'uses for the badge the same threshold the filter uses' do
+        get '/api/v1/products', params: { status: 'low' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('stock_status')).to eq(['low'])
+      end
+    end
+
     context 'when authenticated' do
       before do
         p1 = Product.create!(company: company, sku: 'A-001', name: 'Alpha')
@@ -148,12 +269,18 @@ RSpec.describe 'Products API', type: :request do
         expect(response.parsed_body['meta']).to include('page' => 1, 'per_page' => 1, 'total' => 2)
       end
 
-      it 'computes total_stock in a single aggregation query (no N+1)', :aggregate_failures do
+      # Antes fijaba «una sola consulta con SUM». Ahora son dos —la página y el
+      # conteo—, porque el total se cuenta sobre el scope ya filtrado y el
+      # filtro de stock es sobre el agregado. Lo que importa no es el número
+      # sino que no crezca con las filas: eso es lo que sería un N+1.
+      it 'does not add an aggregation query per row (no N+1)' do
         create_products_with_stock(10)
-        queries = count_queries(matching: /SUM.*stocks/i) { get '/api/v1/products', headers: headers }
+        con_doce = aggregation_queries
 
-        expect(response).to have_http_status(:ok)
-        expect(queries).to eq(1)
+        create_more_products_with_stock(10)
+        con_veintidos = aggregation_queries
+
+        expect(con_veintidos).to eq(con_doce)
       end
 
       it 'exposes the category of each product' do

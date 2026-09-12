@@ -11,6 +11,19 @@ class Product < ApplicationRecord
   # Sumar una categoría tiene que ser una línea acá, no una migración.
   CATEGORIES = %w[Electronics Machinery Cabling Power].freeze
 
+  # Hasta cuántas unidades un producto se considera en falta. Es un umbral único
+  # y no un punto de reposición por producto: el modelo no tiene esa columna y
+  # agregarla es una decisión de negocio propia, no un detalle de esta pantalla.
+  #
+  # Vive acá y no en el front porque de este número dependen dos cosas que
+  # tienen que coincidir: el filtro del listado y el color del badge de cada
+  # fila. Con el umbral del lado del cliente, pedir «stock bajo» y contar las
+  # filas amarillas podían dar distinto.
+  LOW_STOCK_THRESHOLD = 100
+
+  # Los tres estados de disponibilidad, en el vocabulario de la pantalla.
+  STOCK_STATUSES = %w[out_of_stock low available].freeze
+
   # Unidades en vuelo hacia/desde depósitos, como subconsulta escalar.
   #
   # Subconsulta y no un segundo left_joins: `with_total_stock` ya hace join con
@@ -47,6 +60,40 @@ class Product < ApplicationRecord
               "(#{IN_TRANSIT_SUBQUERY}) AS in_transit_quantity")
   }
 
+  # Filtro por disponibilidad, para las pestañas del catálogo.
+  #
+  # Va con HAVING y no con WHERE porque el criterio es sobre el agregado: el
+  # stock total de un producto es la suma de sus filas de `stocks`, y un WHERE
+  # se evalúa antes de agrupar. Encadena sobre `with_total_stock`, que es quien
+  # arma ese GROUP BY.
+  #
+  # Un estado desconocido no rompe: devuelve el scope sin tocar, mismo criterio
+  # que el resto de los listados.
+  # El umbral viaja como parámetro y no interpolado: aunque sea una constante
+  # nuestra, un HAVING armado con interpolación es indistinguible de uno armado
+  # con un dato del request para cualquiera que lea —o audite— este archivo.
+  scope :by_stock_status, lambda { |status|
+    case status
+    when 'out_of_stock' then having('COALESCE(SUM(stocks.quantity), 0) = 0')
+    when 'low' then having('COALESCE(SUM(stocks.quantity), 0) BETWEEN 1 AND ?',
+                           LOW_STOCK_THRESHOLD)
+    when 'available' then having('COALESCE(SUM(stocks.quantity), 0) > ?', LOW_STOCK_THRESHOLD)
+    else all
+    end
+  }
+
+  scope :by_category, ->(category) { category.present? ? where(category: category) : all }
+
+  # Busca por las dos formas en que un operador nombra un producto: el código
+  # con el que lo identifica y el nombre con el que lo conoce.
+  scope :search_catalog, lambda { |term|
+    cleaned = term.to_s.strip
+    next all if cleaned.blank?
+
+    pattern = "%#{sanitize_sql_like(cleaned)}%"
+    where('sku ILIKE :pattern OR name ILIKE :pattern', pattern: pattern)
+  }
+
   # Retorna el stock total consolidado. Si la fila fue cargada con el scope
   # with_total_stock, el alias SQL `total_stock` ya trae el agregado calculado
   # por la DB: hay que leerlo con has_attribute? porque un método definido en
@@ -54,6 +101,16 @@ class Product < ApplicationRecord
   # viene del scope, se suma por asociación (caso de detalle/creación).
   def total_stock
     has_attribute?(:total_stock) ? self[:total_stock].to_i : stocks.sum(:quantity)
+  end
+
+  # Disponibilidad del producto, derivada del stock total. Es la misma regla que
+  # usa `by_stock_status` para filtrar: si se calculara en el cliente, el filtro
+  # y el color de la fila podrían discrepar.
+  def stock_status
+    total = total_stock
+    return 'out_of_stock' if total.zero?
+
+    total <= LOW_STOCK_THRESHOLD ? 'low' : 'available'
   end
 
   # Unidades que salieron de un depósito y todavía no llegaron a otro. No están

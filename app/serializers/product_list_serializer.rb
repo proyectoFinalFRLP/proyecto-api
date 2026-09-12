@@ -6,6 +6,10 @@ class ProductListSerializer < ApplicationSerializer
   fields :sku, :name, :description, :category, :dimensions, :total_stock,
          :in_transit_quantity, :created_at, :updated_at
 
+  # Disponibilidad ya resuelta, para que la fila no tenga que reimplementar el
+  # umbral. Es el mismo valor por el que filtran las pestañas del catálogo.
+  field :stock_status
+
   # weight es decimal en la DB y BigDecimal se serializa como string por
   # defecto; exponerlo como número evita que el front tenga que parsear.
   field :weight do |product|
