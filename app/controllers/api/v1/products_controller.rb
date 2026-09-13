@@ -9,8 +9,8 @@ module Api
       rescue_from Catalog::StaleProductError, with: :render_precondition_failed
 
       def index
-        page = [params[:page].to_i, 1].max
-        per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
+        page = [scalar_param(:page).to_i, 1].max
+        per_page = (scalar_param(:per_page) || 20).to_i.clamp(1, 100)
 
         # La precarga es load-bearing: ProductListSerializer lee el depósito
         # principal de cada fila, y sin ella son dos queries por producto
@@ -84,10 +84,10 @@ module Api
       # su HAVING de esa agregación.
       def filtered_products
         policy_scope(Product)
-          .search_catalog(params[:search])
-          .by_category(params[:category])
+          .search_catalog(scalar_param(:search))
+          .by_category(scalar_param(:category))
           .with_total_stock
-          .by_stock_status(params[:status])
+          .by_stock_status(scalar_param(:status))
       end
 
       # Cuántas filas matchean, sobre el scope YA filtrado.
