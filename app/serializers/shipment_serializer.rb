@@ -15,13 +15,7 @@ class ShipmentSerializer < ApplicationSerializer
     shipment.shipping_cost&.to_f
   end
 
-  field :courier do |shipment|
-    integration = shipment.company_integration
-    next nil if integration.nil?
-
-    { id: integration.id, service_id: integration.service_id,
-      name: integration.service.service_name }
-  end
+  courier_field(:courier, &:company_integration)
 
   # Bitácora en orden cronológico. El orden se resuelve en memoria y no con un
   # `order` de SQL a propósito: el controller ya precargó los eventos, y pedir

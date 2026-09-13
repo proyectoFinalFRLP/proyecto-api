@@ -24,9 +24,14 @@ class OrderListSerializer < ApplicationSerializer
   # listado (TESIS-52). Viaja `null` cuando la orden no tiene envío o el envío
   # todavía no tiene courier asignado; la pantalla decide cómo mostrarlo.
   #
+  # Se llama `courier` y tiene la misma forma que en los dos endpoints de
+  # envíos, porque es el mismo dato. Antes viajaba como `carrier` y como string
+  # suelto: dos nombres y dos formas para un solo concepto obligaban al front a
+  # modelarlo dos veces.
+  #
   # El controller precarga `shipment: { company_integration: :service }`, así
-  # que `carrier_name` no dispara consultas por fila.
-  field :carrier_name, name: :carrier
+  # que resolverlo no dispara consultas por fila.
+  courier_field(:courier, &:courier)
 
   # Cuántas líneas tiene la orden, para la columna del listado. Se lee de la
   # asociación ya precargada por el controller (`size` y no `count`: sobre una
