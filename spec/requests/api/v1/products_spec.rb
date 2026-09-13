@@ -213,6 +213,48 @@ RSpec.describe 'Products API', type: :request do
       end
     end
 
+    # Los cuatro filtros del listado se leen con `scalar_param`, que rechaza
+    # un parámetro que llega como array o como hash. Sin eso `per_page[]=1`
+    # rompía con 500 —`Array#to_i` no existe— y los otros tres degradaban en
+    # silencio al listado entero, que es una respuesta plausible y equivocada.
+    context 'when a query parameter is malformed' do
+      it 'returns 400 for a per_page that is not a single value' do
+        get '/api/v1/products', params: { per_page: ['1'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a page that is not a single value' do
+        get '/api/v1/products', params: { page: ['2'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a status that is not a single value' do
+        get '/api/v1/products', params: { status: { foo: 'bar' } }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a category that is not a single value' do
+        get '/api/v1/products', params: { category: ['Cabling'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a search that is not a single value' do
+        get '/api/v1/products', params: { search: { foo: 'bar' } }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'says which parameter is wrong' do
+        get '/api/v1/products', params: { category: ['Cabling'] }, headers: headers
+
+        expect(response.parsed_body['error']).to include('category')
+      end
+    end
+
     context 'when authenticated' do
       before do
         p1 = Product.create!(company: company, sku: 'A-001', name: 'Alpha')
