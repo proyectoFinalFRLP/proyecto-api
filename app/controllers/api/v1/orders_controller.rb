@@ -18,8 +18,11 @@ module Api
       SEARCH_FIELDS = %w[customer_name external_order_id].freeze
 
       def index
-        page = [params[:page].to_i, 1].max
-        per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
+        # `scalar_param` y no `params[...]` directo: una query con `?page[]=1`
+        # entrega un Array y `to_i` sale con NoMethodError → 500. Ver
+        # ApplicationController.
+        page = [scalar_param(:page).to_i, 1].max
+        per_page = (scalar_param(:per_page) || 20).to_i.clamp(1, 100)
 
         # La precarga alimenta `item_count` del serializer: sin ella es un
         # SELECT de order_items por fila de la página.
@@ -72,9 +75,14 @@ module Api
       # Un status desconocido no se rechaza: `where` lo busca igual y devuelve
       # la lista vacía, que es la respuesta honesta para un filtro que no
       # matchea nada. Mismo criterio que el listado de envíos.
+      #
+      # Desconocido no es lo mismo que mal formado: `?status[foo]=bar` llega
+      # como ActionController::Parameters y ActiveRecord lo rechaza con
+      # TypeError. `scalar_param` lo corta antes, con un 400.
       def filtered_orders
+        status = scalar_param(:status)
         orders = policy_scope(Order)
-        orders = orders.where(status: params[:status]) if params[:status].present?
+        orders = orders.where(status: status) if status.present?
         apply_search(orders)
       end
 
@@ -83,7 +91,7 @@ module Api
       # `_` tipeados por el usuario se busquen literalmente en vez de comportarse
       # como comodines.
       def apply_search(orders)
-        term = params[:search].to_s.strip
+        term = scalar_param(:search).to_s.strip
         return orders if term.blank?
 
         pattern = "%#{Order.sanitize_sql_like(term)}%"
@@ -117,10 +125,6 @@ module Api
 
           item.permit(:product_id, :quantity, :unit_price, :warehouse_id).to_h.symbolize_keys
         end
-      end
-
-      def render_bad_request(exception)
-        render json: { error: exception.message }, status: :bad_request
       end
 
       def render_unprocessable(exception)

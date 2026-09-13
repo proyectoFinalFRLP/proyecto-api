@@ -61,21 +61,6 @@ RSpec.describe 'Orders API', type: :request do
     end
   end
 
-  # ------------------------------------------------------------------ TESIS-112
-  # Cuenta las consultas que matchean un patrón mientras corre el bloque. Mismo
-  # helper que products_spec: acá fija que el detalle no haga N+1 sobre los
-  # productos de las líneas.
-  def count_queries(matching:, &block)
-    count = 0
-    counter = lambda do |_name, _started, _finished, _id, payload|
-      count += 1 if payload[:sql].to_s.match?(matching)
-    end
-
-    ActiveSupport::Notifications.subscribed(counter, 'sql.active_record', &block)
-
-    count
-  end
-
   # Crea una orden sin pasar por el endpoint: los ejemplos de lectura no
   # necesitan ejercitar el alta ni descontar stock.
   def make_order(name: 'Juan Pérez', status: 'pending', external_id: nil, items: 1)
@@ -193,6 +178,47 @@ RSpec.describe 'Orders API', type: :request do
         get '/api/v1/orders', params: { status: 'nope' }, headers: headers
 
         expect(response.parsed_body['data']).to be_empty
+      end
+    end
+
+    # Un parámetro con una forma que el endpoint no espera es un error del
+    # cliente, no del servidor. Antes cada uno de estos salía como 500: `to_i`
+    # sobre un Array levanta NoMethodError, y un ActionController::Parameters
+    # dentro de un `where` levanta TypeError. Ninguno de los dos lo rescataba
+    # nadie.
+    #
+    # Se responde 400 y no «se ignora el filtro»: descartarlo en silencio
+    # devolvería el listado entero, que es una respuesta plausible y
+    # equivocada.
+    context 'when a query parameter is malformed' do
+      it 'returns 400 for a status that is not a single value' do
+        get '/api/v1/orders', params: { status: { foo: 'bar' } }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a per_page that is not a single value' do
+        get '/api/v1/orders', params: { per_page: ['1'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a page that is not a single value' do
+        get '/api/v1/orders', params: { page: ['2'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a search that is not a single value' do
+        get '/api/v1/orders', params: { search: { foo: 'bar' } }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'says which parameter is wrong' do
+        get '/api/v1/orders', params: { per_page: ['1'] }, headers: headers
+
+        expect(response.parsed_body['error']).to include('per_page')
       end
     end
 
