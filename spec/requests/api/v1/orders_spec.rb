@@ -498,4 +498,137 @@ RSpec.describe 'Orders API', type: :request do
       expect(response.parsed_body['data'].first['total_amount']).to be_nil
     end
   end
+
+  # ------------------------------------------------------------------- TESIS-52
+  # Las dos columnas del listado de órdenes que no salen de la propia orden:
+  # «Destino», que se arma con la dirección del cliente, y «Operador logístico»,
+  # que cuelga del envío.
+  describe 'the columns of the orders screen' do
+    # `courier_integration` sale de spec/support/courier_builders.rb: el alta de
+    # un courier estaba copiada acá y en el spec de envíos.
+    def ship(order, company_integration: nil)
+      Shipment.create!(company: company, order: order, status: 'pending',
+                       company_integration: company_integration)
+    end
+
+    def located_order(address: 'Av. Rivadavia 1234', zip: '1406')
+      Order.create!(company: company, customer_name: 'Juan Pérez', status: 'pending',
+                    customer_address: address, customer_zip_code: zip)
+    end
+
+    def first_row
+      get '/api/v1/orders', headers: headers
+      response.parsed_body['data'].first
+    end
+
+    describe 'the destination' do
+      it 'returns the customer address' do
+        located_order
+
+        expect(first_row['customer_address']).to eq('Av. Rivadavia 1234')
+      end
+
+      it 'returns the zip code' do
+        located_order
+
+        expect(first_row['customer_zip_code']).to eq('1406')
+      end
+
+      # Ninguno de los dos campos es obligatorio en el modelo: una venta cargada
+      # a mano puede no tener dirección y la fila tiene que viajar igual.
+      it 'returns null for an order without an address, without failing' do
+        make_order
+
+        expect(first_row['customer_address']).to be_nil
+      end
+
+      # La pantalla ofrece buscar «por ID o destino», así que la dirección
+      # entra en el buscador junto al id externo y al nombre del cliente.
+      it 'is searchable by address' do
+        located_order(address: 'Av. Rivadavia 1234')
+        located_order(address: 'Calle Falsa 123')
+
+        get '/api/v1/orders', params: { search: 'rivadavia' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('customer_address'))
+          .to eq(['Av. Rivadavia 1234'])
+      end
+
+      # La celda muestra la dirección con el código postal debajo, así que el
+      # operador que tipea «1406» está buscando algo que tiene delante.
+      it 'is searchable by zip code' do
+        located_order(address: 'Av. Rivadavia 1234', zip: '1406')
+        located_order(address: 'Calle Falsa 123', zip: '5000')
+
+        get '/api/v1/orders', params: { search: '1406' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('customer_address'))
+          .to eq(['Av. Rivadavia 1234'])
+      end
+    end
+
+    describe 'the courier' do
+      # Mismo nombre y misma forma que en los dos endpoints de envíos: es el
+      # mismo dato, y el front lo modela una sola vez.
+      it 'returns the courier that carries the order', :aggregate_failures do
+        courier = courier_integration(company: company)
+        ship(make_order, company_integration: courier)
+
+        expect(first_row['courier']).to eq(
+          'id' => courier.id, 'service_id' => courier.service_id, 'name' => 'Andreani'
+        )
+      end
+
+      it 'is null when the order has no shipment yet' do
+        make_order
+
+        expect(first_row['courier']).to be_nil
+      end
+
+      # El envío nace antes de que se sepa el courier: `company_integration` se
+      # completa recién al confirmar el despacho.
+      it 'is null when the shipment has no integration assigned' do
+        ship(make_order)
+
+        expect(first_row['courier']).to be_nil
+      end
+
+      # Tres couriers distintos y no el mismo tres veces: una empresa no puede
+      # tener dos integraciones contra el mismo servicio, y así los ejemplos no
+      # pasan por casualidad si el preload agrupara mal.
+      #
+      # Va como método y no como `context` con `before`: un nivel más de
+      # anidamiento y RSpec/NestedGroups rechaza el archivo.
+      def three_orders_with_different_couriers
+        %w[Andreani Moova OCASA].each do |name|
+          ship(make_order, company_integration: courier_integration(company: company, name: name))
+        end
+      end
+
+      # Contar consultas dice que el preload corre, no que funcione BIEN: un
+      # preload que le pegara el mismo courier a las tres filas daría una sola
+      # query igual. Por eso este ejemplo mira los nombres.
+      it 'gives each row its own courier' do
+        three_orders_with_different_couriers
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].map { |row| row['courier']['name'] })
+          .to contain_exactly('Andreani', 'Moova', 'OCASA')
+      end
+
+      # Fija la precarga del controller. Sin `shipment: { company_integration:
+      # :service }`, tres filas con envío son tres SELECT sobre services, y con
+      # una página de veinte serían veinte.
+      it 'resolves every courier in a single query' do
+        three_orders_with_different_couriers
+
+        queries = count_queries(matching: /FROM "services"/) do
+          get '/api/v1/orders', headers: headers
+        end
+
+        expect(queries).to eq(1)
+      end
+    end
+  end
 end

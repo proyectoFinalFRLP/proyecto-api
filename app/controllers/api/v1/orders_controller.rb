@@ -12,10 +12,17 @@ module Api
 
       MAX_ITEMS = 100
 
-      # Campos sobre los que corre el buscador del listado (TESIS-52). Son los
-      # dos por los que un operador busca una venta: el nombre con el que la
-      # cargó, o el id con el que la conoce el canal externo.
-      SEARCH_FIELDS = %w[customer_name external_order_id].freeze
+      # Campos sobre los que corre el buscador del listado (TESIS-52). Son las
+      # formas en que un operador nombra una venta: el id con el que la conoce el
+      # canal externo, el nombre con el que la cargó, y a dónde va.
+      #
+      # El destino entra con sus DOS columnas. La pantalla ofrece buscar «por ID
+      # o destino» y muestra la dirección con el código postal debajo, como una
+      # sola celda; buscar sólo por la dirección dejaba afuera al operador que
+      # tipea «1406», que es la mitad de lo que está viendo.
+      SEARCH_FIELDS = %w[
+        customer_name external_order_id customer_address customer_zip_code
+      ].freeze
 
       def index
         # `scalar_param` y no `params[...]` directo: una query con `?page[]=1`
@@ -24,9 +31,10 @@ module Api
         page = [scalar_param(:page).to_i, 1].max
         per_page = (scalar_param(:per_page) || 20).to_i.clamp(1, 100)
 
-        # La precarga alimenta `item_count` del serializer: sin ella es un
-        # SELECT de order_items por fila de la página.
-        orders = filtered_orders.preload(:order_items)
+        # La precarga alimenta dos columnas del serializer: `item_count` sale de
+        # order_items y `courier` de la cadena envío → integración → servicio.
+        # Sin ella, cada fila de la página dispara sus propias consultas.
+        orders = filtered_orders.preload(:order_items, shipment: { company_integration: :service })
                                 .order(created_at: :desc, id: :desc)
                                 .offset((page - 1) * per_page)
                                 .limit(per_page)
@@ -79,16 +87,35 @@ module Api
       # Desconocido no es lo mismo que mal formado: `?status[foo]=bar` llega
       # como ActionController::Parameters y ActiveRecord lo rechaza con
       # TypeError. `scalar_param` lo corta antes, con un 400.
+      #
+      # Memoizado porque `index` lo pide dos veces —una para la página y otra
+      # para `meta.total`— y cada llamada rearmaba el scope desde cero, incluida
+      # la condición de búsqueda. Las dos consultas a la base siguen siendo dos:
+      # paginar exige contar aparte. Lo que se evita es construirlo de nuevo.
       def filtered_orders
-        status = scalar_param(:status)
-        orders = policy_scope(Order)
-        orders = orders.where(status: status) if status.present?
-        apply_search(orders)
+        @filtered_orders ||= begin
+          status = scalar_param(:status)
+          orders = policy_scope(Order)
+          orders = orders.where(status: status) if status.present?
+          apply_search(orders)
+        end
       end
 
-      # ILIKE y no `LIKE`: el operador busca "perez" y espera encontrar "Pérez
-      # S.A.". El término se escapa con `sanitize_sql_like` para que un `%` o un
-      # `_` tipeados por el usuario se busquen literalmente en vez de comportarse
+      # ILIKE y no `LIKE`: el operador busca "perez" y encuentra "PEREZ S.A.".
+      #
+      # Ignora mayúsculas, NO ignora acentos: "perez" no encuentra "Pérez S.A.",
+      # porque en Postgres `é` y `e` son caracteres distintos y ILIKE sólo aplica
+      # el plegado de caja. Resolverlo pide la extensión `unaccent`, y hacerlo
+      # acá solo dejaría el buscador de productos —que tiene el mismo ILIKE— con
+      # otro comportamiento. Va como card aparte.
+      #
+      # Sin índice, igual que el buscador del catálogo: un `%term%` no puede usar
+      # un B-tree y necesita un índice GIN con `pg_trgm`. Es la misma extensión y
+      # la misma decisión que unaccent, así que viaja en la misma card en vez de
+      # quedar a medias en este PR.
+      #
+      # El término se escapa con `sanitize_sql_like` para que un `%` o un `_`
+      # tipeados por el usuario se busquen literalmente en vez de comportarse
       # como comodines.
       def apply_search(orders)
         term = scalar_param(:search).to_s.strip
