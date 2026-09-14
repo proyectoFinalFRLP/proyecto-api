@@ -57,7 +57,7 @@ class Shipment < ApplicationRecord
   # dato que se lee como cierto y no lo es.
   def company_integration_is_a_courier
     return if company_integration.blank?
-    return if company_integration.service.type == Service::COURIER
+    return if company_integration.service.courier?
 
     errors.add(:company_integration, 'must be a courier integration')
   end
