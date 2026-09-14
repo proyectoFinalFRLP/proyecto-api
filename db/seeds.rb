@@ -15,7 +15,21 @@ companies = [
   {
     name: 'Distribuidora Norte S.A.',
     tax_id: '30-11111111-1',
+    slug: 'norte',
     is_active: true,
+    # Norte tiene integraciones habilitadas y Sur no: es el flag que el frontend
+    # usa para mostrar u ocultar la sección, y lo que se demuestra en la demo.
+    features: { 'integrations' => true },
+    # Norte **no** declara colores a propósito: es el tenant que se queda con la
+    # paleta canónica del design system. Sin esto los dos tenants pisarían la
+    # marca del producto y el camino de fallback —el que corre para toda empresa
+    # que compra sin branding propio— no se vería nunca, ni en la demo ni en
+    # desarrollo local, donde `norte` es el tenant por defecto.
+    branding: {
+      'display_name' => 'Distribuidora Norte',
+      'logo_url' => nil,
+      'tagline' => 'Logística del norte'
+    },
     users: [
       { email: 'admin@norte.com', password: 'password123' },
       { email: 'operador@norte.com', password: 'password123' }
@@ -28,7 +42,22 @@ companies = [
   {
     name: 'Comercial Sur S.R.L.',
     tax_id: '30-22222222-2',
+    slug: 'sur',
     is_active: true,
+    features: { 'integrations' => false },
+    branding: {
+      'display_name' => 'Comercial Sur',
+      # Demo: Sur tiene que distinguirse de Norte a primera vista. Naranja
+      # industrial (identidad de herramienta, acorde a su catálogo) contra el
+      # celeste del DS que Norte hereda, y su portal en modo claro contra el
+      # dark canónico de Norte. `theme_mode` es el default con el que arranca
+      # el frontend; el toggle del usuario siempre gana sobre él.
+      'primary_color' => '#F97316',
+      'accent_color' => '#FB923C',
+      'logo_url' => nil,
+      'tagline' => 'Distribución para el sur',
+      'theme_mode' => 'light'
+    },
     users: [
       { email: 'admin@sur.com', password: 'password123' },
       { email: 'deposito@sur.com', password: 'password123' }
@@ -41,7 +70,16 @@ companies = [
     # Tenant inactivo: representa una empresa dada de baja (is_active: false).
     name: 'Importadora Vieja S.A. (inactiva)',
     tax_id: '30-33333333-3',
+    slug: 'importadora',
     is_active: false,
+    features: { 'integrations' => false },
+    branding: {
+      'display_name' => 'Importadora Vieja',
+      'primary_color' => '#6D4C41',
+      'accent_color' => '#A1887F',
+      'logo_url' => nil,
+      'tagline' => 'Empresa dada de baja'
+    },
     users: [
       { email: 'admin@vieja.com', password: 'password123' }
     ],
@@ -55,7 +93,23 @@ companies.each do |attrs|
   company = Company.find_or_create_by!(tax_id: attrs[:tax_id]) do |c|
     c.name = attrs[:name]
     c.is_active = attrs[:is_active]
+    c.slug = attrs[:slug]
+    c.features = attrs[:features]
+    c.branding = attrs[:branding]
   end
+
+  # El bloque de find_or_create_by! sólo corre en el alta, así que una base que
+  # ya tenía estas companies (cualquiera creada antes de TESIS-120) se quedaría
+  # sin slug ni branding. Reasignar acá mantiene el seed idempotente y además
+  # convergente: correrlo dos veces deja el mismo estado, y correrlo sobre una
+  # base vieja la actualiza.
+  company.update!(
+    name: attrs[:name],
+    is_active: attrs[:is_active],
+    slug: attrs[:slug],
+    features: attrs[:features],
+    branding: attrs[:branding]
+  )
 
   attrs[:users].each do |user_attrs|
     User.find_or_create_by!(email: user_attrs[:email]) do |u|
@@ -579,6 +633,348 @@ if andreani_integration && shipped &&
     },
     status: 'pending'
   )
+end
+
+# ---------------------------------------------------------------------------
+# Demo: datos adicionales para mostrar volumen en el backoffice
+# ---------------------------------------------------------------------------
+
+#
+# Norte — productos adicionales (Cabling, Power)
+#
+if norte_company
+  switch = Product.find_or_create_by!(sku: 'NOR-004', company: norte_company) do |p|
+    p.name = 'Switch Gigabit 8 Puertos TP-Link'
+    p.description = 'Switch no administrable con 8 puertos Gigabit'
+    p.weight = 0.350
+    p.dimensions = '15x10x3'
+  end
+  switch.update!(category: 'Cabling') if switch.category.nil?
+
+  cable = Product.find_or_create_by!(sku: 'NOR-005', company: norte_company) do |p|
+    p.name = 'Cable UTP Cat6 100m'
+    p.description = 'Cable de red UTP Cat6 rollo de 100 metros'
+    p.weight = 4.500
+    p.dimensions = '30x30x12'
+  end
+  cable.update!(category: 'Cabling') if cable.category.nil?
+
+  ups = Product.find_or_create_by!(sku: 'NOR-006', company: norte_company) do |p|
+    p.name = 'UPS APC 1500VA'
+    p.description = 'Estabilizador/UPS APC Back-UPS 1500VA'
+    p.weight = 12.000
+    p.dimensions = '35x20x25'
+  end
+  ups.update!(category: 'Power') if ups.category.nil?
+
+  breaker = Product.find_or_create_by!(sku: 'NOR-007', company: norte_company) do |p|
+    p.name = 'Disyuntor Diferencial 2P 25A'
+    p.description = 'Disyuntor diferencial unipolar 25 amperios'
+    p.weight = 0.200
+    p.dimensions = '8x4x7'
+  end
+  breaker.update!(category: 'Power') if breaker.category.nil?
+
+  # Stock de los productos nuevos
+  if central
+    Stock.find_or_create_by!(product: switch, warehouse: central) { |s| s.quantity = 40 }
+    Stock.find_or_create_by!(product: cable, warehouse: central) { |s| s.quantity = 15 }
+    Stock.find_or_create_by!(product: ups, warehouse: central) { |s| s.quantity = 8 }
+    Stock.find_or_create_by!(product: breaker, warehouse: central) { |s| s.quantity = 60 }
+  end
+
+  if satelite
+    Stock.find_or_create_by!(product: switch, warehouse: satelite) { |s| s.quantity = 12 }
+    Stock.find_or_create_by!(product: cable, warehouse: satelite) { |s| s.quantity = 25 }
+    Stock.find_or_create_by!(product: ups, warehouse: satelite) { |s| s.quantity = 3 }
+  end
+
+  #
+  # Norte — órdenes adicionales
+  #
+
+  # Venta online 1: pagada, con envío entregado
+  order_paid_1 = Order.find_or_create_by!(
+    company: norte_company, external_order_id: 'ML-2000003508419099'
+  ) do |o|
+    o.company_integration = ml_integration
+    o.customer_name = 'Juan Pérez'
+    o.customer_document = '20-30567890-1'
+    o.customer_address = 'Av. Corrientes 1234, CABA'
+    o.customer_zip_code = '1043'
+    o.status = 'paid'
+  end
+  OrderItem.find_or_create_by!(order: order_paid_1, product: celular) do |i|
+    i.quantity = 1
+    i.unit_price = 149_999.99
+  end
+  OrderItem.find_or_create_by!(order: order_paid_1, product: switch) do |i|
+    i.quantity = 2
+    i.unit_price = 18_500.00
+  end
+
+  # Venta online 2: pagada
+  order_paid_2 = Order.find_or_create_by!(
+    company: norte_company, external_order_id: 'TN-ORD-88210'
+  ) do |o|
+    o.company_integration = tn_integration
+    o.customer_name = 'María García'
+    o.customer_document = '27-32456789-5'
+    o.customer_address = 'Calle 50 N° 800, Mar del Plata'
+    o.customer_zip_code = '7600'
+    o.status = 'paid'
+  end
+  OrderItem.find_or_create_by!(order: order_paid_2, product: notebook) do |i|
+    i.quantity = 1
+    i.unit_price = 699_999.50
+  end
+
+  # Venta manual 3: pagada, sin integración (venta en local)
+  order_manual_2 = Order.find_or_create_by!(
+    company: norte_company, external_order_id: nil, customer_name: 'Distribuidora Tres Febrero'
+  ) do |o|
+    o.customer_document = '30-56789012-3'
+    o.customer_address = 'Ruta 8 km 65, Escobar'
+    o.customer_zip_code = '1625'
+    o.status = 'paid'
+  end
+  OrderItem.find_or_create_by!(order: order_manual_2, product: ups) do |i|
+    i.quantity = 3
+    i.unit_price = 185_000.00
+  end
+  OrderItem.find_or_create_by!(order: order_manual_2, product: cable) do |i|
+    i.quantity = 10
+    i.unit_price = 12_000.00
+  end
+
+  # Venta online 3: pendiente
+  order_pending_1 = Order.find_or_create_by!(
+    company: norte_company, external_order_id: 'ML-2000003508419150'
+  ) do |o|
+    o.company_integration = ml_integration
+    o.customer_name = 'Carlos López'
+    o.customer_document = '23-34567890-9'
+    o.customer_address = 'San Martín 456, Rosario'
+    o.customer_zip_code = '2000'
+    o.status = 'pending'
+  end
+  OrderItem.find_or_create_by!(order: order_pending_1, product: breaker) do |i|
+    i.quantity = 4
+    i.unit_price = 8_500.00
+  end
+
+  # Venta cancelada
+  order_cancelled_1 = Order.find_or_create_by!(
+    company: norte_company, external_order_id: 'TN-ORD-88299'
+  ) do |o|
+    o.company_integration = tn_integration
+    o.customer_name = 'Ana Martínez'
+    o.customer_document = '27-30987654-3'
+    o.status = 'cancelled'
+  end
+  OrderItem.find_or_create_by!(order: order_cancelled_1, product: mouse) do |i|
+    i.quantity = 10
+    i.unit_price = 12_500.00
+  end
+
+  #
+  # Norte — envíos adicionales
+  #
+
+  # Envío de order_paid_1: entregado con events completos
+  if order_paid_1 && andreani_integration
+    shipped_paid_1 = Shipment.find_or_create_by!(order: order_paid_1) do |s|
+      s.company = norte_company
+      s.company_integration = andreani_integration
+      s.tracking_number = 'AND-100000002'
+      s.shipping_label_url = 'https://apis.andreani.com/labels/AND-100000002.pdf'
+      s.status = 'delivered'
+      s.shipping_cost = 8_750.00
+    end
+
+    [
+      { internal_status: 'ready_to_ship',
+        external_status: 'En preparación',
+        occurred_at: Time.zone.parse('2026-08-25 09:00:00') },
+      { internal_status: 'in_transit',
+        external_status: 'En distribución',
+        occurred_at: Time.zone.parse('2026-08-26 14:00:00') },
+      { internal_status: 'delivered',
+        external_status: 'Entregado',
+        occurred_at: Time.zone.parse('2026-08-27 11:30:00') }
+    ].each do |event_attrs|
+      ShipmentEvent.find_or_create_by!(shipment: shipped_paid_1, **event_attrs)
+    end
+  end
+
+  # Envío de order_paid_2: en tránsito
+  if order_paid_2 && andreani_integration
+    shipped_paid_2 = Shipment.find_or_create_by!(order: order_paid_2) do |s|
+      s.company = norte_company
+      s.company_integration = andreani_integration
+      s.tracking_number = 'AND-100000003'
+      s.shipping_label_url = 'https://apis.andreani.com/labels/AND-100000003.pdf'
+      s.status = 'in_transit'
+      s.shipping_cost = 15_200.00
+    end
+
+    [
+      { internal_status: 'ready_to_ship',
+        external_status: 'En preparación',
+        occurred_at: Time.zone.parse('2026-09-01 08:00:00') },
+      { internal_status: 'in_transit',
+        external_status: 'En distribución',
+        occurred_at: Time.zone.parse('2026-09-02 10:00:00') }
+    ].each do |event_attrs|
+      ShipmentEvent.find_or_create_by!(shipment: shipped_paid_2, **event_attrs)
+    end
+  end
+
+  # Envío de order_manual_2: listo para despachar (confirmado, sin tracking)
+  if order_manual_2
+    Shipment.find_or_create_by!(order: order_manual_2) do |s|
+      s.company = norte_company
+      s.status = 'ready_to_ship'
+    end
+  end
+
+  # Envío de order_pending_1: pendiente (aún no despachado)
+  if order_pending_1
+    Shipment.find_or_create_by!(order: order_pending_1) do |s|
+      s.company = norte_company
+      s.status = 'pending'
+    end
+  end
+
+  #
+  # Norte — transferencias adicionales
+  #
+  if central && satelite
+    StockTransfer.find_or_create_by!(product: switch, origin_warehouse: central,
+                                     destination_warehouse: satelite,
+                                     status: 'received') do |t|
+      t.company = norte_company
+      t.quantity = 10
+      t.dispatched_at = 10.days.ago
+      t.settled_at = 8.days.ago
+    end
+
+    StockTransfer.find_or_create_by!(product: ups, origin_warehouse: central,
+                                     destination_warehouse: satelite,
+                                     status: 'in_transit') do |t|
+      t.company = norte_company
+      t.quantity = 2
+      t.dispatched_at = 1.day.ago
+    end
+  end
+end
+
+#
+# Sur — productos y pedidos adicionales
+#
+if sur_company
+  cable_sur = Product.find_or_create_by!(sku: 'SUR-003', company: sur_company) do |p|
+    p.name = 'Cable Eléctrico 2.5mm x 100m'
+    p.description = 'Cable unipolar 2.5mm2 rollo de 100 metros'
+    p.weight = 3.200
+    p.dimensions = '25x25x10'
+  end
+  cable_sur.update!(category: 'Cabling') if cable_sur.category.nil?
+
+  destornillador = Product.find_or_create_by!(sku: 'SUR-004', company: sur_company) do |p|
+    p.name = 'Set Destornilladores Industriales'
+    p.description = 'Juego de 6 destornilladores aislados'
+    p.weight = 0.800
+    p.dimensions = '25x12x3'
+  end
+  destornillador.update!(category: 'Cabling') if destornillador.nil?
+
+  # Stock de los productos nuevos
+  if deposito_sur
+    Stock.find_or_create_by!(product: cable_sur, warehouse: deposito_sur) { |s| s.quantity = 50 }
+    Stock.find_or_create_by!(product: destornillador, warehouse: deposito_sur) { |s| s.quantity = 35 }
+  end
+
+  #
+  # Sur — órdenes adicionales
+  #
+
+  # Venta pagada
+  sur_paid = Order.find_or_create_by!(
+    company: sur_company, external_order_id: nil, customer_name: 'Construcciones del Sur'
+  ) do |o|
+    o.customer_document = '30-67890123-4'
+    o.customer_address = 'Belgrano 567, Bahía Blanca'
+    o.customer_zip_code = '8000'
+    o.status = 'paid'
+  end
+  OrderItem.find_or_create_by!(order: sur_paid, product: taladro) do |i|
+    i.quantity = 2
+    i.unit_price = 89_999.00
+  end
+  OrderItem.find_or_create_by!(order: sur_paid, product: cable_sur) do |i|
+    i.quantity = 5
+    i.unit_price = 8_500.00
+  end
+
+  # Venta pendiente
+  sur_pending = Order.find_or_create_by!(
+    company: sur_company, external_order_id: nil, customer_name: 'Ferretería El Martillo'
+  ) do |o|
+    o.customer_document = '20-54321098-7'
+    o.customer_address = 'Av. Mitre 234, Mar del Plata'
+    o.customer_zip_code = '7600'
+    o.status = 'pending'
+  end
+  OrderItem.find_or_create_by!(order: sur_pending, product: amoladora) do |i|
+    i.quantity = 1
+    i.unit_price = 65_000.00
+  end
+  OrderItem.find_or_create_by!(order: sur_pending, product: destornillador) do |i|
+    i.quantity = 3
+    i.unit_price = 15_000.00
+  end
+end
+
+#
+# Webhook logs adicionales (diferentes estados para el demo)
+#
+if ml_integration
+  # Log procesado exitosamente
+  if WebhookLog.unscoped.where(company_integration: ml_integration, status: 'processed').none?
+    WebhookLog.create!(
+      company_id: norte_company.id,
+      company_integration: ml_integration,
+      headers: { 'HTTP_USER_AGENT' => 'MercadoLibre-Webhook/1.0' },
+      payload: {
+        'id' => '2000003508419050',
+        'status' => 'pagado',
+        'buyer' => { 'nickname' => 'COMPRADOR_TEST_2',
+                     'billing_info' => { 'doc_number' => '20-30567890-1' } },
+        'shipping' => { 'receiver_address' => { 'address_line' => 'Corrientes 1234, CABA',
+                                                'zip_code' => '1043' } },
+        'order_items' => [
+          { 'item' => { 'id' => 'MLA123456789' }, 'quantity' => 1, 'unit_price' => 149_999.99 }
+        ]
+      },
+      status: 'processed'
+    )
+  end
+
+  # Log fallido (payload inválido)
+  if WebhookLog.unscoped.where(company_integration: ml_integration, status: 'failed').none?
+    WebhookLog.create!(
+      company_id: norte_company.id,
+      company_integration: ml_integration,
+      headers: { 'HTTP_USER_AGENT' => 'MercadoLibre-Webhook/1.0' },
+      payload: {
+        'id' => '2000003508419060',
+        'status' => 'unknown_status'
+      },
+      error_message: 'Invalid status value: unknown_status',
+      status: 'failed'
+    )
+  end
 end
 
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
