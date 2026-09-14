@@ -99,6 +99,20 @@ RSpec.describe Shipment, type: :model do
     expect(shipment).to be_valid
   end
 
+  # Un envío lo lleva un operador logístico y nada más. El camino de producción
+  # ya elegía entre integraciones de tipo courier, pero una asignación directa
+  # —el panel, un seed, un job nuevo— podía colgarle un canal de ecommerce, y la
+  # columna «Operador logístico» del listado de órdenes mostraría «Tiendanube»
+  # como si fuera cierto.
+  it 'rejects a company_integration that is not a courier', :aggregate_failures do
+    channel = Service.create!(service_name: 'Tiendanube', type: 'ecommerce',
+                              http_method: 'POST', uri: 'https://api.tiendanube.test/orders')
+    shipment.company_integration = CompanyIntegration.create!(company: company, service: channel)
+
+    expect(shipment).not_to be_valid
+    expect(shipment.errors[:company_integration]).to include('must be a courier integration')
+  end
+
   it 'is queryable within a tenant context' do
     Current.company_id = company.id
     expect { described_class.count }.not_to raise_error
