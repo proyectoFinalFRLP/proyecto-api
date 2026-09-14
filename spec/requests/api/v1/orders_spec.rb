@@ -61,6 +61,270 @@ RSpec.describe 'Orders API', type: :request do
     end
   end
 
+  # Crea una orden sin pasar por el endpoint: los ejemplos de lectura no
+  # necesitan ejercitar el alta ni descontar stock.
+  def make_order(name: 'Juan Pérez', status: 'pending', external_id: nil, items: 1)
+    order = Order.create!(company: company, customer_name: name, status: status,
+                          external_order_id: external_id)
+    items.times do
+      OrderItem.create!(order: order, product: product, quantity: 1, unit_price: 100)
+    end
+    order
+  end
+
+  def order_of_another_company
+    other_co = Company.create!(name: 'Rival', tax_id: '30-88888888-1')
+    Current.set(company_id: other_co.id) do
+      Order.create!(company: other_co, customer_name: 'Ajeno', status: 'pending')
+    end
+  end
+
+  describe 'GET /api/v1/orders' do
+    it 'returns 401 without a token' do
+      get '/api/v1/orders'
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    context 'when authenticated' do
+      it 'returns 200' do
+        make_order
+        get '/api/v1/orders', headers: headers
+
+        expect(response).to have_http_status(:ok)
+      end
+
+      it 'returns only the orders of the company in the token' do
+        mine = make_order(name: 'Mía')
+        order_of_another_company
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].pluck('id')).to eq([mine.id])
+      end
+
+      it 'reports the total in meta' do
+        2.times { make_order }
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['meta']['total']).to eq(2)
+      end
+
+      it 'returns the newest order first' do
+        make_order(name: 'Vieja')
+        newest = make_order(name: 'Nueva')
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].first['id']).to eq(newest.id)
+      end
+
+      it 'counts the items of each row' do
+        make_order(items: 3)
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].first['item_count']).to eq(3)
+      end
+
+      it 'does not include the order items in the list' do
+        make_order
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].first).not_to have_key('order_items')
+      end
+
+      it 'limits the page to per_page rows' do
+        3.times { make_order }
+
+        get '/api/v1/orders', params: { per_page: 2 }, headers: headers
+
+        expect(response.parsed_body['data'].size).to eq(2)
+      end
+
+      it 'caps per_page at 100' do
+        make_order
+
+        get '/api/v1/orders', params: { per_page: 500 }, headers: headers
+
+        expect(response.parsed_body['meta']['per_page']).to eq(100)
+      end
+    end
+
+    context 'when filtering by status' do
+      before do
+        make_order(name: 'Pendiente', status: 'pending')
+        make_order(name: 'Cancelada', status: 'cancelled')
+      end
+
+      it 'returns only the rows of that status' do
+        get '/api/v1/orders', params: { status: 'cancelled' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('status')).to eq(['cancelled'])
+      end
+
+      # De este número salen los KPIs de TESIS-53, que los pide con
+      # `?status=pending&per_page=1` y lee sólo el meta: si el total contara la
+      # tabla entera en vez del filtro, el KPI mentiría.
+      it 'counts only the filtered rows in meta.total' do
+        get '/api/v1/orders', params: { status: 'cancelled' }, headers: headers
+
+        expect(response.parsed_body['meta']['total']).to eq(1)
+      end
+
+      it 'returns an empty list for an unknown status, without failing' do
+        get '/api/v1/orders', params: { status: 'nope' }, headers: headers
+
+        expect(response.parsed_body['data']).to be_empty
+      end
+    end
+
+    # Un parámetro con una forma que el endpoint no espera es un error del
+    # cliente, no del servidor. Antes cada uno de estos salía como 500: `to_i`
+    # sobre un Array levanta NoMethodError, y un ActionController::Parameters
+    # dentro de un `where` levanta TypeError. Ninguno de los dos lo rescataba
+    # nadie.
+    #
+    # Se responde 400 y no «se ignora el filtro»: descartarlo en silencio
+    # devolvería el listado entero, que es una respuesta plausible y
+    # equivocada.
+    context 'when a query parameter is malformed' do
+      it 'returns 400 for a status that is not a single value' do
+        get '/api/v1/orders', params: { status: { foo: 'bar' } }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a per_page that is not a single value' do
+        get '/api/v1/orders', params: { per_page: ['1'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a page that is not a single value' do
+        get '/api/v1/orders', params: { page: ['2'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a search that is not a single value' do
+        get '/api/v1/orders', params: { search: { foo: 'bar' } }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'says which parameter is wrong' do
+        get '/api/v1/orders', params: { per_page: ['1'] }, headers: headers
+
+        expect(response.parsed_body['error']).to include('per_page')
+      end
+    end
+
+    context 'when searching' do
+      before do
+        make_order(name: 'Ferretería Pérez', external_id: 'ML-1001')
+        make_order(name: 'Otra Cosa', external_id: 'TN-2002')
+      end
+
+      it 'matches by customer name' do
+        get '/api/v1/orders', params: { search: 'ferret' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('customer_name'))
+          .to eq(['Ferretería Pérez'])
+      end
+
+      it 'matches by external order id' do
+        get '/api/v1/orders', params: { search: 'TN-20' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('external_order_id'))
+          .to eq(['TN-2002'])
+      end
+
+      it 'ignores case' do
+        get '/api/v1/orders', params: { search: 'FERRET' }, headers: headers
+
+        expect(response.parsed_body['data'].size).to eq(1)
+      end
+
+      it 'counts only the matching rows in meta.total' do
+        get '/api/v1/orders', params: { search: 'ferret' }, headers: headers
+
+        expect(response.parsed_body['meta']['total']).to eq(1)
+      end
+
+      # Un `%` tipeado por el usuario es texto a buscar, no un comodín: sin
+      # escaparlo, buscar "%" devolvería la tabla entera.
+      it 'treats a literal % as text and not as a wildcard' do
+        get '/api/v1/orders', params: { search: '%' }, headers: headers
+
+        expect(response.parsed_body['data']).to be_empty
+      end
+    end
+  end
+
+  describe 'GET /api/v1/orders/:id' do
+    it 'returns 401 without a token' do
+      get "/api/v1/orders/#{make_order.id}"
+
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    context 'when authenticated' do
+      it 'returns 200' do
+        get "/api/v1/orders/#{make_order.id}", headers: headers
+
+        expect(response).to have_http_status(:ok)
+      end
+
+      it 'returns the order items' do
+        get "/api/v1/orders/#{make_order(items: 2).id}", headers: headers
+
+        expect(response.parsed_body['order_items'].size).to eq(2)
+      end
+
+      it 'returns the product of each line' do
+        get "/api/v1/orders/#{make_order.id}", headers: headers
+
+        expect(response.parsed_body['order_items'].first['product'])
+          .to include('id' => product.id, 'sku' => product.sku, 'name' => product.name)
+      end
+
+      it 'returns unit_price as a number, not a string' do
+        get "/api/v1/orders/#{make_order.id}", headers: headers
+
+        expect(response.parsed_body['order_items'].first['unit_price']).to be_a(Numeric)
+      end
+
+      # Fija la precarga: con tres líneas del mismo producto tiene que haber UN
+      # solo SELECT sobre products. Sin `includes(order_items: :product)` serían
+      # tres, y con diez líneas, diez.
+      it 'loads the products of the lines in a single query' do
+        order = make_order(items: 3)
+
+        queries = count_queries(matching: /FROM "products"/) do
+          get "/api/v1/orders/#{order.id}", headers: headers
+        end
+
+        expect(queries).to eq(1)
+      end
+
+      # 404 y no 403: un 403 confirmaría que esa orden existe.
+      it 'returns 404 for an order of another company' do
+        get "/api/v1/orders/#{order_of_another_company.id}", headers: headers
+
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it 'returns 404 for an id that does not exist' do
+        get '/api/v1/orders/999999', headers: headers
+
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+  end
+
   describe 'POST /api/v1/orders' do
     it 'returns 401 without a token' do
       post '/api/v1/orders', params: build_payload, as: :json
@@ -171,6 +435,199 @@ RSpec.describe 'Orders API', type: :request do
         product2 = create_second_product
         post_order(build_payload(items: multi_item_payload(product, product2)))
         expect(response).to have_http_status(:created)
+      end
+    end
+  end
+
+  # ------------------------------------------------------------------ TESIS-114
+  describe 'total_amount' do
+    it 'comes back in the body of the order just created' do
+      post_order
+
+      expect(response.parsed_body['total_amount']).to eq(300.0)
+    end
+
+    it 'adds up every item of the order' do
+      product2 = create_second_product
+      post_order(build_payload(items: multi_item_payload(product, product2)))
+
+      expect(response.parsed_body['total_amount']).to eq(750.0)
+    end
+
+    it 'is a number and not a string' do
+      post_order
+
+      expect(response.parsed_body['total_amount']).to be_a(Numeric)
+    end
+
+    it 'is not taken from the request body' do
+      payload = build_payload
+      payload[:order][:total_amount] = 999_999
+
+      post_order(payload)
+
+      expect(response.parsed_body['total_amount']).to eq(300.0)
+    end
+
+    it 'comes back in the detail' do
+      post_order
+      id = response.parsed_body['id']
+
+      get "/api/v1/orders/#{id}", headers: headers
+
+      expect(response.parsed_body['total_amount']).to eq(300.0)
+    end
+
+    # Es la columna Total del listado (TESIS-52): tiene que estar en la fila,
+    # sin abrir el detalle.
+    it 'comes back in each row of the list' do
+      post_order
+
+      get '/api/v1/orders', headers: headers
+
+      expect(response.parsed_body['data'].first['total_amount']).to eq(300.0)
+    end
+
+    # Las órdenes anteriores a esta card sin líneas quedaron en NULL: el
+    # listado tiene que devolverlas igual, con el campo vacío.
+    it 'is null, without failing, for an order that has none' do
+      make_order(items: 0)
+
+      get '/api/v1/orders', headers: headers
+
+      expect(response.parsed_body['data'].first['total_amount']).to be_nil
+    end
+  end
+
+  # ------------------------------------------------------------------- TESIS-52
+  # Las dos columnas del listado de órdenes que no salen de la propia orden:
+  # «Destino», que se arma con la dirección del cliente, y «Operador logístico»,
+  # que cuelga del envío.
+  describe 'the columns of the orders screen' do
+    # `courier_integration` sale de spec/support/courier_builders.rb: el alta de
+    # un courier estaba copiada acá y en el spec de envíos.
+    def ship(order, company_integration: nil)
+      Shipment.create!(company: company, order: order, status: 'pending',
+                       company_integration: company_integration)
+    end
+
+    def located_order(address: 'Av. Rivadavia 1234', zip: '1406')
+      Order.create!(company: company, customer_name: 'Juan Pérez', status: 'pending',
+                    customer_address: address, customer_zip_code: zip)
+    end
+
+    def first_row
+      get '/api/v1/orders', headers: headers
+      response.parsed_body['data'].first
+    end
+
+    describe 'the destination' do
+      it 'returns the customer address' do
+        located_order
+
+        expect(first_row['customer_address']).to eq('Av. Rivadavia 1234')
+      end
+
+      it 'returns the zip code' do
+        located_order
+
+        expect(first_row['customer_zip_code']).to eq('1406')
+      end
+
+      # Ninguno de los dos campos es obligatorio en el modelo: una venta cargada
+      # a mano puede no tener dirección y la fila tiene que viajar igual.
+      it 'returns null for an order without an address, without failing' do
+        make_order
+
+        expect(first_row['customer_address']).to be_nil
+      end
+
+      # La pantalla ofrece buscar «por ID o destino», así que la dirección
+      # entra en el buscador junto al id externo y al nombre del cliente.
+      it 'is searchable by address' do
+        located_order(address: 'Av. Rivadavia 1234')
+        located_order(address: 'Calle Falsa 123')
+
+        get '/api/v1/orders', params: { search: 'rivadavia' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('customer_address'))
+          .to eq(['Av. Rivadavia 1234'])
+      end
+
+      # La celda muestra la dirección con el código postal debajo, así que el
+      # operador que tipea «1406» está buscando algo que tiene delante.
+      it 'is searchable by zip code' do
+        located_order(address: 'Av. Rivadavia 1234', zip: '1406')
+        located_order(address: 'Calle Falsa 123', zip: '5000')
+
+        get '/api/v1/orders', params: { search: '1406' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('customer_address'))
+          .to eq(['Av. Rivadavia 1234'])
+      end
+    end
+
+    describe 'the courier' do
+      # Mismo nombre y misma forma que en los dos endpoints de envíos: es el
+      # mismo dato, y el front lo modela una sola vez.
+      it 'returns the courier that carries the order', :aggregate_failures do
+        courier = courier_integration(company: company)
+        ship(make_order, company_integration: courier)
+
+        expect(first_row['courier']).to eq(
+          'id' => courier.id, 'service_id' => courier.service_id, 'name' => 'Andreani'
+        )
+      end
+
+      it 'is null when the order has no shipment yet' do
+        make_order
+
+        expect(first_row['courier']).to be_nil
+      end
+
+      # El envío nace antes de que se sepa el courier: `company_integration` se
+      # completa recién al confirmar el despacho.
+      it 'is null when the shipment has no integration assigned' do
+        ship(make_order)
+
+        expect(first_row['courier']).to be_nil
+      end
+
+      # Tres couriers distintos y no el mismo tres veces: una empresa no puede
+      # tener dos integraciones contra el mismo servicio, y así los ejemplos no
+      # pasan por casualidad si el preload agrupara mal.
+      #
+      # Va como método y no como `context` con `before`: un nivel más de
+      # anidamiento y RSpec/NestedGroups rechaza el archivo.
+      def three_orders_with_different_couriers
+        %w[Andreani Moova OCASA].each do |name|
+          ship(make_order, company_integration: courier_integration(company: company, name: name))
+        end
+      end
+
+      # Contar consultas dice que el preload corre, no que funcione BIEN: un
+      # preload que le pegara el mismo courier a las tres filas daría una sola
+      # query igual. Por eso este ejemplo mira los nombres.
+      it 'gives each row its own courier' do
+        three_orders_with_different_couriers
+
+        get '/api/v1/orders', headers: headers
+
+        expect(response.parsed_body['data'].map { |row| row['courier']['name'] })
+          .to contain_exactly('Andreani', 'Moova', 'OCASA')
+      end
+
+      # Fija la precarga del controller. Sin `shipment: { company_integration:
+      # :service }`, tres filas con envío son tres SELECT sobre services, y con
+      # una página de veinte serían veinte.
+      it 'resolves every courier in a single query' do
+        three_orders_with_different_couriers
+
+        queries = count_queries(matching: /FROM "services"/) do
+          get '/api/v1/orders', headers: headers
+        end
+
+        expect(queries).to eq(1)
       end
     end
   end

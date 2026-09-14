@@ -64,17 +64,6 @@ RSpec.describe 'Product Mappings API', type: :request do
     mapping_for(sibling, meli_integration, external_id)
   end
 
-  def count_queries(matching:, &block)
-    count = 0
-    counter = lambda do |_name, _started, _finished, _id, payload|
-      count += 1 if payload[:sql].to_s.match?(matching)
-    end
-
-    ActiveSupport::Notifications.subscribed(counter, 'sql.active_record', &block)
-
-    count
-  end
-
   describe 'GET /api/v1/products/:product_id/mappings' do
     it 'returns 401 without a token' do
       get mappings_url(product.id)

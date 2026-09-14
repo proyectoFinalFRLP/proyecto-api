@@ -6,6 +6,11 @@ class Order < ApplicationRecord
   STATUSES = %w[pending paid cancelled].freeze
 
   belongs_to :company
+  # OJO: `Order#company_integration` es el CANAL DE VENTA por el que entró la
+  # orden (un ecommerce), no el operador logístico. `Shipment#company_integration`
+  # se llama igual y significa lo contrario: el courier que la lleva. Son dos
+  # integraciones distintas de la misma empresa, y el courier de una orden se
+  # pide por `#courier`, que pasa por el envío.
   belongs_to :company_integration, optional: true
   has_many :order_items, dependent: :destroy
   # Restricción MVP 1 orden = 1 envío (TESIS-45), garantizada por el índice
@@ -15,11 +20,37 @@ class Order < ApplicationRecord
   validates :customer_name, presence: true
   validates :status, presence: true, inclusion: { in: STATUSES }
   validates :external_order_id, uniqueness: { scope: :company_id }, allow_nil: true
+  # allow_nil: las órdenes anteriores a TESIS-114 que no tienen líneas no tienen
+  # con qué calcularlo, y la orden vive un instante sin total dentro de la
+  # transacción que la crea.
+  validates :total_amount, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
   validate :company_integration_belongs_to_company
 
   def display_name
     label = customer_name || "Order ##{id}"
     external_order_id ? "#{label} (#{external_order_id})" : label
+  end
+
+  # Lo que suman las líneas. Es el valor que los dos caminos de alta
+  # (Orders::CreateOrder y Orders::ProcessWebhookOrder) escriben en
+  # total_amount dentro de la misma transacción que crea la orden.
+  #
+  # Después no se recalcula: total_amount es el registro de lo que se facturó,
+  # no una vista de lo que se facturaría con los precios de hoy (TESIS-114).
+  def items_total
+    order_items.sum { |item| item.quantity * item.unit_price }
+  end
+
+  # El courier que lleva la orden, para la columna «Operador logístico» del
+  # listado (TESIS-52). Cuelga del envío y no de la orden, y las dos
+  # asociaciones del camino son opcionales: una orden puede no tener envío
+  # todavía, y el envío nace sin integración —se completa al confirmar el
+  # despacho—. En cualquiera de los dos casos devuelve nil.
+  #
+  # Devuelve la integración y no su nombre: quién la serializa decide qué campos
+  # expone, y así la orden no tiene que conocer la plantilla del Service.
+  def courier
+    shipment&.company_integration
   end
 
   private

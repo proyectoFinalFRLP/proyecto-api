@@ -20,13 +20,11 @@ RSpec.describe 'Shipments API', type: :request do
                   customer_address: 'Av. Siempreviva 742')
   end
 
+  # El alta del courier sale de spec/support/courier_builders.rb: estaba copiada
+  # acá y en el spec de órdenes con formas distintas que no significaban nada.
   def courier(name)
-    service = Service.create!(service_name: name, type: 'courier', http_method: 'POST',
-                              uri: "https://#{name.downcase}.test/track",
-                              request_mapper: {}, response_mapper: {},
-                              request_value_mapper: {}, response_value_mapper: {})
-    CompanyIntegration.create!(company: company, service: service,
-                               credentials: { 'access_token' => 'T' }, is_active: true)
+    courier_integration(company: company, name: name,
+                        credentials: { 'access_token' => 'T' }, is_active: true)
   end
 
   def shipment_for(customer, status: 'pending', integration: nil, tracking_number: nil,
@@ -45,17 +43,6 @@ RSpec.describe 'Shipments API', type: :request do
       Shipment.create!(company: other, order: order_for('Ajena', owner: other),
                        status: 'in_transit')
     end
-  end
-
-  def count_queries(matching:, &block)
-    count = 0
-    counter = lambda do |_name, _started, _finished, _id, payload|
-      count += 1 if payload[:sql].to_s.match?(matching)
-    end
-
-    ActiveSupport::Notifications.subscribed(counter, 'sql.active_record', &block)
-
-    count
   end
 
   describe 'GET /api/v1/shipments' do
