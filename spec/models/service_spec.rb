@@ -57,6 +57,29 @@ RSpec.describe Service, type: :model do
     end
   end
 
+  # La plantilla declara qué sabe hacer en su propio response_mapper: la que
+  # despacha dice de dónde sacar el número de seguimiento, la que cotiza dice de
+  # dónde sacar el costo (TESIS-47).
+  describe '#dispatches_shipment?' do
+    before { service.type = 'courier' }
+
+    it 'is true for a courier template that maps a tracking number' do
+      service.response_mapper = { 'bulto.0.numeroDeEnvio' => 'tracking_number' }
+      expect(service.dispatches_shipment?).to be true
+    end
+
+    it 'is false for a courier template that only knows how to quote' do
+      service.response_mapper = { 'tarifa.total' => 'shipping_cost' }
+      expect(service.dispatches_shipment?).to be false
+    end
+
+    it 'is false for a sales channel, even if it maps a tracking number' do
+      service.type = 'ecommerce'
+      service.response_mapper = { 'id' => 'tracking_number' }
+      expect(service.dispatches_shipment?).to be false
+    end
+  end
+
   it 'persists nested JSONB mappers', :aggregate_failures do
     service.update!(request_mapper: { 'order' => { 'id' => 'external_id' } })
     expect(service.reload.request_mapper).to eq('order' => { 'id' => 'external_id' })
