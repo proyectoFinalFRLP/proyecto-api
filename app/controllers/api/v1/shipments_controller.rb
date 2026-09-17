@@ -2,16 +2,22 @@
 
 module Api
   module V1
-    # Lista, detalle y alta de envíos. El alta (TESIS-105) cuelga de la orden
-    # —POST /api/v1/orders/:order_id/shipment— porque un envío nace siempre de
-    # una: es el punto de entrada de la épica logística. Después de eso el envío
-    # no se edita por esta API; avanza con el push de tracking del courier
-    # (TESIS-48) y con la confirmación del despacho (TESIS-47).
+    # Lista, detalle, alta y despacho de envíos. El alta (TESIS-105) cuelga de la
+    # orden —POST /api/v1/orders/:order_id/shipment— porque un envío nace siempre
+    # de una: es el punto de entrada de la épica logística. Después de eso lo
+    # único que el usuario decide es con qué operador despacharlo (TESIS-47); el
+    # resto del avance lo escribe el push de tracking del courier (TESIS-48).
     class ShipmentsController < ApplicationController
       before_action :set_shipment, only: %i[show]
 
       rescue_from Shipments::UnshippableOrderError, with: :render_unprocessable
       rescue_from Shipments::DuplicateShipmentError, with: :render_conflict
+      rescue_from Shipments::AlreadyDispatchedError, with: :render_conflict
+      rescue_from Shipments::InvalidCourierIntegrationError, with: :render_unprocessable
+      rescue_from Shipments::DispatchResponseError, with: :render_bad_gateway
+      rescue_from Integrations::AdapterExecutionError, with: :render_courier_failure
+      # El parámetro que falta es un 400 de contrato, no un 422 de negocio.
+      rescue_from ActionController::ParameterMissing, with: :render_bad_request
 
       def index
         page = [params[:page].to_i, 1].max
@@ -51,6 +57,23 @@ module Api
         render json: ShipmentSerializer.render(shipment), status: :created
       end
 
+      # Confirma el despacho con el operador que el usuario eligió al cotizar
+      # (TESIS-47). Se llama `confirm` y no `dispatch` porque `dispatch` ya es un
+      # método de instancia de ActionController::Metal —el que corre cada acción—
+      # y pisarlo rompe el controller entero. La ruta sí es `/dispatch`, que es la
+      # que pide la card.
+      def confirm
+        shipment = Shipment.find(params.expect(:id))
+        authorize shipment, :dispatch?
+
+        dispatched = Shipments::ConfirmDispatch.new(
+          shipment: shipment, company_integration: courier_integration,
+          origin_warehouse: origin_warehouse
+        ).call
+
+        render json: ShipmentSerializer.render(dispatched), status: :ok
+      end
+
       private
 
       # Un status desconocido no se filtra ni se rechaza: `where` lo busca igual
@@ -72,10 +95,58 @@ module Api
         authorize @shipment
       end
 
-      # 409 y no 422: la orden ya tiene su envío, y no hay nada que el cliente
-      # pueda corregir en el body para que el mismo request funcione.
+      # find y no find_by: las dos son CompanyScoped, así que un id de otra
+      # empresa levanta RecordNotFound -> 404 en vez de revelar que existe.
+      def courier_integration
+        CompanyIntegration.includes(:service).find(required_param(:company_integration_id))
+      end
+
+      # El depósito de origen viaja en el request por el mismo motivo que en la
+      # cotización (TESIS-46): `shipments` no guarda origen y los ítems de una
+      # orden pueden estar en varios depósitos, así que deducirlo sería inventarlo.
+      def origin_warehouse
+        Warehouse.find(required_param(:origin_warehouse_id))
+      end
+
+      def dispatch_params
+        params.expect(dispatch: %i[company_integration_id origin_warehouse_id])
+      end
+
+      # `expect` cubre la clave ausente, no el valor vacío: sin esto un id en
+      # blanco llegaba a `find('')` y salía como 404, diciéndole al cliente que el
+      # recurso no existe cuando lo que falta es el parámetro.
+      def required_param(name)
+        value = dispatch_params[name]
+        raise ActionController::ParameterMissing, name if value.blank?
+
+        value
+      end
+
+      # 409 y no 422: la orden ya tiene su envío —o el envío ya se despachó—, y no
+      # hay nada que el cliente pueda corregir en el body para que el mismo
+      # request funcione.
       def render_conflict(exception)
         render json: { error: exception.message }, status: :conflict
+      end
+
+      # El courier contestó algo inesperado (o no contestó): el fallo es aguas
+      # arriba, no del request. 502 lo dice; un 500 diría que el que se rompió
+      # fue este sistema.
+      def render_bad_gateway(exception)
+        render json: { error: exception.message }, status: :bad_gateway
+      end
+
+      # Un rechazo del courier se separa en dos: si contestó 4xx, el problema
+      # está en los datos del envío —un código postal que no cubre, por ejemplo—
+      # y el usuario puede corregirlo, así que es 422. Un 5xx, un timeout o una
+      # respuesta ilegible no son corregibles desde acá: son 502. En los dos casos
+      # viaja el mensaje original, que es lo que la card pide propagar.
+      def render_courier_failure(exception)
+        status = exception.response_status.to_i
+        upstream_rejected = status.between?(400, 499)
+
+        render json: { error: exception.message },
+               status: upstream_rejected ? :unprocessable_content : :bad_gateway
       end
     end
   end
