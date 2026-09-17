@@ -323,4 +323,39 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
       expect { process.call }.to raise_error(described_class::UnmappedProductError)
     end
   end
+
+  # ------------------------------------------------------------------ TESIS-114
+  describe 'the total of the order' do
+    before { publish('SKU-1', 'MLA-1') && publish('SKU-2', 'MLA-2') }
+
+    # 2 × 1500,5 + 1 × 300 = 3301,00
+    it 'writes what the lines add up to' do
+      expect(process.call.total_amount).to eq(3301.00)
+    end
+
+    it 'persists it, and not only in memory' do
+      expect(process.call.reload.total_amount).to eq(3301.00)
+    end
+
+    context 'when the price comes from the mapping instead of the payload' do
+      before { publish('SKU-3', 'MLA-3', price: 250.00) }
+
+      let(:payload) { order_payload(items: [line('MLA-3', 2)]) }
+
+      # El precio de la venta sale de external_price cuando la plantilla no lo
+      # mapea: el total tiene que salir del mismo precio que la línea.
+      it 'uses the same price the line was saved with' do
+        expect(process.call.total_amount).to eq(500.00)
+      end
+    end
+
+    context 'when the same sale arrives twice' do
+      it 'does not add the total a second time' do
+        process.call
+        again = described_class.new(webhook_log: create_log).call
+
+        expect(again.total_amount).to eq(3301.00)
+      end
+    end
+  end
 end

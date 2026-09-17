@@ -97,4 +97,74 @@ RSpec.describe Order, type: :model do
   it 'has many order_items' do
     expect(described_class.reflect_on_association(:order_items).macro).to eq(:has_many)
   end
+
+  # ------------------------------------------------------------------ TESIS-114
+  describe 'total_amount' do
+    let(:product) { Product.create!(company: company, sku: 'SKU-001', name: 'Widget Alpha') }
+
+    def add_line(quantity:, unit_price:)
+      OrderItem.create!(order: order, product: product, quantity: quantity,
+                        unit_price: unit_price)
+    end
+
+    it 'is optional' do
+      order.total_amount = nil
+      expect(order).to be_valid
+    end
+
+    it 'rejects a negative amount' do
+      order.total_amount = -1
+      expect(order).not_to be_valid
+    end
+
+    it 'accepts zero' do
+      order.total_amount = 0
+      expect(order).to be_valid
+    end
+
+    describe '#items_total' do
+      it 'is zero for an order without lines' do
+        order.save!
+        expect(order.items_total).to eq(0)
+      end
+
+      it 'multiplies quantity by unit price' do
+        order.save!
+        add_line(quantity: 3, unit_price: 150.50)
+
+        expect(order.items_total).to eq(451.50)
+      end
+
+      it 'adds up every line' do
+        order.save!
+        add_line(quantity: 2, unit_price: 100)
+        add_line(quantity: 1, unit_price: 49.99)
+
+        expect(order.items_total).to eq(249.99)
+      end
+
+      # Los centavos tienen que sobrevivir: con floats, 0.1 * 3 da
+      # 0.30000000000000004 y el total de una venta larga se corre.
+      it 'keeps the cents exact' do
+        order.save!
+        3.times { add_line(quantity: 1, unit_price: 0.1) }
+
+        expect(order.items_total).to eq(BigDecimal('0.3'))
+      end
+    end
+
+    # Segunda línea de defensa, mismo criterio que stocks_quantity_non_negative:
+    # la validación del modelo no corre en update_all, upsert_all ni SQL crudo,
+    # y un total negativo en la tabla que barren los KPIs (TESIS-64) es plata
+    # inventada.
+    describe 'the CHECK constraint at the database level' do
+      it 'rejects a negative total written via update_all, which skips model validations' do
+        order.save!
+
+        expect do
+          described_class.where(id: order.id).update_all(total_amount: -1) # rubocop:disable Rails/SkipsModelValidations
+        end.to raise_error(ActiveRecord::CheckViolation)
+      end
+    end
+  end
 end

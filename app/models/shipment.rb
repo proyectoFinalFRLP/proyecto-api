@@ -8,6 +8,10 @@ class Shipment < ApplicationRecord
   belongs_to :company
   # La integración se asigna al inicializar el envío y puede no existir todavía
   # (se completa al confirmar el despacho con un courier).
+  #
+  # OJO: acá `company_integration` es el OPERADOR LOGÍSTICO. En `Order` el
+  # atributo se llama igual y significa lo contrario: el canal de venta por el
+  # que entró la orden.
   belongs_to :company_integration, optional: true
   belongs_to :order
   has_many :shipment_events, dependent: :destroy
@@ -25,6 +29,7 @@ class Shipment < ApplicationRecord
 
   validate :order_belongs_to_company
   validate :company_integration_belongs_to_company
+  validate :company_integration_is_a_courier
 
   private
 
@@ -42,5 +47,18 @@ class Shipment < ApplicationRecord
     return if company_integration.company_id == company_id
 
     errors.add(:company_integration, 'must belong to the same company')
+  end
+
+  # Un envío sólo lo lleva un operador logístico. Nada lo impedía: el camino de
+  # producción elige entre integraciones de tipo courier (Shipments::QuoteShipment
+  # filtra por `services.type`), pero una asignación directa —el panel, un job
+  # nuevo, un seed— podía colgarle un canal de ecommerce. El listado de órdenes
+  # mostraría entonces «Tiendanube» en la columna del operador logístico: un
+  # dato que se lee como cierto y no lo es.
+  def company_integration_is_a_courier
+    return if company_integration.blank?
+    return if company_integration.service.courier?
+
+    errors.add(:company_integration, 'must be a courier integration')
   end
 end

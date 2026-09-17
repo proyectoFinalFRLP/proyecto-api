@@ -1,6 +1,11 @@
 class ApplicationController < ActionController::API
   include Pundit::Authorization
 
+  # Un parámetro de query que llega con una forma que el endpoint no espera:
+  # `?per_page[]=1`, `?status[foo]=bar`. Es un error de contrato del cliente,
+  # no un fallo del servidor.
+  class MalformedParameterError < StandardError; end
+
   before_action :authenticate_user!
   before_action :set_current_tenant
 
@@ -17,6 +22,7 @@ class ApplicationController < ActionController::API
   # este handler tiene su propio método.
   rescue_from Catalog::LockTimeoutError, with: :render_lock_conflict
   rescue_from ActiveRecord::CheckViolation, with: :render_constraint_violation
+  rescue_from MalformedParameterError, with: :render_bad_request
 
   # Las acciones index usan policy_scope; el resto deben llamar authorize.
   # Si una acción futura olvida el authorize, falla en vez de pasar sin ruido.
@@ -45,6 +51,26 @@ class ApplicationController < ActionController::API
   # warehouses): el tenant siempre sale del JWT, nunca del body.
   def current_company
     current_user.company
+  end
+
+  # Un parámetro de query puede llegar con cualquier forma: `?per_page[]=1` lo
+  # entrega como Array y `?status[foo]=bar` como ActionController::Parameters.
+  # Sobre eso, `to_i` revienta con NoMethodError y `where` con TypeError, y los
+  # dos salen como 500 — un fallo del servidor por un request mal formado.
+  #
+  # Se aceptan sólo escalares. Lo demás es 400 y no «se ignora el filtro»: un
+  # filtro que el servidor descarta en silencio devuelve el listado completo,
+  # que es una respuesta plausible y equivocada. Mejor decir que el parámetro
+  # está mal.
+  def scalar_param(name)
+    value = params[name]
+    return value if value.nil? || value.is_a?(String) || value.is_a?(Numeric)
+
+    raise MalformedParameterError, "#{name} must be a single value"
+  end
+
+  def render_bad_request(exception)
+    render json: { error: exception.message }, status: :bad_request
   end
 
   def render_not_found

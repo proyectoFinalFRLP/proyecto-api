@@ -58,17 +58,6 @@ RSpec.describe 'Products API', type: :request do
     )
   end
 
-  def count_queries(matching:, &block)
-    count = 0
-    counter = lambda do |_name, _started, _finished, _id, payload|
-      count += 1 if payload[:sql].to_s.match?(matching)
-    end
-
-    ActiveSupport::Notifications.subscribed(counter, 'sql.active_record', &block)
-
-    count
-  end
-
   # El lock se sostiene desde una conexión aparte, abierta a mano: con
   # use_transactional_fixtures el pool queda pinneado a una sola conexión y
   # un lock tomado desde otro thread sería reentrante — el endpoint no vería
