@@ -19,6 +19,9 @@ module Api
       # El parámetro que falta es un 400 de contrato, no un 422 de negocio.
       rescue_from ActionController::ParameterMissing, with: :render_bad_request
 
+      # Cuánto del cuerpo del courier se propaga en el mensaje de error.
+      COURIER_ERROR_LIMIT = 300
+
       def index
         page = [params[:page].to_i, 1].max
         per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
@@ -145,8 +148,30 @@ module Api
         status = exception.response_status.to_i
         upstream_rejected = status.between?(400, 499)
 
-        render json: { error: exception.message },
+        render json: { error: courier_message(exception) },
                status: upstream_rejected ? :unprocessable_content : :bad_gateway
+      end
+
+      # "Andreani responded with HTTP 422" no le dice a nadie qué corregir: lo
+      # accionable —el código postal fuera de cobertura, el bulto sin peso— viene
+      # en el cuerpo de la respuesta del courier, y la card pide propagarlo.
+      def courier_message(exception)
+        detail = courier_detail(exception.response_body)
+        return exception.message if detail.blank?
+
+        "#{exception.message}: #{detail}"
+      end
+
+      # El cuerpo es de un tercero: puede ser JSON con el motivo, JSON con otra
+      # forma, o HTML de un proxy. Se recorta para no devolver una página entera
+      # como mensaje de error.
+      def courier_detail(body)
+        parsed = JSON.parse(body.to_s)
+        detail = parsed.values_at('error', 'message', 'detail').compact.first if parsed.is_a?(Hash)
+
+        (detail || parsed).to_s.truncate(COURIER_ERROR_LIMIT)
+      rescue JSON::ParserError
+        body.to_s.truncate(COURIER_ERROR_LIMIT)
       end
     end
   end

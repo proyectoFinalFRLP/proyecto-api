@@ -105,8 +105,10 @@ RSpec.describe 'Shipment dispatch API', type: :request do
       expect(response).to have_http_status(:unprocessable_content)
     end
 
-    it 'propagates what the courier answered' do
-      expect(response.parsed_body['error']).to include('422')
+    # Criterio de la card: el usuario tiene que enterarse de qué corregir, y eso
+    # lo dice el courier en el cuerpo, no el código HTTP.
+    it 'propagates the explanation of the courier' do
+      expect(response.parsed_body['error']).to include('codigo postal invalido')
     end
 
     it 'leaves the shipment untouched', :aggregate_failures do
@@ -123,6 +125,16 @@ RSpec.describe 'Shipment dispatch API', type: :request do
     dispatch_shipment
 
     expect(response).to have_http_status(:bad_gateway)
+  end
+
+  # El cuerpo de un tercero puede no ser JSON: una página de error de un proxy,
+  # por ejemplo. Se propaga igual, recortada.
+  it 'propagates a non-JSON body of the courier' do
+    stub_request(:post, 'https://andreani.test/ordenes')
+      .to_return(status: 503, body: '<html>Service Unavailable</html>')
+    dispatch_shipment
+
+    expect(response.parsed_body['error']).to include('Service Unavailable')
   end
 
   it 'returns 502 when the courier answers without a tracking number' do
