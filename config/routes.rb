@@ -49,7 +49,12 @@ Rails.application.routes.draw do
       # por envío. El filtro por orden viaja como query param (?order_id=) y no
       # como ruta anidada: el listado es la vista principal, y la orden es un
       # filtro más.
-      resources :shipments, only: %i[index show]
+      resources :shipments, only: %i[index show] do
+        # La ruta es la de la card (POST /shipments/:id/dispatch); la acción se
+        # llama `confirm` porque `dispatch` es un método de ActionController
+        # (ver ShipmentsController#confirm).
+        post :dispatch, on: :member, action: :confirm
+      end
 
       resources :failed_events, path: 'failed-events', only: %i[index] do
         member do

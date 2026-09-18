@@ -355,16 +355,37 @@ module Catalog
 end
 ```
 
-#### La excepción: la cotización logística
+#### Las excepciones: la cotización y el despacho
 
-La regla anterior tiene un caso documentado que no la cumple, y conviene que se
-lea acá y no se descubra leyendo el código.
+La regla anterior tiene dos casos documentados que no la cumplen, y conviene que
+se lean acá y no se descubran leyendo el código. Los dos son del mismo tramo del
+producto —el usuario eligiendo cómo despachar— y los dos devuelven en la
+respuesta un dato que no sirve más tarde.
 
 `POST /api/v1/orders/:order_id/quotes` (TESIS-46) llama a los couriers **dentro
 del request**, no desde un job. El motivo es el producto: el usuario está
 esperando la lista de tarifas para elegir una. Devolverla por un job obligaría a
 sondear o a abrir un canal de tiempo real para un dato que se consume en el acto
 y que caduca enseguida.
+
+`POST /api/v1/shipments/:id/dispatch` (TESIS-47) hace lo propio con el operador
+que el usuario eligió: le pide la etiqueta y devuelve el número de seguimiento y
+el PDF en la misma respuesta. Acá el motivo es además de consistencia: la
+etiqueta ya existe del lado del courier apenas contesta, y diferir la escritura a
+un job abre una ventana en la que el envío figura sin despachar aunque el
+paquete ya tenga su número. Lo que acota el riesgo es distinto que en la
+cotización —es un solo operador, no varios en paralelo— y está en el propio caso
+de uso: la llamada corre **fuera** de la transacción, el estado se revalida bajo
+`lock!` antes de escribir, y un fallo del courier deja el envío exactamente como
+estaba.
+
+> **Deuda anotada.** Este es el segundo caso sincrónico, que es justamente la
+> condición que la sección de abajo ponía para revisar la excepción. Se mantiene
+> porque los dos casos comparten el mismo argumento de producto y ninguno es una
+> sincronización de fondo; si aparece un tercero, o si el despacho empieza a
+> tardar, el camino es encolar y notificar. El costo conocido de sostenerlo: si
+> la respuesta del courier se pierde después de que él generó la etiqueta, el
+> envío queda `pending` y un reintento genera una segunda etiqueta.
 
 Lo que acota el riesgo de sostener un hilo de Puma:
 
@@ -378,9 +399,9 @@ Lo que acota el riesgo de sostener un hilo de Puma:
   propio hilo y sale de la lista de opciones; nunca voltea la cotización.
 
 **Cuándo sí hay que volver a un job:** si la cantidad de couriers integrados por
-empresa deja de ser un puñado, o si aparece un segundo caso de llamada saliente
-sincrónica. Ahí el patrón correcto es encolar y notificar, y esta excepción deja
-de estar justificada.
+empresa deja de ser un puñado, o si aparece una llamada saliente sincrónica
+fuera de este tramo del producto. Ahí el patrón correcto es encolar y notificar,
+y estas excepciones dejan de estar justificadas.
 
 Toda otra llamada saliente sigue la regla: PORO, ejecutado desde un job.
 
