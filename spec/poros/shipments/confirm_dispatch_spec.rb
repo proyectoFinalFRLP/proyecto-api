@@ -147,6 +147,54 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
     end
   end
 
+  # Criterio de la card al pie de la letra: 409 si ya tiene tracking, aunque el
+  # estado diga otra cosa. Desde Avo se puede devolver un envío a `pending` sin
+  # borrarle el número.
+  describe 'when a pending shipment already has a tracking number' do
+    let(:shipment) do
+      Shipment.create!(company: company, order: order, status: 'pending', tracking_number: 'AND-1')
+    end
+
+    it 'refuses to dispatch it' do
+      expect { dispatch }.to raise_error(Shipments::AlreadyDispatchedError, /AND-1/)
+    end
+
+    it 'does not call the courier' do
+      stub = stub_courier
+      attempt_dispatch
+
+      expect(stub).not_to have_been_requested
+    end
+  end
+
+  # La carrera se reproduce sin dos transacciones: mientras "esperamos al
+  # courier", otro request despacha el mismo envío en la base. Si alguien saca
+  # el `lock!` o la revalidación de adentro de la transacción porque "ya se
+  # validó arriba", esto se pone en rojo en vez de pisar el tracking del otro.
+  describe 'when another request dispatches the shipment while the courier answers' do
+    before do
+      stub_request(:post, 'https://andreani.test/ordenes').to_return do
+        Shipment.find(shipment.id).update!(status: 'ready_to_ship', tracking_number: 'AND-OTHER')
+        { status: 200, headers: { 'Content-Type' => 'application/json' },
+          body: { bulto: [{ numeroDeEnvio: 'AND-999' }] }.to_json }
+      end
+    end
+
+    it 'loses the race with a conflict' do
+      expect { dispatch }.to raise_error(Shipments::AlreadyDispatchedError)
+    end
+
+    it 'keeps the tracking number of the winner' do
+      attempt_dispatch
+
+      expect(shipment.reload.tracking_number).to eq('AND-OTHER')
+    end
+
+    it 'records no event' do
+      expect { attempt_dispatch }.not_to change(ShipmentEvent, :count)
+    end
+  end
+
   describe 'when the chosen integration cannot dispatch' do
     def expect_rejection(integration)
       expect { dispatch(using: integration) }

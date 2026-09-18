@@ -51,8 +51,13 @@ module Shipments
 
     # Se valida antes de llamar al courier para no gastar una etiqueta —que el
     # proveedor cobra— en un envío que después no vamos a poder guardar.
+    #
+    # El tracking se mira además del estado porque la card pide 409 "si ya tiene
+    # un tracking asignado", y desde Avo se pueden editar los dos por separado:
+    # un envío devuelto a `pending` a mano conserva su número, y despacharlo de
+    # nuevo pisaría el tracking con el que el courier ya empuja eventos.
     def validate_status!(shipment)
-      return if shipment.status == DISPATCHABLE_STATUS
+      return if shipment.status == DISPATCHABLE_STATUS && shipment.tracking_number.blank?
 
       raise AlreadyDispatchedError.new(shipment: shipment)
     end
