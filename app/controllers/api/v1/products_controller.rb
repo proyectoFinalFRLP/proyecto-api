@@ -3,6 +3,8 @@
 module Api
   module V1
     class ProductsController < ApplicationController
+      include OptimisticLocking
+
       before_action :set_product, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
@@ -82,31 +84,10 @@ module Api
 
       private
 
-      # La version del agregado viaja como ETag (TESIS-101). El cliente la
-      # devuelve en `If-Match` al guardar y el servidor rechaza la escritura si
-      # ya no es la vigente.
+      # La version del agregado viaja como ETag (TESIS-101). El parseo de
+      # `If-Match` y el 412 viven en OptimisticLocking.
       def expose_version(product)
-        response.set_header('ETag', %("#{Catalog::ProductVersion.new(product: product).call}"))
-      end
-
-      # `If-Match` puede venir con comillas, con el prefijo debil `W/` o como
-      # `*`. `*` significa "cualquier version, siempre que exista": el producto
-      # ya se resolvio en set_product, asi que equivale a no poner precondicion.
-      def expected_version
-        raw = request.headers['If-Match'].to_s.strip
-        return nil if raw.blank? || raw == '*'
-
-        raw.delete_prefix('W/').delete_prefix('"').delete_suffix('"')
-      end
-
-      # 412 y no 409, apartandose de lo que pedia la card. Es el codigo que HTTP
-      # define para una precondicion que no se cumple, y de paso resuelve solo el
-      # requisito de distinguirlo: este endpoint ya devuelve 409 por SKU
-      # duplicado y por lock de stock ocupado, y un tercer 409 obligaria al front
-      # a leer el cuerpo para saber cual es. Con 412 alcanza el status.
-      def render_precondition_failed(exception)
-        render json: { error: exception.message, current_version: exception.current_version },
-               status: :precondition_failed
+        expose_etag(Catalog::ProductVersion.new(product: product).call)
       end
 
       def set_product
