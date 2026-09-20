@@ -27,6 +27,10 @@ RSpec.describe ShipmentPolicy, type: :policy do
     expect(policy.show?).to be(true)
   end
 
+  it 'lets a user dispatch a shipment of their own company' do
+    expect(policy.dispatch?).to be(true)
+  end
+
   # El alta de TESIS-105 no pasa por esta policy: cuelga de la orden y se
   # autoriza con OrderPolicy#ship?, porque cuando corre el chequeo el envío
   # todavía no existe. Sobre el envío en sí no hay escritura por la API.
@@ -41,6 +45,10 @@ RSpec.describe ShipmentPolicy, type: :policy do
 
     it 'denies reading it' do
       expect(policy.show?).to be(false)
+    end
+
+    it 'denies dispatching it' do
+      expect(policy.dispatch?).to be(false)
     end
   end
 
@@ -62,6 +70,10 @@ RSpec.describe ShipmentPolicy, type: :policy do
 
     it 'denies reading the record' do
       expect(policy.show?).to be(false)
+    end
+
+    it 'denies dispatching the record' do
+      expect(policy.dispatch?).to be(false)
     end
   end
 end

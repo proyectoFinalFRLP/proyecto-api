@@ -37,6 +37,14 @@ class Service < ApplicationRecord
     courier? && response_mapper.value?(Shipments::QuoteShipment::COST_KEY)
   end
 
+  # La contracara de `quotes_shipping?`: la plantilla que sabe despachar es la
+  # que declara de dónde leer el número de seguimiento de la respuesta
+  # (TESIS-47). La de cotización no lo trae, y pedirle una etiqueta sería llamar
+  # al endpoint de tarifas esperando otra cosa.
+  def dispatches_shipment?
+    courier? && response_mapper.value?(Shipments::ConfirmDispatch::TRACKING_KEY)
+  end
+
   # Los mappers aceptan String JSON (formularios del backoffice) además de Hash:
   # un String se parsea y, si es inválido o no es un objeto, el registro queda
   # inválido y conserva el valor anterior.

@@ -228,6 +228,10 @@ services = [
     request_mapper: { 'destino.postal.codigoPostal' => 'customer_zip_code' },
     response_mapper: {
       'bulto.0.numeroDeEnvio' => 'tracking_number',
+      # Ruta de la etiqueta en la respuesta del despacho (TESIS-47): el PDF que
+      # se imprime y se pega al paquete. Es lo que hace que esta plantilla sirva
+      # para despachar y no sólo para leer el push de tracking.
+      'etiqueta.url' => 'shipping_label_url',
       # Rutas del push de tracking (TESIS-48): Shipments::TranslateTrackingPayload
       # las lee crudas (sin pasar por response_value_mapper) para conservar el
       # external_status tal cual lo mandó el courier.
