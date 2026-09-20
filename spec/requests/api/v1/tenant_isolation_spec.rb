@@ -72,9 +72,19 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
 
   def other_integration
     @other_integration ||= as_intruder do
-      service = Service.create!(service_name: "Andreani Sur #{SecureRandom.hex(3)}", type: 'courier',
-                                http_method: 'POST', uri: 'https://andreani.test/track')
-      CompanyIntegration.create!(company: intruder_company, service: service, is_active: true)
+      courier_integration(company: intruder_company, name: 'Andreani Sur', is_active: true)
+    end
+  end
+
+  # Una transferencia en vuelo de la otra empresa. Necesita un segundo depósito
+  # suyo: el modelo rechaza que el origen y el destino sean el mismo.
+  def other_transfer
+    @other_transfer ||= as_intruder do
+      destination = Warehouse.create!(company: intruder_company, name: 'CD Sur 2',
+                                      address: 'Calle 3', zip_code: '2000')
+      StockTransfer.create!(company: intruder_company, product: other_product,
+                            origin_warehouse: other_warehouse, destination_warehouse: destination,
+                            quantity: 1, dispatched_at: Time.current)
     end
   end
 
@@ -92,6 +102,7 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
       deposito = other_warehouse.id
       orden = other_order.id
       evento = other_failed_event.id
+      transferencia = other_transfer.id
 
       [
         [%i[get put delete], "/api/v1/products/#{producto}"],
@@ -102,7 +113,9 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
         [%i[post], "/api/v1/orders/#{orden}/quotes"],
         [%i[get], "/api/v1/products/#{producto}/mappings"],
         [%i[post], "/api/v1/failed-events/#{evento}/retry"],
-        [%i[post], "/api/v1/failed-events/#{evento}/discard"]
+        [%i[post], "/api/v1/failed-events/#{evento}/discard"],
+        [%i[post], "/api/v1/stock-transfers/#{transferencia}/receive"],
+        [%i[post], "/api/v1/stock-transfers/#{transferencia}/cancel"]
       ].flat_map { |verbos, ruta| verbos.map { |verbo| [verbo, ruta] } }
     end
 
@@ -115,9 +128,21 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
       end
     end
 
-    # Contraprueba: si todo devolviera 404 porque las rutas están mal escritas,
-    # el bloque de arriba pasaría sin probar nada.
-    it 'answers 200 on the same routes for a resource of its own company' do
+    # Sin esto el barrido de arriba no distingue el 404 del scope del 404 del
+    # router: en test `show_exceptions = :rescuable` hace que una ruta que no
+    # existe también responda 404, así que una ruta mal escrita —o renombrada
+    # más adelante— lo dejaría en verde sin cubrir nada. Acá falla, y falla
+    # diciendo cuál.
+    it 'sweeps routes that exist', :aggregate_failures do
+      rutas_ajenas.each do |verbo, ruta|
+        expect { Rails.application.routes.recognize_path(ruta, method: verbo) }
+          .not_to raise_error, "#{verbo.upcase} #{ruta} no corresponde a ninguna ruta"
+      end
+    end
+
+    # La otra mitad de la contraprueba: que el 404 tampoco venga de la sesión ni
+    # de un request mal armado, sino de quién es el dueño del recurso.
+    it 'answers 200 on the same route for a resource of its own company' do
       own = Product.create!(company: company, sku: 'NOR-001', name: 'Producto de Norte')
 
       get "/api/v1/products/#{own.id}", headers: headers
@@ -131,15 +156,20 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
       before do
         other_product
         other_order
+        other_transfer
         Product.create!(company: company, sku: 'NOR-002', name: 'Propio')
       end
 
-      it 'never leaks the row of the other company in a listing', :aggregate_failures do
-        get '/api/v1/products', headers: headers
-        expect(response.parsed_body['data'].pluck('sku')).to eq(['NOR-002'])
+      # Lo que un listado devuelve, identificado por el campo que lo distingue.
+      def filas_de(ruta, campo)
+        get ruta, headers: headers
+        response.parsed_body['data'].pluck(campo)
+      end
 
-        get '/api/v1/orders', headers: headers
-        expect(response.parsed_body['data']).to be_empty
+      it 'never leaks the row of the other company in a listing', :aggregate_failures do
+        expect(filas_de('/api/v1/products', 'sku')).to eq(['NOR-002'])
+        expect(filas_de('/api/v1/orders', 'id')).to be_empty
+        expect(filas_de('/api/v1/stock-transfers', 'id')).to be_empty
       end
     end
   end
