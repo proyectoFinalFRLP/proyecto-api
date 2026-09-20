@@ -321,6 +321,14 @@ RSpec.describe 'Orders API', type: :request do
         expect(queries).to eq(1)
       end
 
+      # TESIS-126: la versión con la que la modificación guarda después.
+      it 'returns the version of the order as the ETag' do
+        order = make_order
+        get "/api/v1/orders/#{order.id}", headers: headers
+
+        expect(response.headers['ETag']).to eq(%("#{Orders::OrderVersion.new(order: order).call}"))
+      end
+
       # 404 y no 403: un 403 confirmaría que esa orden existe.
       it 'returns 404 for an order of another company' do
         get "/api/v1/orders/#{order_of_another_company.id}", headers: headers

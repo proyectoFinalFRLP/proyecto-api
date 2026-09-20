@@ -27,6 +27,13 @@ class OrderPolicy < ApplicationPolicy
     user.present?
   end
 
+  # Modificar la orden (TESIS-126). El permiso es el mismo que leerla: que sea
+  # del tenant del usuario. Qué estados admiten cambios es regla de negocio y
+  # vive en Orders::UpdateOrder, no acá.
+  def update?
+    show?
+  end
+
   # El aislamiento real ya lo garantiza el default_scope de CompanyScoped (una
   # orden de otra empresa ni siquiera se encuentra: 404). Este Scope es la
   # segunda barrera, y existe para que `policy_scope` del listado no dependa de

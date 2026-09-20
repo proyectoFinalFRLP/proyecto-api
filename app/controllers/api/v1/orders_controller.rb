@@ -3,12 +3,18 @@
 module Api
   module V1
     class OrdersController < ApplicationController
+      include OptimisticLocking
+
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
       rescue_from Catalog::InsufficientStockError, with: :render_insufficient_stock
       # ParameterMissing no es 422 de negocio: es un 400 de contrato. Rescatarlo
       # acá mantiene la forma del body ({error: ...}) consistente con el resto
       # de la API en vez del default de Rails.
       rescue_from ActionController::ParameterMissing, with: :render_bad_request
+      # Una orden cancelada o con el envío ya despachado: no hay body que haga
+      # pasar el mismo PUT, así que es 409 y no 422 (TESIS-126).
+      rescue_from Orders::OrderNotEditableError, with: :render_conflict
+      rescue_from Orders::StaleOrderError, with: :render_precondition_failed
 
       MAX_ITEMS = 100
 
@@ -55,6 +61,7 @@ module Api
         order = Order.includes(order_items: :product).find(params.expect(:id))
         authorize order
 
+        expose_version(order)
         render json: OrderSerializer.render(order)
       end
 
@@ -70,7 +77,33 @@ module Api
         render json: OrderSerializer.render(with_items(order)), status: :created
       end
 
+      # Modificación de la orden (TESIS-126): datos del cliente, estado y, si
+      # vienen, las líneas completas. La versión que devuelve es la nueva, así
+      # el cliente puede volver a guardar sin pedir el detalle otra vez.
+      def update
+        order = Order.find(params.expect(:id))
+        authorize order
+
+        updated = Orders::UpdateOrder.new(
+          order: order, params: update_params, items: update_items_params,
+          expected_version: expected_version
+        ).call
+
+        render_with_version(with_items(updated))
+      end
+
       private
+
+      def render_with_version(order)
+        expose_version(order)
+        render json: OrderSerializer.render(order), status: :ok
+      end
+
+      # La versión de la orden viaja como ETag, igual que la del producto
+      # (TESIS-101). Qué entra en ella lo decide Orders::OrderVersion.
+      def expose_version(order)
+        expose_etag(Orders::OrderVersion.new(order: order).call)
+      end
 
       # Blueprinter relee `order_items` de la base al serializar, así que los
       # productos que CreateOrder ya tenía en memoria no le sirven: sin esta
@@ -126,17 +159,32 @@ module Api
         orders.where(condition, pattern: pattern)
       end
 
-      def order_params
+      def order_params(*extra_keys)
         order = params.require(:order)
         unless order.is_a?(ActionController::Parameters)
           raise ActiveRecord::RecordNotSaved, 'order must be an object'
         end
 
         order.permit(:customer_name, :customer_document,
-                     :customer_address, :customer_zip_code)
+                     :customer_address, :customer_zip_code, *extra_keys)
       end
 
-      def items_params
+      # Lo mismo que el alta más el estado. Qué valores de estado se aceptan lo
+      # decide Orders::UpdateOrder (sólo pending y paid).
+      def update_params
+        order_params(:status)
+      end
+
+      # Sin `items` en el body, las líneas no se tocan: un PUT que sólo corrige la
+      # dirección no tiene por qué mandar la orden entera. `id` identifica una
+      # línea que ya existe; sin él, la línea es nueva.
+      def update_items_params
+        return nil unless params[:order].key?(:items)
+
+        items_params(:id)
+      end
+
+      def items_params(*extra_keys)
         raw = params[:order][:items]
         raise ActiveRecord::RecordNotSaved, 'items must be an array' unless raw.is_a?(Array)
         if raw.size > MAX_ITEMS
@@ -150,7 +198,8 @@ module Api
             raise ActiveRecord::RecordNotSaved, msg
           end
 
-          item.permit(:product_id, :quantity, :unit_price, :warehouse_id).to_h.symbolize_keys
+          item.permit(:product_id, :quantity, :unit_price, :warehouse_id, *extra_keys)
+              .to_h.symbolize_keys
         end
       end
 
@@ -160,6 +209,10 @@ module Api
 
       def render_insufficient_stock(exception)
         render json: { error: exception.message }, status: :unprocessable_content
+      end
+
+      def render_conflict(exception)
+        render json: { error: exception.message }, status: :conflict
       end
     end
   end
