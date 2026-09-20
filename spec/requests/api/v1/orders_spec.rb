@@ -297,6 +297,17 @@ RSpec.describe 'Orders API', type: :request do
         expect(response.parsed_body['order_items'].first['unit_price']).to be_a(Numeric)
       end
 
+      # TESIS-126: de qué depósito salió cada línea. La modificación lo necesita
+      # para saber a dónde devolver unidades, y las líneas viejas lo traen null.
+      it 'returns the warehouse each line was taken from' do
+        order = make_order
+        OrderItem.create!(order: order, product: product, warehouse: warehouse, quantity: 1,
+                          unit_price: 100)
+        get "/api/v1/orders/#{order.id}", headers: headers
+
+        expect(response.parsed_body['order_items'].pluck('warehouse_id')).to contain_exactly(nil, warehouse.id)
+      end
+
       # Fija la precarga: con tres líneas del mismo producto tiene que haber UN
       # solo SELECT sobre products. Sin `includes(order_items: :product)` serían
       # tres, y con diez líneas, diez.
