@@ -15,11 +15,12 @@ module Orders
 
     # `items: nil` es "no toques las líneas", y no lo mismo que `[]`, que pediría
     # una orden vacía y se rechaza.
-    def initialize(order:, params:, items: nil)
+    def initialize(order:, params:, items: nil, expected_version: nil)
       super()
       @order = order
       @params = params
       @items = items
+      @expected_version = expected_version
     end
 
     def call
@@ -30,6 +31,7 @@ module Orders
         # orden se serializan acá, y la segunda evalúa las guardas sobre lo que
         # dejó la primera y no sobre lo que leyó antes.
         @order.lock!
+        verify_version!
         ensure_editable!
 
         @order.update!(@params)
@@ -39,6 +41,26 @@ module Orders
     end
 
     private
+
+    # Locking optimista, con el mismo criterio que Products::UpdateProduct: el
+    # chequeo va DENTRO de la transacción y detrás del `lock!`, no antes. Con la
+    # fila tomada, el segundo de dos requests que leyeron la misma versión espera,
+    # relee lo que dejó el primero y su versión ya no coincide.
+    #
+    # Sin `expected_version` no hay precondición que verificar: es la semántica de
+    # `If-Match` en HTTP, y deja pasar a un cliente que no lo mande.
+    #
+    # Va antes que las guardas a propósito: si otro operador canceló la orden, la
+    # versión también cambió, y el 412 le dice al cliente que recargue y lo vea.
+    def verify_version!
+      return if @expected_version.blank?
+
+      @order.order_items.reload
+      current = OrderVersion.new(order: @order).call
+      return if current == @expected_version
+
+      raise StaleOrderError.new(current_version: current)
+    end
 
     def validate_status!
       status = @params[:status]

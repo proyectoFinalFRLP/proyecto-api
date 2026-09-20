@@ -130,6 +130,44 @@ RSpec.describe Orders::UpdateOrder, type: :poro do
     end
   end
 
+  # Locking optimista (TESIS-126), con el mismo mecanismo que productos.
+  describe 'the expected version' do
+    def version_seen = Orders::OrderVersion.new(order: Order.find(order.id)).call
+
+    def update_with(version)
+      described_class.new(order: Order.find(order.id), params: { customer_name: 'Otro' },
+                          expected_version: version).call
+    end
+
+    it 'lets the update through when it is still the current one' do
+      expect { update_with(version_seen) }.to change { order.reload.customer_name }.to('Otro')
+    end
+
+    it 'lets the update through when there is none, as HTTP does without If-Match' do
+      expect { update_with(nil) }.to change { order.reload.customer_name }.to('Otro')
+    end
+
+    # Otro operador cambió una cantidad entre que esta pantalla leyó y guardó.
+    context 'when someone changed the order after it was read' do
+      subject(:stale_update) { update_with(seen) }
+
+      let!(:seen) { version_seen }
+
+      before { line.update!(quantity: 5) }
+
+      it 'rejects the update, carrying the current version' do
+        expect { stale_update }.to raise_error(
+          an_object_having_attributes(class: Orders::StaleOrderError, current_version: version_seen)
+        )
+      end
+
+      it 'leaves the order untouched' do
+        suppress(Orders::StaleOrderError) { stale_update }
+        expect(order.reload.customer_name).to eq('Juan Pérez')
+      end
+    end
+  end
+
   # La razón de ser de la transacción: un fallo en cualquier línea no deja la
   # orden a medio modificar.
   describe 'when a line fails' do
