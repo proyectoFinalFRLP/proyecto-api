@@ -67,8 +67,13 @@ class Product < ApplicationRecord
   # se evalúa antes de agrupar. Encadena sobre `with_total_stock`, que es quien
   # arma ese GROUP BY.
   #
-  # Un estado desconocido no rompe: devuelve el scope sin tocar, mismo criterio
-  # que el resto de los listados.
+  # Un estado desconocido no rompe: devuelve el scope sin tocar, o sea el
+  # catalogo entero. OJO: no es el criterio del listado de ordenes, que con un
+  # status desconocido hace `where` igual y devuelve cero filas. La diferencia
+  # es deliberada: ahi el estado es una columna y el valor invalido simplemente
+  # no matchea; aca el filtro es una vista derivada del stock, y un tab que no
+  # existe no describe ningun subconjunto. Si se unifican, que sea en las dos
+  # puntas y no cambiando esta sola.
   # El umbral viaja como parámetro y no interpolado: aunque sea una constante
   # nuestra, un HAVING armado con interpolación es indistinguible de uno armado
   # con un dato del request para cualquiera que lea —o audite— este archivo.
