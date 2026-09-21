@@ -34,7 +34,9 @@ module Orders
       acquire_locks_in_canonical_order!(products)
 
       removed_lines.each { |line| remove!(line) }
-      kept_items.each { |item| resize!(existing_lines.fetch(item[:id]), item[:quantity]) }
+      resizes_smallest_delta_first.each do |item|
+        resize!(existing_lines.fetch(item[:id]), item[:quantity])
+      end
       new_items.each { |item| add!(item, products.fetch(item[:product_id])) }
 
       @order.order_items.reset
@@ -197,5 +199,14 @@ module Orders
     end
 
     def lines_moving_stock = removed_lines + resized_lines
+
+    # Las que bajan primero, por la misma razón que las bajas de líneas van
+    # antes que las altas: devolver antes de descontar. Si una línea sube y otra
+    # baja sobre el mismo producto y depósito, aplicarlas en el orden del request
+    # haría que el mismo pedido —con el mismo neto— pase o falle por stock según
+    # en qué orden vinieron las filas.
+    def resizes_smallest_delta_first
+      kept_items.sort_by { |item| item[:quantity] - existing_lines.fetch(item[:id]).quantity }
+    end
   end
 end

@@ -68,6 +68,33 @@ RSpec.describe Orders::ReplaceOrderLines, type: :poro do
     end
   end
 
+  # Dos líneas del mismo SKU en el mismo depósito intercambian cantidades: el
+  # neto es cero, así que no puede depender del orden en que vienen las filas.
+  describe 'two lines of the same product that swap quantities' do
+    let(:other) { order.order_items.find_by(quantity: 1) }
+
+    before do
+      replace([kept(4), new_line(product: celular, warehouse: central, quantity: 1)])
+      Stock.find_by(product: celular, warehouse: central).update!(quantity: 0)
+    end
+
+    def swap(first, second) = replace([first, second])
+
+    it 'succeeds when the line that goes down comes first', :aggregate_failures do
+      swap(kept(1), { id: other.id, quantity: 4 })
+
+      expect(order.order_items.pluck(:quantity)).to contain_exactly(1, 4)
+      expect(stock(celular, central)).to eq(0)
+    end
+
+    it 'succeeds as well when the line that goes up comes first', :aggregate_failures do
+      swap({ id: other.id, quantity: 4 }, kept(1))
+
+      expect(order.order_items.pluck(:quantity)).to contain_exactly(1, 4)
+      expect(stock(celular, central)).to eq(0)
+    end
+  end
+
   describe 'a line that stays the same' do
     it 'moves no stock' do
       expect { replace([kept(4)]) }.not_to(change { stock(celular, central) })
