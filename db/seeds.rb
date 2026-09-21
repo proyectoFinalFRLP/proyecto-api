@@ -485,12 +485,16 @@ end
 if norte_company
   # Clave de búsqueda alineada al índice único (company_id, external_order_id):
   # external_order_id: nil desambigua órdenes manuales de las de webhook.
+  # Las manuales traen ciudad y provincia (TESIS-128); las de webhook, no: la
+  # ingesta todavía no las mapea.
   manual_order = Order.find_or_create_by!(
     company: norte_company, external_order_id: nil, customer_name: 'Cliente Mayorista Norte'
   ) do |o|
     o.customer_document = '20-30123456-7'
     o.customer_address = 'Calle 7 N° 890, La Plata'
     o.customer_zip_code = '1900'
+    o.customer_city = 'La Plata'
+    o.customer_province = 'Buenos Aires'
     o.status = 'paid'
   end
 
@@ -740,6 +744,8 @@ if norte_company
     o.customer_document = '30-56789012-3'
     o.customer_address = 'Ruta 8 km 65, Escobar'
     o.customer_zip_code = '1625'
+    o.customer_city = 'Escobar'
+    o.customer_province = 'Buenos Aires'
     o.status = 'paid'
   end
   OrderItem.find_or_create_by!(order: order_manual_2, product: ups) do |i|
@@ -910,6 +916,8 @@ if sur_company
     o.customer_document = '30-67890123-4'
     o.customer_address = 'Belgrano 567, Bahía Blanca'
     o.customer_zip_code = '8000'
+    o.customer_city = 'Bahía Blanca'
+    o.customer_province = 'Buenos Aires'
     o.status = 'paid'
   end
   OrderItem.find_or_create_by!(order: sur_paid, product: taladro) do |i|
@@ -928,6 +936,8 @@ if sur_company
     o.customer_document = '20-54321098-7'
     o.customer_address = 'Av. Mitre 234, Mar del Plata'
     o.customer_zip_code = '7600'
+    o.customer_city = 'Mar del Plata'
+    o.customer_province = 'Buenos Aires'
     o.status = 'pending'
   end
   OrderItem.find_or_create_by!(order: sur_pending, product: amoladora) do |i|
