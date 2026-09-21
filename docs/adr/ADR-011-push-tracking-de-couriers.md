@@ -108,7 +108,7 @@ El tenant sale de la integración (`CompanyIntegration#company_id`), nunca de un
 - ✅ No depende de que el proveedor implemente bien un webhook saliente
 - ❌ Latencia mínima de un ciclo de polling en vez de tiempo real
 - ❌ Multiplica llamadas salientes —una por envío activo en cada ciclo— contra la API del courier, con su propio costo y límites de rate
-- Push y pull no son excluyentes: `feature-structure.md` ya lista "Push/Pull tracking" como alcance de `shipments`. El pull queda como complemento futuro para couriers que no ofrezcan push, no como sustituto de éste
+- Push y pull no son excluyentes: `feature-structure.md` ya lista "Push/Pull tracking" como alcance de `shipments`. El pull queda como complemento futuro para couriers que no ofrezcan push, no como sustituto de éste — implementado en TESIS-49, ver [ADR-014](ADR-014-pull-tracking-de-couriers.md)
 
 ### Estado `unknown` en `Shipment::STATUSES` para lo no mapeado
 

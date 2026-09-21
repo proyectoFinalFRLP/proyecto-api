@@ -177,10 +177,32 @@ Shipments::ProcessTrackingEventJob                     (cola realtime)
 Shipments::ProcessTrackingUpdate
   - Traduce el payload con el response_mapper del Service (Shipments::TranslateTrackingPayload)
   - Ubica el Shipment por tracking_number + company_integration_id
-  - Transacción: shipment.lock! + ShipmentEvent + actualización de shipments.status
+  - Registra el movimiento con Shipments::RegisterTrackingEvent:
+    transacción shipment.lock! + ShipmentEvent + actualización de shipments.status
   - Marca el WebhookLog 'processed' o 'failed' + error_message
   ↓
 (si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
+```
+
+### 4.3 Consulta periódica a couriers sin webhooks (pull tracking)
+
+Con los couriers que no empujan el tracking, el sistema pregunta: un cronjob barre los envíos en curso y consulta al courier con su plantilla de seguimiento (`Service#tracking_service`). Lo que contesta pasa por el mismo núcleo que el push (ver [ADR-014](../adr/ADR-014-pull-tracking-de-couriers.md)).
+
+```
+config/recurring.yml (every 30 minutes)
+  ↓
+Shipments::ScanPullTrackingJob                         (cola low, sin tenant: unscoped)
+  - Integraciones activas cuyo Service tiene tracking_service
+  - Shipment.in_flight de cada una (ready_to_ship | in_transit, con tracking)
+  - PollTrackingJob escalonado: 1 por envío, o 1 por lote si la plantilla es masiva
+  ↓
+Shipments::PollTrackingJob                             (cola low, 1 a la vez por integración)
+  - with_tenant(company_id)
+  ↓
+Shipments::PollTrackingStatus
+  - HttpAdapter#fetch con la plantilla de seguimiento y las credenciales de la integración
+  - Shipments::TranslateTrackingPayload + Shipments::RegisterTrackingEvent
+  - Fallo del courier → Rails.logger y sigue (sin DLQ: el próximo ciclo es el reintento)
 ```
 
 ---
@@ -452,7 +474,16 @@ Alternativas: WSL, Docker, o dejar la verificación de workers al CI/deploy (Lin
 
 ### 8.4 Tareas programadas
 
-`config/recurring.yml` declara los cronjobs (formato de recurring tasks de Solid Queue). Hoy sólo la limpieza de jobs terminados en producción; el sweeper de webhooks atascados llega con TESIS-39.
+`config/recurring.yml` declara los cronjobs (formato de recurring tasks de Solid Queue):
+
+| Tarea                        | Job                                 | Frecuencia       |
+| ---------------------------- | ----------------------------------- | ---------------- |
+| Motor de reintentos de la DLQ | `Webhooks::ScanDueFailedEventsJob` | cada minuto      |
+| Limpieza de JWT revocados    | `Auth::PurgeExpiredTokensJob`       | diaria, 4 am     |
+| Pull tracking de couriers    | `Shipments::ScanPullTrackingJob`    | cada 30 minutos  |
+| Limpieza de jobs terminados  | comando de Solid Queue              | cada hora (sólo producción) |
+
+Los cronjobs que abarcan a todas las empresas corren sin tenant, leen con `unscoped` y encolan un job por unidad de trabajo con su `company_id`; el job hijo activa el tenant con `with_tenant`.
 
 ### 8.5 La base de datos de la cola
 
