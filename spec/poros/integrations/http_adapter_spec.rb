@@ -120,6 +120,22 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
     end
   end
 
+  describe 'timeouts' do
+    let(:http) { Net::HTTP.new('api.andreani.com', 443) }
+
+    before do
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      stub_request(:post, 'https://api.andreani.com/envios/42')
+        .to_return(status: 200, body: {}.to_json)
+    end
+
+    it 'uses the given timeout and keeps the default for the one not given' do
+      described_class.new(company_integration: integration, uri_params: { order_id: 42 },
+                          timeouts: { read: 3 }).call
+      expect([http.open_timeout, http.read_timeout]).to eq([10, 3])
+    end
+  end
+
   describe '#fetch' do
     def fetch_raw
       described_class.new(company_integration: integration,
