@@ -30,6 +30,93 @@ RSpec.describe 'Warehouses API', type: :request do
     { name: 'Central', zip_code: '1900', address: 'Calle 1' }
   end
 
+  # Unidades guardadas en cada deposito (TESIS-127). Alimentan el widget de
+  # capacidad del panel, que compara depositos entre si: el modelo no tiene
+  # capacidad maxima contra la cual medir una ocupacion.
+  describe 'GET /api/v1/warehouses, stored units' do
+    def stock_for(warehouse, quantity)
+      product = Product.create!(company: company, sku: "SKU-#{quantity}", name: "Producto #{quantity}")
+      Stock.create!(product: product, warehouse: warehouse, quantity: quantity)
+    end
+
+    def listed
+      get '/api/v1/warehouses', headers: headers
+      response.parsed_body['data'].to_h { |row| [row['name'], row['stored_units']] }
+    end
+
+    it 'adds up every stock row of the warehouse' do
+      central = Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+      stock_for(central, 30)
+      stock_for(central, 12)
+
+      expect(listed['Central']).to eq(42)
+    end
+
+    # Cero es un dato: el deposito existe y esta vacio. Un null obligaria a la
+    # pantalla a distinguir "vacio" de "no lo se", y no hay tal distincion.
+    it 'answers zero for a warehouse with no stock at all' do
+      Warehouse.create!(company: company, name: 'Vacio', zip_code: '1901', address: 'Calle 2')
+
+      expect(listed['Vacio']).to eq(0)
+    end
+
+    it 'counts each warehouse on its own' do
+      central = Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+      satelite = Warehouse.create!(company: company, name: 'Satelite', zip_code: '1602', address: 'Calle 3')
+      stock_for(central, 30)
+      stock_for(satelite, 7)
+
+      expect(listed).to eq('Central' => 30, 'Satelite' => 7)
+    end
+
+    def three_stocked_warehouses
+      3.times do |i|
+        warehouse = Warehouse.create!(company: company, name: "CD #{i}", zip_code: '1900',
+                                      address: "Calle #{i}")
+        stock_for(warehouse, i + 1)
+      end
+    end
+
+    # Cuantas veces se consulto la tabla `stocks` para responder el listado.
+    def stock_queries_while(&)
+      consultas = 0
+      contar = lambda { |_name, _start, _finish, _id, payload|
+        consultas += 1 if payload[:sql].include?('FROM "stocks"')
+      }
+      ActiveSupport::Notifications.subscribed(contar, 'sql.active_record', &)
+      consultas
+    end
+
+    # El motivo del scope: sin el, el serializer sumaria por asociacion y haria
+    # una consulta por deposito. Con el, hay a lo sumo una, sin importar cuantos
+    # depositos haya.
+    it 'aggregates in a single query instead of one per warehouse' do
+      three_stocked_warehouses
+
+      consultas = stock_queries_while { get '/api/v1/warehouses', headers: headers }
+
+      expect(consultas).to be <= 1
+    end
+
+    # El detalle no pasa por el scope: ahi `stored_units` cae a sumar por
+    # asociacion, y tiene que dar lo mismo.
+    it 'answers the same number on the detail, which does not use the scope' do
+      central = Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+      stock_for(central, 30)
+
+      get "/api/v1/warehouses/#{central.id}", headers: headers
+
+      expect(response.parsed_body['stored_units']).to eq(30)
+    end
+
+    it 'never counts the stock of another company' do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+      other_warehouse
+
+      expect(listed.keys).to eq(['Central'])
+    end
+  end
+
   describe 'GET /api/v1/warehouses' do
     it 'returns 401 without a token' do
       get '/api/v1/warehouses'

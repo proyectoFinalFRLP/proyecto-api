@@ -11,4 +11,22 @@ class Warehouse < ApplicationRecord
   validates :name, presence: true
   validates :zip_code, presence: true
   validates :address, presence: true
+
+  # Unidades guardadas en cada deposito, agregadas por la base en una sola
+  # consulta (TESIS-127). Misma mecanica que Product.with_total_stock: el
+  # listado la necesita para todas las filas, y sumarla por asociacion seria
+  # una consulta por deposito.
+  scope :with_stored_units, lambda {
+    left_joins(:stocks)
+      .group(:id)
+      .select('warehouses.*', 'COALESCE(SUM(stocks.quantity), 0) AS stored_units')
+  }
+
+  # Cuantas unidades hay guardadas aca. Si la fila vino de `with_stored_units`,
+  # el alias del SELECT ya trae el agregado y hay que leerlo con has_attribute?
+  # porque este metodo tiene precedencia sobre el atributo. Si no vino del scope
+  # —el detalle, o un deposito recien creado— se suma por asociacion.
+  def stored_units
+    has_attribute?(:stored_units) ? self[:stored_units].to_i : stocks.sum(:quantity)
+  end
 end
