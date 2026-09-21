@@ -39,6 +39,22 @@ module Integrations
       Array.wrap(ParseExternalResponse.dig_path(@payload, root))
     end
 
+    # El mapper de cada elemento: las mismas claves internas, pero con la ruta
+    # relativa al elemento. Es público para quien necesita traducir cada
+    # elemento a su manera (Shipments::PollTrackingStatus conserva el estado
+    # crudo, que `call` perdería al aplicar el response_value_mapper).
+    #
+    # El límite del split es lo que deja la ruta vacía de una entrada sin ruta
+    # interna ("tags[]"), que dig_path resuelve como el elemento entero; sin él,
+    # Ruby descarta el pedazo vacío del final.
+    def element_mapper
+      return {} if collection.blank?
+
+      @element_mapper ||= collection.last.to_h do |path, internal_key|
+        [path.split(MARKER, 2).last.delete_prefix('.'), internal_key]
+      end
+    end
+
     private
 
     # Entradas de colección agrupadas por su raíz. Una plantilla declara una
@@ -52,16 +68,6 @@ module Integrations
     end
 
     def root = collection.first
-
-    # El mapper de cada elemento: las mismas claves internas, pero con la ruta
-    # relativa al elemento. El límite del split es lo que deja la ruta vacía de
-    # una entrada sin ruta interna ("tags[]"), que dig_path resuelve como el
-    # elemento entero; sin él, Ruby descarta el pedazo vacío del final.
-    def element_mapper
-      @element_mapper ||= collection.last.to_h do |path, internal_key|
-        [path.split(MARKER, 2).last.delete_prefix('.'), internal_key]
-      end
-    end
 
     def translate(element)
       ParseExternalResponse.new(

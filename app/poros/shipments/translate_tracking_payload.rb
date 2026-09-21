@@ -17,10 +17,15 @@ module Shipments
     # proveedor (la respuesta del despacho, por ejemplo).
     TRACKING_KEYS = %w[tracking_number external_status occurred_at description].freeze
 
-    def initialize(service:, payload:)
+    # `mapper` permite traducir con un mapper derivado en lugar del
+    # response_mapper completo: el de cada elemento de una respuesta masiva de
+    # tracking (TESIS-49), con las rutas relativas al elemento. Mismo criterio
+    # que Integrations::ParseExternalResponse.
+    def initialize(service:, payload:, mapper: nil)
       super()
       @service = service
       @payload = payload
+      @mapper = mapper || service.response_mapper
     end
 
     def call
@@ -57,7 +62,7 @@ module Shipments
     end
 
     def single_event_mapper
-      @single_event_mapper ||= @service.response_mapper.reject do |path, _internal_key|
+      @single_event_mapper ||= @mapper.reject do |path, _internal_key|
         path.include?(Integrations::ParseExternalResponse::COLLECTION_MARKER)
       end
     end

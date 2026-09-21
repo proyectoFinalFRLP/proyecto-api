@@ -34,10 +34,15 @@ module Integrations
     # una cotización que corre dentro de un request HTTP no — ahí el usuario está
     # esperando y el motor prefiere perder un operador antes que la respuesta
     # entera (TESIS-46).
-    def initialize(company_integration:, payload: {}, uri_params: {}, timeouts: TIMEOUTS)
+    #
+    # `service` permite hablarle al mismo proveedor con otra de sus plantillas y
+    # las credenciales de esta integración: la consulta de tracking (TESIS-49)
+    # usa la plantilla de seguimiento del courier con la cuenta que despachó.
+    def initialize(company_integration:, service: company_integration.service, payload: {},
+                   uri_params: {}, timeouts: TIMEOUTS)
       super()
       @integration = company_integration
-      @service = company_integration.service
+      @service = service
       @payload = payload
       @uri_params = uri_params
       @timeouts = TIMEOUTS.merge(timeouts)

@@ -120,6 +120,25 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
     end
   end
 
+  describe 'speaking with another template of the same provider' do
+    let(:tracking_template) do
+      Service.create!(service_name: 'Andreani - Seguimiento', type: 'courier', http_method: 'GET',
+                      uri: 'https://api.andreani.com/tracking/:tracking_number')
+    end
+
+    before do
+      stub_request(:get, 'https://api.andreani.com/tracking/AND-1')
+        .to_return(status: 200, body: {}.to_json)
+    end
+
+    it 'uses the given template with the credentials of the integration' do
+      described_class.new(company_integration: integration, service: tracking_template,
+                          uri_params: { tracking_number: 'AND-1' }).fetch
+      expect(WebMock).to have_requested(:get, 'https://api.andreani.com/tracking/AND-1')
+        .with(headers: { 'Authorization' => 'Bearer SECRET-TOKEN' })
+    end
+  end
+
   describe 'timeouts' do
     let(:http) { Net::HTTP.new('api.andreani.com', 443) }
 

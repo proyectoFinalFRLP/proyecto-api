@@ -5,6 +5,13 @@ class Shipment < ApplicationRecord
 
   STATUSES = %w[pending ready_to_ship in_transit delivered].freeze
 
+  # Envíos cuyo ciclo logístico está abierto del lado del courier: ya tienen
+  # etiqueta y todavía no se entregaron. Es el universo que recorre la consulta
+  # periódica de tracking (TESIS-49): `pending` no tiene número de seguimiento
+  # por el que preguntar y `delivered` es final — consultarlo sólo gastaría la
+  # cuota del proveedor.
+  IN_FLIGHT_STATUSES = %w[ready_to_ship in_transit].freeze
+
   belongs_to :company
   # La integración se asigna al inicializar el envío y puede no existir todavía
   # (se completa al confirmar el despacho con un courier).
@@ -15,6 +22,8 @@ class Shipment < ApplicationRecord
   belongs_to :company_integration, optional: true
   belongs_to :order
   has_many :shipment_events, dependent: :destroy
+
+  scope :in_flight, -> { where(status: IN_FLIGHT_STATUSES).where.not(tracking_number: nil) }
 
   validates :status, presence: true, inclusion: { in: STATUSES }
   validates :shipping_cost, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
