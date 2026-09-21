@@ -46,8 +46,18 @@ module Integrations
     end
 
     def call
+      ParseExternalResponse.new(service: @service, response_body: fetch).call
+    end
+
+    # La respuesta JSON tal cual la mandó el proveedor, sin pasar por los
+    # mappers. `call` aplica el response_value_mapper a todo lo que extrae, y hay
+    # quien necesita el dato crudo: el seguimiento conserva el estado externo
+    # textual además del traducido (ver Shipments::TranslateTrackingPayload).
+    def fetch
       response = execute(build_request)
-      handle(response)
+      raise_http_error(response) unless response.is_a?(Net::HTTPSuccess)
+
+      parse_json(response.body)
     rescue *NETWORK_ERRORS => e
       raise AdapterExecutionError.new(
         "#{@service.service_name} request failed: #{e.class}: #{e.message}", payload: @payload
@@ -81,12 +91,6 @@ module Integrations
       http.open_timeout = @open_timeout
       http.read_timeout = @read_timeout
       http.request(request)
-    end
-
-    def handle(response)
-      raise_http_error(response) unless response.is_a?(Net::HTTPSuccess)
-
-      ParseExternalResponse.new(service: @service, response_body: parse_json(response.body)).call
     end
 
     def raise_http_error(response)

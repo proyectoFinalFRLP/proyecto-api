@@ -120,6 +120,33 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
     end
   end
 
+  describe '#fetch' do
+    def fetch_raw
+      described_class.new(company_integration: integration,
+                          payload: { customer_zip_code: '1900' },
+                          uri_params: { order_id: 42 }).fetch
+    end
+
+    it 'returns the JSON body untouched by the response mappers' do
+      stub_request(:post, 'https://api.andreani.com/envios/42')
+        .to_return(status: 200, body: { estado: 'Entregado', extra: 1 }.to_json)
+
+      expect(fetch_raw).to eq('estado' => 'Entregado', 'extra' => 1)
+    end
+
+    it 'raises AdapterExecutionError on an HTTP error, like #call' do
+      stub_request(:post, 'https://api.andreani.com/envios/42').to_return(status: 503)
+
+      expect { fetch_raw }.to raise_error(Integrations::AdapterExecutionError, /HTTP 503/)
+    end
+
+    it 'raises AdapterExecutionError on a network failure, like #call' do
+      stub_request(:post, 'https://api.andreani.com/envios/42').to_timeout
+
+      expect { fetch_raw }.to raise_error(Integrations::AdapterExecutionError, /request failed/)
+    end
+  end
+
   describe 'bodyless methods' do
     before do
       service.update!(http_method: 'GET', uri: 'https://api.andreani.com/envios/:order_id')
