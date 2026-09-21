@@ -133,7 +133,8 @@ module Api
         end
 
         order.permit(:customer_name, :customer_document,
-                     :customer_address, :customer_zip_code)
+                     :customer_address, :customer_zip_code,
+                     :customer_city, :customer_province)
       end
 
       def items_params

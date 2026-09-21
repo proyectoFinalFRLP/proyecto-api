@@ -439,6 +439,62 @@ RSpec.describe 'Orders API', type: :request do
     end
   end
 
+  # ------------------------------------------------------------------ TESIS-128
+  describe 'the city and province of the destination' do
+    def destination_payload(province: 'Córdoba')
+      payload = build_payload
+      payload[:order].merge!(customer_address: 'Bv. San Juan 450', customer_zip_code: '5000',
+                             customer_city: 'Córdoba', customer_province: province)
+      payload
+    end
+
+    it 'persists them when the order is created', :aggregate_failures do
+      post_order(destination_payload)
+
+      expect(Order.last).to have_attributes(customer_city: 'Córdoba', customer_province: 'Córdoba')
+    end
+
+    it 'returns them in the body of the order just created', :aggregate_failures do
+      post_order(destination_payload)
+
+      expect(response.parsed_body).to include('customer_city' => 'Córdoba',
+                                              'customer_province' => 'Córdoba')
+    end
+
+    it 'returns them in the order detail' do
+      post_order(destination_payload)
+      get "/api/v1/orders/#{response.parsed_body['id']}", headers: headers
+
+      expect(response.parsed_body).to include('customer_city' => 'Córdoba',
+                                              'customer_province' => 'Córdoba')
+    end
+
+    it 'returns them in the orders list' do
+      post_order(destination_payload)
+      get '/api/v1/orders', headers: headers
+
+      expect(response.parsed_body['data'].first).to include('customer_city' => 'Córdoba',
+                                                            'customer_province' => 'Córdoba')
+    end
+
+    it 'rejects a province outside the 24 jurisdictions without creating the order',
+       :aggregate_failures do
+      expect { post_order(destination_payload(province: 'Capital Federal')) }
+        .not_to change(Order, :count)
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it 'does not deduct stock when the province is rejected' do
+      post_order(destination_payload(province: 'Capital Federal'))
+      expect(Stock.find_by(product: product, warehouse: warehouse).quantity).to eq(20)
+    end
+
+    it 'keeps accepting orders without them' do
+      post_order
+      expect(response.parsed_body).to include('customer_city' => nil, 'customer_province' => nil)
+    end
+  end
+
   # ------------------------------------------------------------------ TESIS-114
   describe 'total_amount' do
     it 'comes back in the body of the order just created' do
