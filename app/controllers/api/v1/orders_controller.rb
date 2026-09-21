@@ -49,6 +49,15 @@ module Api
         }
       end
 
+      # Vocabulario del select de provincia del alta manual (TESIS-58). Mismo
+      # criterio que GET /products/categories: el front no repite la lista, que
+      # tiene que coincidir carácter por carácter —tildes incluidas— con la que
+      # valida el modelo. El origen es Order::PROVINCES y nadie más la escribe.
+      def provinces
+        skip_authorization
+        render json: { data: Order::PROVINCES }
+      end
+
       def show
         # find y no find_by: Order es CompanyScoped, así que una orden de otra
         # empresa levanta RecordNotFound -> 404 y no confirma que exista.

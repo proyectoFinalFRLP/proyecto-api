@@ -495,6 +495,33 @@ RSpec.describe 'Orders API', type: :request do
     end
   end
 
+  describe 'GET /api/v1/orders/provinces' do
+    it 'returns 401 without a token' do
+      get '/api/v1/orders/provinces'
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'returns the province vocabulary the model validates against', :aggregate_failures do
+      get '/api/v1/orders/provinces', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['data']).to eq(Order::PROVINCES)
+    end
+
+    # Cada valor que ofrece el select tiene que ser uno que el alta acepte: es
+    # la razón de ser del endpoint.
+    it 'offers only values that the order creation accepts' do
+      province = response_province_sample
+      post_order(build_payload.deep_merge(order: { customer_province: province }))
+      expect(response).to have_http_status(:created)
+    end
+
+    def response_province_sample
+      get '/api/v1/orders/provinces', headers: headers
+      response.parsed_body['data'].find { |name| name.match?(/[áéíóú]/) }
+    end
+  end
+
   # ------------------------------------------------------------------ TESIS-114
   describe 'total_amount' do
     it 'comes back in the body of the order just created' do
