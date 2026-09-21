@@ -12,6 +12,10 @@ module Avo
         field :type, as: :select, options: ::Service::TYPES.index_with(&:itself)
         field :uri, as: :text
         field :http_method, as: :select, options: %w[GET POST PUT PATCH DELETE].index_with(&:itself)
+        # Sólo para couriers sin webhooks de tracking: la plantilla con la que la
+        # consulta periódica pregunta por sus envíos (TESIS-49).
+        field :tracking_service, as: :belongs_to, use_resource: Avo::Resources::Service,
+                                 name: 'Tracking template', only_on: %i[show forms]
 
         mapper_fields
       end

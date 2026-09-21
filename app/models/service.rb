@@ -9,13 +9,27 @@ class Service < ApplicationRecord
   MAPPER_FIELDS = %w[request_mapper response_mapper request_value_mapper
                      response_value_mapper].freeze
 
+  # Vocabulario de una plantilla de consulta de tracking (ver #answers_tracking?).
+  TRACKING_STATUS_KEY = 'external_status'
+  TRACKING_URI_PARAM = ':tracking_number'
+
   has_many :company_integrations, dependent: :restrict_with_error
+
+  # Plantilla con la que se le pregunta a este courier por el estado de sus
+  # envíos, para los proveedores que no empujan webhooks de tracking (TESIS-49,
+  # ADR-014). Que esté cargada es lo que pone a sus envíos en la consulta
+  # periódica; un courier que empuja el tracking (ADR-011) la deja vacía.
+  belongs_to :tracking_service, class_name: 'Service', optional: true,
+                                inverse_of: :tracked_services
+  has_many :tracked_services, class_name: 'Service', foreign_key: :tracking_service_id,
+                              inverse_of: :tracking_service, dependent: :nullify
 
   validates :service_name, presence: true, uniqueness: true
   validates :uri, presence: true
   validates :http_method, presence: true
   validates :type, presence: true, inclusion: { in: TYPES }
   validate :mappers_are_valid_json
+  validate :tracking_service_answers_tracking
 
   # Sólo los canales de e-commerce generan ventas: el gateway lo usa para decidir
   # si un webhook entrante va al procesador de órdenes (TESIS-43) o queda a la
@@ -41,8 +55,32 @@ class Service < ApplicationRecord
   # que declara de dónde leer el número de seguimiento de la respuesta
   # (TESIS-47). La de cotización no lo trae, y pedirle una etiqueta sería llamar
   # al endpoint de tarifas esperando otra cosa.
+  #
+  # Una plantilla de consulta de tracking (TESIS-49) también puede mapear el
+  # número de seguimiento —para emparejar cada elemento de una respuesta masiva—
+  # y no por eso sabe despachar: se excluye explícitamente.
   def dispatches_shipment?
-    courier? && response_mapper.value?(Shipments::ConfirmDispatch::TRACKING_KEY)
+    courier? && response_mapper.value?(Shipments::ConfirmDispatch::TRACKING_KEY) &&
+      !answers_tracking?
+  end
+
+  # La plantilla sabe contestar por el estado de un envío si mapea el estado
+  # externo Y dice cómo preguntar: interpolando un número de seguimiento en la
+  # URI (una consulta por envío) o devolviendo una lista de envíos (consulta
+  # masiva). La plantilla de despacho de un courier con push también mapea el
+  # estado —para leer el webhook, ADR-011—, pero no cumple lo segundo.
+  def answers_tracking?
+    courier? && response_mapper.value?(TRACKING_STATUS_KEY) &&
+      (uri.to_s.include?(TRACKING_URI_PARAM) || tracks_in_batch?)
+  end
+
+  # Consulta masiva: el número de seguimiento se lee de una colección (`[]`)
+  # de la respuesta, uno por elemento, en vez de ser el de la URI.
+  def tracks_in_batch?
+    response_mapper.any? do |path, key|
+      key == Shipments::ConfirmDispatch::TRACKING_KEY &&
+        path.include?(Integrations::ParseExternalResponse::COLLECTION_MARKER)
+    end
   end
 
   # Los mappers aceptan String JSON (formularios del backoffice) además de Hash:
@@ -81,5 +119,21 @@ class Service < ApplicationRecord
 
   def mappers_are_valid_json
     mapper_errors.each { |field, message| errors.add(field, message) }
+  end
+
+  # Sólo un courier se consulta por tracking, y sólo con una plantilla que sepa
+  # contestarlo: apuntar a la de cotización, o a sí misma, dejaría a la consulta
+  # periódica llamando todos los ciclos a un endpoint que no responde estados.
+  def tracking_service_answers_tracking
+    reason = tracking_service_problem
+    errors.add(:tracking_service, reason) if reason
+  end
+
+  def tracking_service_problem
+    return if tracking_service.nil?
+    return 'solo aplica a couriers' unless courier?
+    return 'no puede ser la misma plantilla' if tracking_service == self
+
+    'no es una plantilla de consulta de tracking' unless tracking_service.answers_tracking?
   end
 end
