@@ -83,9 +83,26 @@ module Shipments
 
       by_number = shipments.index_by(&:tracking_number)
       translate_elements(body).filter_map do |translated|
-        shipment = by_number[translated[:tracking_number]]
+        shipment = matching_shipment(by_number, translated)
         [shipment, translated] if shipment && answers_for?(shipment, translated)
       end
+    end
+
+    # El envío de la consulta del que habla el elemento, o nil. Se descarta igual
+    # que un push de un paquete ajeno, pero acá dejando rastro: la lista de
+    # números la mandamos nosotros, así que un elemento que no es de ninguno es
+    # un courier contestando por algo que no se le preguntó o, más probable, una
+    # plantilla que no lee el número de cada elemento. Lo segundo se ve como
+    # envíos que nunca avanzan, y sin esta línea no habría con qué diagnosticarlo.
+    def matching_shipment(by_number, translated)
+      reported = translated[:tracking_number]
+      shipment = by_number[reported]
+      return shipment if shipment
+
+      Rails.logger.warn("#{LOG_TAG} #{tracking_service.service_name} batch element about " \
+                        "#{reported.presence || 'no tracking number'} matches no shipment " \
+                        'of the query')
+      nil
     end
 
     def translate_elements(body)

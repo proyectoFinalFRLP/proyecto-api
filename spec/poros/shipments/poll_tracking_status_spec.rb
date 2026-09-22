@@ -205,6 +205,32 @@ RSpec.describe Shipments::PollTrackingStatus, type: :poro do
     it 'ignores the elements that are not about these shipments' do
       expect(poll([shipment.id, other.id]).size).to eq(2)
     end
+
+    # Los números los mandamos nosotros: un elemento que no es de ninguno es la
+    # pista de una plantilla mal configurada, y tiene que quedar en el log.
+    it 'logs the element that matches no shipment of the query' do
+      allow(Rails.logger).to receive(:warn)
+      poll([shipment.id, other.id])
+
+      expect(Rails.logger).to have_received(:warn).with(/AJENO-1 matches no shipment/)
+    end
+  end
+
+  context 'when a batch element does not carry its tracking number' do
+    let(:tracking_template) { batch_template }
+
+    before do
+      stub_request(:get, 'https://correo.test/tracking?envios=CA-001').to_return(status: 200, body: {
+        envios: [{ estado: 'ENTREGADO', fecha: '2026-09-20T12:00:00Z' }]
+      }.to_json)
+    end
+
+    it 'logs it instead of dropping it silently' do
+      allow(Rails.logger).to receive(:warn)
+      poll
+
+      expect(Rails.logger).to have_received(:warn).with(/no tracking number matches no shipment/)
+    end
   end
 
   context 'when a single-shipment response talks about another tracking number' do
