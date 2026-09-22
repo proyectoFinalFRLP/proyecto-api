@@ -64,6 +64,8 @@ El motivo es que hoy nada en la aplicación mueve una orden a `paid`: `Orders::C
 
 Cuando exista la transición de estados, endurecer la regla es cambiar esa constante.
 
+> **Actualización (TESIS-126):** la transición ya existe. `PUT /api/v1/orders/:id` mueve una orden entre `pending` y `paid` ([ADR-013](ADR-013-modificacion-de-ordenes.md)). La regla de este ADR no cambió con eso: pasar de la exclusión de `cancelled` a exigir `paid` es una decisión de producto, y sigue siendo cambiar `NON_SHIPPABLE_STATUSES`.
+
 ### El duplicado se detecta escribiendo, no consultando
 
 Una orden tiene a lo sumo un envío. La comprobación **no** es un `exists?` previo: entre esa consulta y el `INSERT` hay una ventana en la que otro request puede insertar el envío, y las dos llamadas terminarían devolviendo 201. La verdad la dice el intento de escritura, que falla por dos caminos:

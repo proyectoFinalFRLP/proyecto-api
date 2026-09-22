@@ -138,3 +138,7 @@ status.
 - ✅ Sin `If-Match` el update pasa como siempre — semántica de HTTP, y no rompe el contrato anterior
 - ⚠️ Esa misma compatibilidad hace que la protección sea **opt-in**: un cliente que no manda el header no está protegido
 - ⚠️ La huella se recalcula en cada `show` y en cada `update`; es un SHA-256 sobre unas pocas decenas de bytes, pero no es gratis
+
+### Segundo recurso: órdenes (TESIS-126)
+
+La modificación de órdenes adoptó el mismo contrato: `ETag` en `GET` y `PUT /orders/:id`, `If-Match` en el `PUT`, 412 con la versión vigente. Con dos consumidores, la parte de HTTP —exponer el `ETag`, parsear `If-Match`, responder el 412— se extrajo a `Api::V1::OptimisticLocking`; qué entra en la huella lo sigue decidiendo cada recurso (`Catalog::ProductVersion`, `Orders::OrderVersion`). El detalle de la huella de la orden y de dónde se verifica está en [ADR-013](ADR-013-modificacion-de-ordenes.md).
