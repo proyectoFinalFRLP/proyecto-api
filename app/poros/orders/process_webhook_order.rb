@@ -75,11 +75,16 @@ module Orders
 
     # El descuento va junto a la creación del ítem y no en un segundo recorrido:
     # así el rollback de cualquier ítem se lleva puesto todo lo anterior.
+    #
+    # Primero se descuenta y después se crea la línea: acá el depósito no viene
+    # en el payload, lo elige el picking automático de DeductStock, y la línea
+    # tiene que registrar cuál fue (TESIS-126). Sigue siendo la misma
+    # transacción, así que el orden no abre ninguna ventana.
     def register_item(order, item, mapping)
       quantity = quantity_of(item)
-      OrderItem.create!(order: order, product: mapping.product, quantity: quantity,
-                        unit_price: unit_price_of(item, mapping))
-      Catalog::DeductStock.new(product: mapping.product, quantity: quantity).call
+      stock = Catalog::DeductStock.new(product: mapping.product, quantity: quantity).call
+      OrderItem.create!(order: order, product: mapping.product, warehouse_id: stock.warehouse_id,
+                        quantity: quantity, unit_price: unit_price_of(item, mapping))
     end
 
     # Resuelve el producto interno de cada ítem antes de escribir nada: un ítem
