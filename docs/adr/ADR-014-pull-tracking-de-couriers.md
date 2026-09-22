@@ -101,7 +101,7 @@ Nada de esto va a la DLQ de ADR-008 ni aprovecha el `retry_on AdapterExecutionEr
 ### Frecuencia y control de ráfagas
 
 - **Cada 30 minutos**, el extremo más frecuente de lo que sugiere la card. Es una sola frecuencia para todos los couriers: ninguna plantilla declara hoy su límite de requests, y modelarlo antes de tener un proveedor real que lo exija sería adivinar.
-- **Escalonamiento:** los jobs de un mismo courier se encolan separados por 2 segundos, salvo que la ronda no entre en 20 minutos —menos que el intervalo del cron—; en ese caso la separación se achica para que una ronda nunca se superponga con la siguiente.
+- **Escalonamiento:** los jobs de un mismo courier se encolan separados por 2 segundos, salvo que la ronda no entre en 20 minutos —menos que el intervalo del cron—; en ese caso la separación se achica para que la ronda se **encole** antes de la siguiente. Eso no garantiza que **termine** antes: los jobs de una integración corren de a uno (`limits_concurrency to: 1`), así que con volumen la ronda dura lo que tarden sus requests en serie, y pasado cierto punto los jobs esperan el semáforo y no el `wait`. Con el volumen actual (lotes de 50 envíos en la consulta masiva) no se llega.
 - **`limits_concurrency to: 1` por integración:** aunque una ronda se atrase, a un mismo courier nunca le llega más de una consulta a la vez.
 - **Lotes de 50** en la consulta masiva, para no mandar un request con cientos de números.
 
@@ -146,6 +146,7 @@ El barrido es, como `Webhooks::ScanDueFailedEventsJob`, el único punto sin tena
 - ✅ Push y pull comparten una sola implementación de las reglas de idempotencia, orden y bloqueo: un arreglo en una vale para las dos
 - ✅ Un envío entregado deja de consultarse, y un courier caído no voltea la ronda ni la llena de reintentos
 - ⚠️ Latencia de hasta un ciclo (30 minutos) más el escalonamiento: el pull nunca va a ser tiempo real
+- ⚠️ Con mucho volumen en un courier de consulta individual, dos rondas pueden solaparse: la segunda consulta envíos que la primera todavía no terminó. No duplica movimientos —el núcleo descarta el duplicado exacto—, pero gasta requests; si pasa, la salida es la consulta masiva o una ventana por integración
 - ⚠️ Una sola frecuencia para todos los couriers. Si aparece uno con un límite de requests más estricto, la plantilla va a tener que declararlo y el barrido respetarlo
 - ⚠️ Un courier que contesta sin fechar sus movimientos no distingue "sigue en el mismo estado" de "pasó por otra planta con el mismo estado": el segundo se descarta como duplicado. Es el mismo costo que ya asumió ADR-011 para el push sin fecha
 - ⚠️ Los fallos sólo quedan en el log de la aplicación; no hay una tabla consultable de "couriers que no contestan". Si hace falta visibilidad desde el panel, es una card aparte

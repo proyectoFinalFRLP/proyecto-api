@@ -25,9 +25,17 @@ module Shipments
     # Separación entre dos requests al mismo courier...
     SPACING = 2.seconds
 
-    # ...salvo que no entren en la ventana: la ronda tiene que terminar antes de
-    # que el cron (cada 30 minutos) dispare la siguiente, así que con muchos
-    # envíos la separación se achica en vez de encimar dos rondas.
+    # ...salvo que no entren en la ventana: con muchos envíos la separación se
+    # achica para que la ronda se *encole* dentro de los 20 minutos y no se
+    # encime con la siguiente del cron (cada 30).
+    #
+    # Lo que esto no garantiza es que la ronda *termine* ahí. PollTrackingJob
+    # corre de a uno por integración (`limits_concurrency to: 1`), así que con
+    # volumen la ronda dura lo que tarden sus requests uno atrás del otro, y
+    # achicar la separación no lo acorta: pasado cierto punto, los jobs esperan
+    # el semáforo y no el `wait`. Con el volumen de hoy (un lote de 50 envíos por
+    # request en la consulta masiva) no se llega; si llega, dos rondas se
+    # solapan y la segunda consulta envíos que la primera todavía no terminó.
     WINDOW = 20.minutes
 
     def perform
