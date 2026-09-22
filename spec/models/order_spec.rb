@@ -45,6 +45,31 @@ RSpec.describe Order, type: :model do
     expect(order).not_to be_valid
   end
 
+  describe 'customer_province' do
+    it 'accepts each of the 24 jurisdictions', :aggregate_failures do
+      expect(Order::PROVINCES.size).to eq(24)
+      Order::PROVINCES.each do |province|
+        order.customer_province = province
+        expect(order).to be_valid
+      end
+    end
+
+    it 'rejects a province outside the list' do
+      order.customer_province = 'Capital Federal'
+      expect(order).not_to be_valid
+    end
+
+    it 'can be left empty, as orders before TESIS-128 and webhook orders are' do
+      order.customer_province = nil
+      expect(order).to be_valid
+    end
+  end
+
+  it 'takes the city as free text' do
+    order.customer_city = 'Villa Carlos Paz'
+    expect(order).to be_valid
+  end
+
   it 'allows multiple manual orders without external_order_id', :aggregate_failures do
     order.save!
     another = described_class.new(company: company, customer_name: 'Otro Cliente')

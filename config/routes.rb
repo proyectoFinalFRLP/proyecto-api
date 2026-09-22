@@ -42,6 +42,10 @@ Rails.application.routes.draw do
         # sobre shipments.order_id) hace que la orden tenga a lo sumo un envío,
         # así que no hay id que poner en la URL.
         resource :shipment, only: %i[create]
+
+        # Vocabulario de provincias del destino (TESIS-128): ruta de colección,
+        # no depende de una orden.
+        get :provinces, on: :collection
       end
 
       # El alta cuelga de la orden (POST /orders/:order_id/shipment, arriba): un

@@ -27,6 +27,17 @@ RSpec.describe Orders::OrderVersion, type: :poro do
     expect { order.update!(customer_address: 'Av. 1') }.to(change { version })
   end
 
+  # TESIS-128: los dos campos del destino se editan por el PUT, así que tienen
+  # que mover la versión. Si no, dos operadores que cambian la ciudad de la misma
+  # orden no chocan y el segundo pisa al primero sin que If-Match se entere.
+  it 'changes when the city changes' do
+    expect { order.update!(customer_city: 'Rosario') }.to(change { version })
+  end
+
+  it 'changes when the province changes' do
+    expect { order.update!(customer_province: 'Santa Fe') }.to(change { version })
+  end
+
   it 'changes when the status changes' do
     expect { order.update!(status: 'paid') }.to(change { version })
   end

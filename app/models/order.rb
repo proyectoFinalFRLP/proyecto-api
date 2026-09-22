@@ -5,6 +5,22 @@ class Order < ApplicationRecord
 
   STATUSES = %w[pending paid cancelled].freeze
 
+  # Las 24 jurisdicciones de la Argentina, con el nombre con el que se muestran
+  # en el select de provincia del alta manual (TESIS-58). No es una lista
+  # citable como nombres oficiales: Tierra del Fuego, por ejemplo, se llama
+  # «Tierra del Fuego, Antártida e Islas del Atlántico Sur».
+  #
+  # La provincia se valida contra esta lista para poder agrupar por ella sin
+  # normalizar después; la ciudad es texto libre porque no hay una lista
+  # confiable contra la cual validarla (TESIS-128). Se expone en
+  # GET /api/v1/orders/provinces para que el front no la repita.
+  PROVINCES = [
+    'Buenos Aires', 'Catamarca', 'Chaco', 'Chubut', 'Ciudad Autónoma de Buenos Aires',
+    'Córdoba', 'Corrientes', 'Entre Ríos', 'Formosa', 'Jujuy', 'La Pampa', 'La Rioja',
+    'Mendoza', 'Misiones', 'Neuquén', 'Río Negro', 'Salta', 'San Juan', 'San Luis',
+    'Santa Cruz', 'Santa Fe', 'Santiago del Estero', 'Tierra del Fuego', 'Tucumán'
+  ].freeze
+
   belongs_to :company
   # OJO: `Order#company_integration` es el CANAL DE VENTA por el que entró la
   # orden (un ecommerce), no el operador logístico. `Shipment#company_integration`
@@ -24,6 +40,8 @@ class Order < ApplicationRecord
   # con qué calcularlo, y la orden vive un instante sin total dentro de la
   # transacción que la crea.
   validates :total_amount, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
+  # allow_nil: las órdenes anteriores a TESIS-128 y las de webhook no la tienen.
+  validates :customer_province, inclusion: { in: PROVINCES }, allow_nil: true
   validate :company_integration_belongs_to_company
 
   def display_name
