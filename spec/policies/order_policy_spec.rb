@@ -33,6 +33,18 @@ RSpec.describe OrderPolicy do
     end
   end
 
+  # TESIS-126: modificar exige lo mismo que leer. Qué estados lo admiten es regla
+  # de Orders::UpdateOrder, no de la policy.
+  describe '#update?' do
+    it 'allows an order of the same company' do
+      expect(described_class.new(user, order_for(company)).update?).to be(true)
+    end
+
+    it 'refuses an order of another company' do
+      expect(described_class.new(user, order_for(other_company)).update?).to be(false)
+    end
+  end
+
   # El Scope es la segunda barrera: el aislamiento real lo da el default_scope
   # de CompanyScoped. Por eso los ejemplos corren con `unscoped`, que es la
   # única forma de comprobar que el Scope filtra por sí mismo y no porque el

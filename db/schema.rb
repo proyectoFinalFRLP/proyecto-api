@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_11_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -89,8 +89,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_11_120000) do
     t.integer "quantity", default: 1, null: false
     t.decimal "unit_price", precision: 10, scale: 2, null: false
     t.datetime "updated_at", null: false
+    t.bigint "warehouse_id"
     t.index ["order_id"], name: "index_order_items_on_order_id"
     t.index ["product_id"], name: "index_order_items_on_product_id"
+    t.index ["warehouse_id"], name: "index_order_items_on_warehouse_id"
   end
 
   create_table "orders", force: :cascade do |t|
@@ -98,8 +100,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_11_120000) do
     t.bigint "company_integration_id"
     t.datetime "created_at", null: false
     t.string "customer_address"
+    t.string "customer_city"
     t.string "customer_document"
     t.string "customer_name", null: false
+    t.string "customer_province"
     t.string "customer_zip_code"
     t.string "external_order_id"
     t.string "status", default: "pending", null: false
@@ -262,6 +266,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_11_120000) do
   add_foreign_key "failed_events", "company_integrations", on_delete: :nullify
   add_foreign_key "order_items", "orders", on_delete: :cascade
   add_foreign_key "order_items", "products", on_delete: :restrict
+  add_foreign_key "order_items", "warehouses", on_delete: :restrict
   add_foreign_key "orders", "companies", on_delete: :cascade
   add_foreign_key "orders", "company_integrations", on_delete: :nullify
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade

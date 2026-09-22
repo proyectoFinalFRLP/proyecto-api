@@ -110,6 +110,25 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
     end
   end
 
+  # TESIS-126: el depósito no viene en el payload, lo elige el picking de
+  # DeductStock, y la línea tiene que registrar cuál fue. Central se crea
+  # primero y no alcanza para las dos unidades de MLA-1: el picking salta al
+  # siguiente, y la línea tiene que decir ése y no el primero que encontró.
+  context 'when the picking takes the units from a warehouse other than the first' do
+    before do
+      sku1 = publish('SKU-1', 'MLA-1', stock: 1)
+      Stock.create!(product: sku1, warehouse: warehouse('Norte'), quantity: 10)
+      publish('SKU-2', 'MLA-2')
+    end
+
+    it 'records on each line the warehouse the picking chose', :aggregate_failures do
+      lines = process.call.order_items.includes(:product, :warehouse).index_by { |i| i.product.sku }
+
+      expect(lines['SKU-1'].warehouse).to eq(warehouse('Norte'))
+      expect(lines['SKU-2'].warehouse).to eq(warehouse('Central'))
+    end
+  end
+
   context 'when the sale includes a product that is not mapped' do
     before { publish('SKU-1', 'MLA-1') }
 

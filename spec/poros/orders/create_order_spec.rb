@@ -88,6 +88,12 @@ RSpec.describe Orders::CreateOrder, type: :poro do
     it 'returns the order' do
       expect(order).to be_a(Order)
     end
+
+    # TESIS-126: es de donde salió el descuento de arriba, y a donde vuelven las
+    # unidades si después se modifica la orden.
+    it 'records on the line the warehouse the units were taken from' do
+      expect(order.order_items.sole.warehouse).to eq(warehouse)
+    end
   end
 
   describe 'multiple items' do

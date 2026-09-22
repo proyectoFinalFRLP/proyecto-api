@@ -284,10 +284,45 @@ RSpec.describe 'Warehouses API', type: :request do
       expect(Stock.count).to eq(1)
       expect(Warehouse.find_by(id: warehouse.id)).to be_present
     end
+
+    it 'says the stock is what blocks it' do
+      create_warehouse_with_stock
+
+      delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+      expect(response.parsed_body['error']).to eq('Cannot delete warehouse with existing stock')
+    end
+
+    # TESIS-126: la línea recuerda su depósito para devolverle unidades al
+    # modificar la orden. Borrarlo dejaría esa devolución sin destino.
+    context 'when order lines were taken from it and it has no stock left' do
+      before { create_order_line_from_warehouse }
+
+      it 'returns 409 and keeps the warehouse', :aggregate_failures do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response).to have_http_status(:conflict)
+        expect(Warehouse.find_by(id: warehouse.id)).to be_present
+      end
+
+      it 'says the order lines are what block it' do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response.parsed_body['error'])
+          .to eq('Cannot delete warehouse with order lines taken from it')
+      end
+    end
   end
 
   def create_warehouse_with_stock
     product = Product.create!(company: company, sku: 'SKU-1', name: 'Producto')
     Stock.create!(product: product, warehouse: warehouse, quantity: 10)
+  end
+
+  def create_order_line_from_warehouse
+    product = Product.create!(company: company, sku: 'SKU-2', name: 'Vendido')
+    order = Order.create!(company: company, customer_name: 'Cliente')
+    OrderItem.create!(order: order, product: product, warehouse: warehouse,
+                      quantity: 1, unit_price: 100)
   end
 end

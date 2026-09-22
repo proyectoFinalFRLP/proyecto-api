@@ -59,4 +59,35 @@ RSpec.describe OrderItem, type: :model do
   it 'belongs to a product' do
     expect(described_class.reflect_on_association(:product).macro).to eq(:belongs_to)
   end
+
+  # TESIS-126: la línea recuerda de qué depósito salió.
+  describe 'warehouse' do
+    let(:warehouse) do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Av 1')
+    end
+
+    it 'is valid without one, as the lines recorded before it existed' do
+      order_item.warehouse = nil
+      expect(order_item).to be_valid
+    end
+
+    it 'accepts a warehouse of the company of the order' do
+      order_item.warehouse = warehouse
+      expect(order_item).to be_valid
+    end
+
+    def foreign_warehouse
+      Current.set(company_id: nil) do
+        Warehouse.create!(company: other_company, name: 'Ajeno', zip_code: '2000', address: 'X')
+      end
+    end
+
+    it 'rejects a warehouse from a different company', :aggregate_failures do
+      order_item.warehouse = foreign_warehouse
+
+      expect(order_item).not_to be_valid
+      expect(order_item.errors[:base])
+        .to include('warehouse must belong to the same company as the order')
+    end
+  end
 end

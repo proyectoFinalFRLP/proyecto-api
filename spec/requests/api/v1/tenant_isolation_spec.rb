@@ -107,7 +107,7 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
       [
         [%i[get put delete], "/api/v1/products/#{producto}"],
         [%i[get put delete], "/api/v1/warehouses/#{deposito}"],
-        [%i[get], "/api/v1/orders/#{orden}"],
+        [%i[get put], "/api/v1/orders/#{orden}"],
         [%i[get], "/api/v1/shipments/#{other_shipment.id}"],
         [%i[post], "/api/v1/orders/#{orden}/shipment"],
         [%i[post], "/api/v1/orders/#{orden}/quotes"],
