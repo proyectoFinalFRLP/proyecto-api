@@ -14,7 +14,7 @@ module Orders
   class OrderVersion < ApplicationPoro
     SEPARATOR = '|'
     HEADER_FIELDS = %i[customer_name customer_document customer_address
-                       customer_zip_code status].freeze
+                       customer_zip_code customer_city customer_province status].freeze
 
     def initialize(order:)
       super()

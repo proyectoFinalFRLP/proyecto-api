@@ -132,6 +132,34 @@ RSpec.describe 'Order updates API', type: :request do
     end
   end
 
+  # TESIS-128.
+  describe 'the city and province of the destination' do
+    it 'edits them' do
+      put_order(customer_city: 'Rosario', customer_province: 'Santa Fe')
+
+      expect(response.parsed_body).to include('customer_city' => 'Rosario',
+                                              'customer_province' => 'Santa Fe')
+    end
+
+    it 'rejects a province outside the 24 jurisdictions without writing', :aggregate_failures do
+      put_order(customer_province: 'Capital Federal')
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(order.reload.customer_province).to be_nil
+    end
+
+    # Otro operador cambió sólo la ciudad: la versión que leyó la pantalla ya no
+    # es la vigente.
+    it 'rejects a save made on a version read before another operator changed the city' do
+      seen = current_version
+      order.update!(customer_city: 'Rosario')
+
+      put_order(customer_city: 'Córdoba', if_match: seen)
+
+      expect(response).to have_http_status(:precondition_failed)
+    end
+  end
+
   describe 'orders that cannot be modified' do
     it 'returns 409 for a cancelled order', :aggregate_failures do
       order.update!(status: 'cancelled')
