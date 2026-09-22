@@ -38,7 +38,7 @@ module ContratoDeLaApi
     producto: %w[id sku name description category weight dimensions total_stock
                  in_transit_quantity stocks created_at updated_at],
     stock: %w[id quantity warehouse_id warehouse created_at updated_at],
-    deposito: %w[id name address zip_code],
+    deposito: %w[id name address zip_code stored_units],
     orden_fila: %w[id external_order_id customer_name customer_document customer_address
                    customer_zip_code customer_city customer_province status courier total_amount
                    item_count created_at updated_at],
@@ -189,7 +189,7 @@ RSpec.describe 'API contract with the frontend', type: :request do
       expect(response.parsed_body['stocks'].first.keys).to match_array(claves[:stock])
     end
 
-    it 'answers a warehouse with the four fields the frontend declares' do
+    it 'answers a warehouse with the fields the frontend declares' do
       warehouse
 
       get '/api/v1/warehouses', headers: headers
