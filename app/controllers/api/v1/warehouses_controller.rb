@@ -7,7 +7,9 @@ module Api
       rescue_from ActiveRecord::RecordNotDestroyed, with: :render_conflict
 
       def index
-        warehouses = policy_scope(Warehouse).order(created_at: :desc)
+        # with_stored_units agrega la suma de stocks en la misma consulta: sin
+        # el scope, el serializer pediria las unidades deposito por deposito.
+        warehouses = policy_scope(Warehouse).with_stored_units.order(created_at: :desc)
 
         render json: { data: WarehouseSerializer.render_as_hash(warehouses) }
       end
