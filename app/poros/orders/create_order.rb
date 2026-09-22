@@ -50,9 +50,12 @@ module Orders
       product = products.fetch(item[:product_id])
       validate_warehouse!(item[:warehouse_id])
 
+      # El depósito queda en la línea (TESIS-126): es de donde sale el descuento
+      # de abajo, y a donde vuelven las unidades si después se modifica la orden.
       OrderItem.create!(
         order: order,
         product: product,
+        warehouse_id: item[:warehouse_id],
         quantity: item[:quantity],
         unit_price: item[:unit_price]
       )

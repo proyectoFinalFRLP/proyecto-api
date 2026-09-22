@@ -52,9 +52,12 @@ module Api
         params.require(:warehouse).permit(:name, :zip_code, :address)
       end
 
+      # Dos cosas bloquean el borrado y el mensaje tiene que decir cuál. Se
+      # pregunta en el mismo orden en que el modelo las declara, que es el orden
+      # en que `restrict_with_error` corta: si hay stock, el motivo es el stock.
       def render_conflict(_exception)
-        render json: { error: 'Cannot delete warehouse with existing stock' },
-               status: :conflict
+        reason = @warehouse.stocks.exists? ? 'existing stock' : 'order lines taken from it'
+        render json: { error: "Cannot delete warehouse with #{reason}" }, status: :conflict
       end
     end
   end

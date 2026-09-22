@@ -89,8 +89,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.integer "quantity", default: 1, null: false
     t.decimal "unit_price", precision: 10, scale: 2, null: false
     t.datetime "updated_at", null: false
+    t.bigint "warehouse_id"
     t.index ["order_id"], name: "index_order_items_on_order_id"
     t.index ["product_id"], name: "index_order_items_on_product_id"
+    t.index ["warehouse_id"], name: "index_order_items_on_warehouse_id"
   end
 
   create_table "orders", force: :cascade do |t|
@@ -264,6 +266,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
   add_foreign_key "failed_events", "company_integrations", on_delete: :nullify
   add_foreign_key "order_items", "orders", on_delete: :cascade
   add_foreign_key "order_items", "products", on_delete: :restrict
+  add_foreign_key "order_items", "warehouses", on_delete: :restrict
   add_foreign_key "orders", "companies", on_delete: :cascade
   add_foreign_key "orders", "company_integrations", on_delete: :nullify
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade

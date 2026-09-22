@@ -5,6 +5,11 @@ class OrderItemSerializer < ApplicationSerializer
 
   fields :quantity, :product_id, :created_at, :updated_at
 
+  # De qué depósito salió la línea (TESIS-126). Null en las líneas anteriores a
+  # esa card: el front de la modificación lo necesita para saber cuáles puede
+  # achicar y cuáles no.
+  field :warehouse_id
+
   # unit_price es decimal en la DB y BigDecimal se serializa como string por
   # defecto; exponerlo como número evita que el front tenga que parsear.
   field :unit_price do |item|
