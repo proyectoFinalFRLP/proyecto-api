@@ -15,8 +15,7 @@ module Shipments
 
     # Más corto que el del adaptador (10s) a propósito: esto corre dentro de un
     # request y el usuario está esperando. La card pide 3-5s.
-    OPEN_TIMEOUT = 4
-    READ_TIMEOUT = 4
+    TIMEOUTS = { open: 4, read: 4 }.freeze
 
     def initialize(order:, origin_warehouse:)
       super()
@@ -74,8 +73,7 @@ module Shipments
 
     def quote_with(integration, body)
       parsed = Integrations::HttpAdapter.new(
-        company_integration: integration, payload: body,
-        open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT
+        company_integration: integration, payload: body, timeouts: TIMEOUTS
       ).call
 
       normalize(integration, parsed)

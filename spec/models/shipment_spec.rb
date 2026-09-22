@@ -113,6 +113,32 @@ RSpec.describe Shipment, type: :model do
     expect(shipment.errors[:company_integration]).to include('must be a courier integration')
   end
 
+  describe '.in_flight' do
+    let(:other_order) { Order.create!(company: company, customer_name: 'Ana') }
+
+    def shipment_with(status:, tracking: 'TRK-1', on: order)
+      described_class.create!(company: company, order: on, status: status,
+                              tracking_number: tracking)
+    end
+
+    it 'includes the shipments the courier still has to deliver' do
+      ready = shipment_with(status: 'ready_to_ship')
+      moving = shipment_with(status: 'in_transit', tracking: 'TRK-2', on: other_order)
+      expect(described_class.in_flight).to contain_exactly(ready, moving)
+    end
+
+    it 'excludes delivered shipments' do
+      shipment_with(status: 'delivered')
+      expect(described_class.in_flight).to be_empty
+    end
+
+    it 'excludes shipments without a tracking number to ask for' do
+      shipment_with(status: 'pending', tracking: nil)
+      shipment_with(status: 'ready_to_ship', tracking: nil, on: other_order)
+      expect(described_class.in_flight).to be_empty
+    end
+  end
+
   it 'is queryable within a tenant context' do
     Current.company_id = company.id
     expect { described_class.count }.not_to raise_error

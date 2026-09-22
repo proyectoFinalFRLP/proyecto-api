@@ -152,10 +152,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.jsonb "response_mapper", default: {}, null: false
     t.jsonb "response_value_mapper", default: {}, null: false
     t.string "service_name", null: false
+    t.bigint "tracking_service_id"
     t.string "type", null: false
     t.datetime "updated_at", null: false
     t.string "uri", null: false
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
+    t.index ["tracking_service_id"], name: "index_services_on_tracking_service_id"
     t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
   end
 
@@ -272,6 +274,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade
   add_foreign_key "product_mappings", "products", on_delete: :cascade
   add_foreign_key "products", "companies", on_delete: :cascade
+  add_foreign_key "services", "services", column: "tracking_service_id", on_delete: :nullify
   add_foreign_key "shipment_events", "shipments", on_delete: :cascade
   add_foreign_key "shipments", "companies", on_delete: :cascade
   add_foreign_key "shipments", "company_integrations", on_delete: :nullify

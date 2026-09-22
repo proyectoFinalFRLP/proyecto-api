@@ -7,8 +7,8 @@ module Integrations
   # usando la plantilla del Service (uri, http_method y mappers) y las
   # credenciales cifradas de la CompanyIntegration, sin lógica por proveedor.
   class HttpAdapter < ApplicationPoro
-    OPEN_TIMEOUT = 10
-    READ_TIMEOUT = 10
+    # Segundos para abrir la conexión y para esperar la respuesta.
+    TIMEOUTS = { open: 10, read: 10 }.freeze
 
     # Charset de nombre de header válido (RFC 9110 token). Net::HTTPHeader no
     # valida la clave: un \r\n en el nombre parte la línea e inyecta headers.
@@ -34,20 +34,33 @@ module Integrations
     # una cotización que corre dentro de un request HTTP no — ahí el usuario está
     # esperando y el motor prefiere perder un operador antes que la respuesta
     # entera (TESIS-46).
-    def initialize(company_integration:, payload: {}, uri_params: {},
-                   open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT)
+    #
+    # `service` permite hablarle al mismo proveedor con otra de sus plantillas y
+    # las credenciales de esta integración: la consulta de tracking (TESIS-49)
+    # usa la plantilla de seguimiento del courier con la cuenta que despachó.
+    def initialize(company_integration:, service: company_integration.service, payload: {},
+                   uri_params: {}, timeouts: TIMEOUTS)
       super()
       @integration = company_integration
-      @service = company_integration.service
+      @service = service
       @payload = payload
       @uri_params = uri_params
-      @open_timeout = open_timeout
-      @read_timeout = read_timeout
+      @timeouts = TIMEOUTS.merge(timeouts)
     end
 
     def call
+      ParseExternalResponse.new(service: @service, response_body: fetch).call
+    end
+
+    # La respuesta JSON tal cual la mandó el proveedor, sin pasar por los
+    # mappers. `call` aplica el response_value_mapper a todo lo que extrae, y hay
+    # quien necesita el dato crudo: el seguimiento conserva el estado externo
+    # textual además del traducido (ver Shipments::TranslateTrackingPayload).
+    def fetch
       response = execute(build_request)
-      handle(response)
+      raise_http_error(response) unless response.is_a?(Net::HTTPSuccess)
+
+      parse_json(response.body)
     rescue *NETWORK_ERRORS => e
       raise AdapterExecutionError.new(
         "#{@service.service_name} request failed: #{e.class}: #{e.message}", payload: @payload
@@ -78,15 +91,9 @@ module Integrations
     def execute((uri, request))
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = uri.scheme == 'https'
-      http.open_timeout = @open_timeout
-      http.read_timeout = @read_timeout
+      http.open_timeout = @timeouts[:open]
+      http.read_timeout = @timeouts[:read]
       http.request(request)
-    end
-
-    def handle(response)
-      raise_http_error(response) unless response.is_a?(Net::HTTPSuccess)
-
-      ParseExternalResponse.new(service: @service, response_body: parse_json(response.body)).call
     end
 
     def raise_http_error(response)
