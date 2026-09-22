@@ -69,8 +69,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.index ["company_integration_id"], name: "index_failed_events_on_company_integration_id"
     t.index ["status", "claimed_at"], name: "index_failed_events_on_status_and_claimed_at"
     t.index ["status", "next_retry_at"], name: "index_failed_events_on_status_and_next_retry_at"
-    t.check_constraint "direction::text = ANY (ARRAY['inbound'::character varying::text, 'outbound'::character varying::text])", name: "failed_events_direction_check"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'processing'::character varying::text, 'succeeded'::character varying::text, 'dead'::character varying::text, 'discarded'::character varying::text])", name: "failed_events_status_check"
+    t.check_constraint "direction::text = ANY (ARRAY['inbound'::character varying, 'outbound'::character varying]::text[])", name: "failed_events_direction_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'succeeded'::character varying, 'dead'::character varying, 'discarded'::character varying]::text[])", name: "failed_events_status_check"
   end
 
   create_table "jwt_denylist", force: :cascade do |t|
@@ -112,7 +112,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.index ["company_id", "external_order_id"], name: "index_orders_on_company_id_and_external_order_id", unique: true
     t.index ["company_id"], name: "index_orders_on_company_id"
     t.index ["company_integration_id"], name: "index_orders_on_company_integration_id"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'paid'::character varying::text, 'cancelled'::character varying::text])", name: "orders_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'paid'::character varying, 'cancelled'::character varying]::text[])", name: "orders_status_check"
     t.check_constraint "total_amount >= 0::numeric", name: "orders_total_amount_non_negative"
   end
 
@@ -152,13 +152,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.jsonb "response_mapper", default: {}, null: false
     t.jsonb "response_value_mapper", default: {}, null: false
     t.string "service_name", null: false
-    t.bigint "tracking_service_id"
     t.string "type", null: false
     t.datetime "updated_at", null: false
     t.string "uri", null: false
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
-    t.index ["tracking_service_id"], name: "index_services_on_tracking_service_id"
-    t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying::text, 'courier'::character varying::text])", name: "services_type_check"
+    t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
   end
 
   create_table "shipment_events", force: :cascade do |t|
@@ -171,7 +169,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.datetime "updated_at", null: false
     t.index ["shipment_id", "external_status", "occurred_at"], name: "index_shipment_events_on_shipment_and_event", unique: true
     t.index ["shipment_id"], name: "index_shipment_events_on_shipment_id"
-    t.check_constraint "internal_status::text = ANY (ARRAY['pending'::character varying::text, 'ready_to_ship'::character varying::text, 'in_transit'::character varying::text, 'delivered'::character varying::text])", name: "shipment_events_internal_status_check"
+    t.check_constraint "internal_status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipment_events_internal_status_check"
   end
 
   create_table "shipments", force: :cascade do |t|
@@ -187,7 +185,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.index ["company_id"], name: "index_shipments_on_company_id"
     t.index ["company_integration_id"], name: "index_shipments_on_company_integration_id"
     t.index ["order_id"], name: "index_shipments_on_order_id", unique: true
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'ready_to_ship'::character varying::text, 'in_transit'::character varying::text, 'delivered'::character varying::text])", name: "shipments_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipments_status_check"
   end
 
   create_table "stock_transfers", force: :cascade do |t|
@@ -208,7 +206,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.index ["product_id"], name: "index_stock_transfers_on_product_id"
     t.check_constraint "origin_warehouse_id <> destination_warehouse_id", name: "stock_transfers_distinct_warehouses"
     t.check_constraint "quantity > 0", name: "stock_transfers_quantity_positive"
-    t.check_constraint "status::text = ANY (ARRAY['in_transit'::character varying::text, 'received'::character varying::text, 'cancelled'::character varying::text])", name: "stock_transfers_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['in_transit'::character varying, 'received'::character varying, 'cancelled'::character varying]::text[])", name: "stock_transfers_status_check"
   end
 
   create_table "stocks", force: :cascade do |t|
@@ -259,7 +257,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.index ["company_id"], name: "index_webhook_logs_on_company_id"
     t.index ["company_integration_id"], name: "index_webhook_logs_on_company_integration_id"
     t.index ["status", "created_at"], name: "index_webhook_logs_on_status_and_created_at"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'processed'::character varying::text, 'failed'::character varying::text])", name: "webhook_logs_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processed'::character varying, 'failed'::character varying]::text[])", name: "webhook_logs_status_check"
   end
 
   add_foreign_key "company_integrations", "companies", on_delete: :cascade
@@ -274,7 +272,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade
   add_foreign_key "product_mappings", "products", on_delete: :cascade
   add_foreign_key "products", "companies", on_delete: :cascade
-  add_foreign_key "services", "services", column: "tracking_service_id", on_delete: :nullify
   add_foreign_key "shipment_events", "shipments", on_delete: :cascade
   add_foreign_key "shipments", "companies", on_delete: :cascade
   add_foreign_key "shipments", "company_integrations", on_delete: :nullify

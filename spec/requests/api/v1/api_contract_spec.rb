@@ -14,34 +14,45 @@ require 'rails_helper'
 # que el contrato cambió. La reparación es actualizar esta lista **a propósito**
 # y el `api.ts` del front en el mismo momento.
 #
-# Las claves esperadas se escribieron leyendo las interfaces `Api*` de
-# `proyecto-web` (`features/inventory/api.ts`, `features/orders/api.ts`), no los
-# serializers: la idea es fijar lo que el consumidor asume, no repetir lo que el
-# productor hace.
+# Qué es y qué no es: esto fija la SALIDA DEL BACKEND. Las listas se
+# escribieron leyendo las interfaces `Api*` de `proyecto-web`
+# (`features/inventory/api.ts`, `features/orders/api.ts`) y no los
+# serializers, así que lo acordado es lo que el front asume — pero el que se
+# mide acá es el productor. Si el front deja de leer un campo, o empieza a leer
+# uno que no existe, este archivo no se entera: eso pide un test del otro lado.
+#
+# Tampoco cubre los requests, sólo las respuestas, ni los tipos más allá de los
+# cuatro numéricos que se verifican explícitamente.
 # El contrato, declarado de una vez. Cada ejemplo compara contra una de estas
 # listas; cambiarlas es lo que significa cambiar el contrato.
-CLAVES = {
-  me: %w[id email company_id company created_at updated_at],
-  empresa: %w[id name],
-  producto_fila: %w[id sku name description category weight dimensions total_stock stock_status
-                    in_transit_quantity primary_warehouse warehouse_count created_at updated_at],
-  producto: %w[id sku name description category weight dimensions total_stock
-               in_transit_quantity stocks created_at updated_at],
-  stock: %w[id quantity warehouse_id warehouse created_at updated_at],
-  deposito: %w[id name address zip_code],
-  orden_fila: %w[id external_order_id customer_name customer_document customer_address
-                 customer_zip_code customer_city customer_province status courier total_amount
-                 item_count created_at updated_at],
-  orden: %w[id external_order_id customer_name customer_document customer_address
-            customer_zip_code customer_city customer_province status total_amount order_items
-            created_at updated_at],
-  linea: %w[id product_id warehouse_id quantity unit_price product created_at updated_at],
-  courier: %w[id service_id name],
-  envio: %w[id order_id status tracking_number shipping_label_url shipping_cost courier events
-            created_at updated_at],
-  evento: %w[id internal_status external_status description occurred_at created_at],
-  meta: %w[page per_page total]
-}.freeze
+#
+# Va dentro de un módulo y no suelta: una constante de nivel superior en un
+# spec es una constante de `Object` para todo el proceso de RSpec, y otro
+# archivo que declare una con el mismo nombre la pisaría con un warning.
+module ContratoDeLaApi
+  CLAVES = {
+    me: %w[id email company_id company created_at updated_at],
+    empresa: %w[id name],
+    producto_fila: %w[id sku name description category weight dimensions total_stock stock_status
+                      in_transit_quantity primary_warehouse warehouse_count created_at updated_at],
+    producto: %w[id sku name description category weight dimensions total_stock
+                 in_transit_quantity stocks created_at updated_at],
+    stock: %w[id quantity warehouse_id warehouse created_at updated_at],
+    deposito: %w[id name address zip_code],
+    orden_fila: %w[id external_order_id customer_name customer_document customer_address
+                   customer_zip_code customer_city customer_province status courier total_amount
+                   item_count created_at updated_at],
+    orden: %w[id external_order_id customer_name customer_document customer_address
+              customer_zip_code customer_city customer_province status total_amount order_items
+              created_at updated_at],
+    linea: %w[id product_id warehouse_id quantity unit_price product created_at updated_at],
+    courier: %w[id service_id name],
+    envio: %w[id order_id status tracking_number shipping_label_url shipping_cost courier events
+              created_at updated_at],
+    evento: %w[id internal_status external_status description occurred_at created_at],
+    meta: %w[page per_page total]
+  }.freeze
+end
 
 RSpec.describe 'API contract with the frontend', type: :request do
   let(:company) { Company.create!(name: 'Norte', tax_id: '30-11111111-1') }
@@ -60,11 +71,15 @@ RSpec.describe 'API contract with the frontend', type: :request do
                                      zip_code: '1900')
   end
 
+  # `claves` y no la constante directo: deja los ejemplos cortos sin que el
+  # contrato viva en `Object`.
+  def claves = ContratoDeLaApi::CLAVES
+
   def product
     @product ||= begin
-      p = Product.create!(company: company, sku: 'NOR-001', name: 'Servomotor', weight: 2.5)
-      Stock.create!(product: p, warehouse: warehouse, quantity: 10)
-      p
+      producto = Product.create!(company: company, sku: 'NOR-001', name: 'Servomotor', weight: 2.5)
+      Stock.create!(product: producto, warehouse: warehouse, quantity: 10)
+      producto
     end
   end
 
@@ -103,7 +118,7 @@ RSpec.describe 'API contract with the frontend', type: :request do
       get '/api/v1/products', headers: headers
 
       expect(response.parsed_body.keys).to match_array(%w[data meta])
-      expect(response.parsed_body['meta'].keys).to match_array(CLAVES[:meta])
+      expect(response.parsed_body['meta'].keys).to match_array(claves[:meta])
     end
 
     # Sin `meta`: el listado no pagina. Es la mitad de TESIS-108.
@@ -151,8 +166,8 @@ RSpec.describe 'API contract with the frontend', type: :request do
     it 'answers /me with the identity and the company nested', :aggregate_failures do
       get '/api/v1/me', headers: headers
 
-      expect(response.parsed_body.keys).to match_array(CLAVES[:me])
-      expect(response.parsed_body['company'].keys).to match_array(CLAVES[:empresa])
+      expect(response.parsed_body.keys).to match_array(claves[:me])
+      expect(response.parsed_body['company'].keys).to match_array(claves[:empresa])
     end
   end
 
@@ -162,7 +177,7 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
       get '/api/v1/products', headers: headers
 
-      expect(response.parsed_body['data'].first.keys).to match_array(CLAVES[:producto_fila])
+      expect(response.parsed_body['data'].first.keys).to match_array(claves[:producto_fila])
     end
 
     # El detalle trae `stocks`, que el listado no incluye: es lo que separa una
@@ -170,8 +185,8 @@ RSpec.describe 'API contract with the frontend', type: :request do
     it 'answers the detail with the stock broken down by warehouse', :aggregate_failures do
       get "/api/v1/products/#{product.id}", headers: headers
 
-      expect(response.parsed_body.keys).to match_array(CLAVES[:producto])
-      expect(response.parsed_body['stocks'].first.keys).to match_array(CLAVES[:stock])
+      expect(response.parsed_body.keys).to match_array(claves[:producto])
+      expect(response.parsed_body['stocks'].first.keys).to match_array(claves[:stock])
     end
 
     it 'answers a warehouse with the four fields the frontend declares' do
@@ -179,7 +194,7 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
       get '/api/v1/warehouses', headers: headers
 
-      expect(response.parsed_body['data'].first.keys).to match_array(CLAVES[:deposito])
+      expect(response.parsed_body['data'].first.keys).to match_array(claves[:deposito])
     end
   end
 
@@ -189,7 +204,7 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
       get '/api/v1/orders', headers: headers
 
-      expect(response.parsed_body['data'].first.keys).to match_array(CLAVES[:orden_fila])
+      expect(response.parsed_body['data'].first.keys).to match_array(claves[:orden_fila])
     end
 
     # El courier viaja con la misma forma acá y en los dos endpoints de envíos.
@@ -210,22 +225,22 @@ RSpec.describe 'API contract with the frontend', type: :request do
       get '/api/v1/orders', headers: headers
 
       courier = response.parsed_body['data'].first['courier']
-      expect(courier.keys).to match_array(CLAVES[:courier])
+      expect(courier.keys).to match_array(claves[:courier])
       expect(courier['name']).to eq(service.service_name)
     end
 
     it 'answers the detail with its items and the product of each one', :aggregate_failures do
       get "/api/v1/orders/#{order.id}", headers: headers
 
-      expect(response.parsed_body.keys).to match_array(CLAVES[:orden])
-      expect(response.parsed_body['order_items'].first.keys).to match_array(CLAVES[:linea])
+      expect(response.parsed_body.keys).to match_array(claves[:orden])
+      expect(response.parsed_body['order_items'].first.keys).to match_array(claves[:linea])
     end
 
     it 'answers a shipment with its log of events', :aggregate_failures do
       get "/api/v1/shipments/#{shipment.id}", headers: headers
 
-      expect(response.parsed_body.keys).to match_array(CLAVES[:envio])
-      expect(response.parsed_body['events'].first.keys).to match_array(CLAVES[:evento])
+      expect(response.parsed_body.keys).to match_array(claves[:envio])
+      expect(response.parsed_body['events'].first.keys).to match_array(claves[:evento])
     end
   end
 
