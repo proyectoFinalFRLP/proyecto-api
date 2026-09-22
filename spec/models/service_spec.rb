@@ -128,12 +128,37 @@ RSpec.describe Service, type: :model do
     end
   end
 
-  describe '#dispatches_shipment? on a tracking template' do
-    it 'is false even though it maps a tracking number' do
-      service.assign_attributes(type: 'courier', uri: 'https://api.correo.test/envios/estado',
-                                response_mapper: { 'envios[].numero' => 'tracking_number',
-                                                   'envios[].estado' => 'external_status' })
-      expect(service.dispatches_shipment?).to be false
+  # Qué plantilla es de seguimiento lo dice el vínculo, no la forma del mapper:
+  # las dos pueden mapear el número de seguimiento desde una colección.
+  describe '#dispatches_shipment? next to a tracking template' do
+    let(:batch_mapper) do
+      { 'envios[].numero' => 'tracking_number', 'envios[].estado' => 'external_status' }
+    end
+
+    def template(name, uri)
+      described_class.create!(service_name: name, type: 'courier', http_method: 'POST',
+                              uri: uri, response_mapper: batch_mapper)
+    end
+
+    it 'is false for the template a courier asks for its tracking' do
+      tracking = template('Correo - Seguimiento', 'https://api.correo.test/envios/estado')
+      template('Correo', 'https://api.correo.test/ordenes').update!(tracking_service: tracking)
+
+      expect(tracking.dispatches_shipment?).to be false
+    end
+
+    # La trampa de la review: un endpoint de despacho que contesta una lista
+    # tiene la forma de una consulta masiva, y no por eso deja de despachar.
+    it 'is true for a dispatch template whose provider answers with a list' do
+      dispatch = template('Correo', 'https://api.correo.test/ordenes')
+
+      expect(dispatch.dispatches_shipment?).to be true
+    end
+  end
+
+  describe '#tracking_template?' do
+    it 'is false for a template nobody points at' do
+      expect(service.tracking_template?).to be false
     end
   end
 

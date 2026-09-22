@@ -222,6 +222,22 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
       expect_rejection(CompanyIntegration.create!(company: company, service: service))
     end
 
+    # Mapea el número de seguimiento —para emparejar los elementos de la
+    # respuesta— y aun así no despacha. El mensaje tiene que decir eso, no que
+    # le falta el mapeo que sí tiene.
+    def tracking_integration
+      tracking = courier_service('Correo - Seguimiento', uri: 'https://correo.test/envios/estado',
+                                                         response_mapper: { 'envios[].numero' => 'tracking_number',
+                                                                            'envios[].estado' => 'external_status' })
+      courier_service('Correo', tracking_service: tracking)
+      CompanyIntegration.create!(company: company, service: tracking)
+    end
+
+    it 'rejects the tracking template of a courier, saying so' do
+      expect { dispatch(using: tracking_integration) }
+        .to raise_error(Shipments::InvalidCourierIntegrationError, /answers tracking queries/)
+    end
+
     it 'does not call the courier' do
       stub = stub_courier
       expect_rejection(dispatch_integration(name: 'Apagado', is_active: false))

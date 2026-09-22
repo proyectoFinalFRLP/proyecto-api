@@ -56,12 +56,22 @@ class Service < ApplicationRecord
   # (TESIS-47). La de cotización no lo trae, y pedirle una etiqueta sería llamar
   # al endpoint de tarifas esperando otra cosa.
   #
-  # Una plantilla de consulta de tracking (TESIS-49) también puede mapear el
-  # número de seguimiento —para emparejar cada elemento de una respuesta masiva—
-  # y no por eso sabe despachar: se excluye explícitamente.
+  # Una plantilla de seguimiento (TESIS-49) también puede mapear el número de
+  # seguimiento —para emparejar cada elemento de una respuesta masiva— y no por
+  # eso sabe despachar: se excluye explícitamente (ver #tracking_template?).
   def dispatches_shipment?
     courier? && response_mapper.value?(Shipments::ConfirmDispatch::TRACKING_KEY) &&
-      !answers_tracking?
+      !tracking_template?
+  end
+
+  # Si es la plantilla de seguimiento de algún courier. Lo dice el vínculo
+  # (`tracking_service_id`), no la forma del mapper: una plantilla de despacho
+  # cuyo proveedor conteste una lista (`envios[].numero`) tiene la misma forma
+  # que una de consulta masiva, y deducirlo de ahí la dejaba sin poder despachar.
+  # El vínculo es además lo que el resto de la consulta periódica usa como
+  # fuente de verdad; una segunda definición podría discrepar con él.
+  def tracking_template?
+    tracked_services.exists?
   end
 
   # La plantilla sabe contestar por el estado de un envío si mapea el estado

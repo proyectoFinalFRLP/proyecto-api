@@ -75,6 +75,9 @@ module Shipments
     def integration_problem
       return 'it is not a courier integration' unless @integration.service.courier?
       return 'the integration is not active' unless @integration.is_active?
+      # Antes que el mapeo: una plantilla de seguimiento sí mapea el número, y
+      # decirle «no lo mapea» sería afirmar lo contrario de lo que pasa.
+      return 'its template answers tracking queries, it does not dispatch' if tracking_template?
       return 'its template does not map a tracking number' unless dispatch_template?
 
       nil
@@ -84,6 +87,10 @@ module Shipments
     # sabe despachar es la que declara dónde viene el número de seguimiento.
     def dispatch_template?
       @integration.service.dispatches_shipment?
+    end
+
+    def tracking_template?
+      @integration.service.tracking_template?
     end
 
     def request_label
