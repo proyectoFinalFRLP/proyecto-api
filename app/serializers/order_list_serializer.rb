@@ -6,12 +6,11 @@
 class OrderListSerializer < ApplicationSerializer
   identifier :id
 
-  # customer_address y customer_zip_code alimentan la columna Destino del
-  # listado (TESIS-52). Son los dos únicos datos de ubicación que el modelo
-  # tiene: no hay ciudad ni provincia, así que la pantalla muestra la dirección
-  # con el código postal debajo.
+  # La columna Destino del listado (TESIS-52). La dirección y el código postal
+  # vienen desde el principio; la ciudad y la provincia desde TESIS-128, así que
+  # las órdenes anteriores y las de webhook las traen en null.
   fields :customer_name, :customer_document, :customer_address, :customer_zip_code,
-         :external_order_id, :status, :created_at, :updated_at
+         :customer_city, :customer_province, :external_order_id, :status, :created_at, :updated_at
 
   # La columna Total del listado (TESIS-52). Sale de la columna persistida y no
   # de sumar las líneas: sumarlas por fila sería un SELECT por orden, y además

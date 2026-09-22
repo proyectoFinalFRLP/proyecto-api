@@ -3,14 +3,16 @@
 module Api
   module V1
     class ProductsController < ApplicationController
+      include OptimisticLocking
+
       before_action :set_product, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
       rescue_from Catalog::StaleProductError, with: :render_precondition_failed
 
       def index
-        page = [params[:page].to_i, 1].max
-        per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
+        page = [scalar_param(:page).to_i, 1].max
+        per_page = (scalar_param(:per_page) || 20).to_i.clamp(1, 100)
 
         # La precarga es load-bearing: ProductListSerializer lee el depósito
         # principal de cada fila, y sin ella son dos queries por producto
@@ -22,15 +24,12 @@ module Api
         # como eager_load, sumaría las columnas de stocks y warehouses a ese
         # SELECT y Postgres rechazaría la consulta por columnas fuera del
         # GROUP BY. preload garantiza las consultas separadas.
-        products = policy_scope(Product).with_total_stock
-                                        .preload(stocks: :warehouse)
-                                        .order(created_at: :desc)
-                                        .offset((page - 1) * per_page)
-                                        .limit(per_page)
+        products = filtered_products.preload(stocks: :warehouse)
+                                    .order(created_at: :desc)
+                                    .offset((page - 1) * per_page)
+                                    .limit(per_page)
 
-        # total se cuenta sobre el scope sin with_total_stock: al estar agrupado,
-        # .count sobre el scope con with_total_stock devolvería un Hash, no entero.
-        total = policy_scope(Product).count
+        total = count_of(filtered_products)
 
         render json: {
           data: ProductListSerializer.render_as_hash(products),
@@ -82,31 +81,32 @@ module Api
 
       private
 
-      # La version del agregado viaja como ETag (TESIS-101). El cliente la
-      # devuelve en `If-Match` al guardar y el servidor rechaza la escritura si
-      # ya no es la vigente.
+      # Las tres pestañas del catálogo más el buscador y la categoría. El orden
+      # importa: `with_total_stock` arma el GROUP BY y `by_stock_status` cuelga
+      # su HAVING de esa agregación.
+      def filtered_products
+        policy_scope(Product)
+          .search_catalog(scalar_param(:search))
+          .by_category(scalar_param(:category))
+          .with_total_stock
+          .by_stock_status(scalar_param(:status))
+      end
+
+      # Cuántas filas matchean, sobre el scope YA filtrado.
+      #
+      # `.count` no sirve acá: el scope está agrupado por products.id, así que
+      # devolvería un Hash de id → cantidad en vez de un entero, y con el HAVING
+      # del filtro de stock ni siquiera se puede quitar el GROUP BY sin cambiar
+      # qué filas entran. Envolverlo como subconsulta cuenta sus filas y deja el
+      # agrupamiento intacto.
+      def count_of(scope)
+        Product.unscoped.from(scope, :products).count
+      end
+
+      # La version del agregado viaja como ETag (TESIS-101). El parseo de
+      # `If-Match` y el 412 viven en OptimisticLocking.
       def expose_version(product)
-        response.set_header('ETag', %("#{Catalog::ProductVersion.new(product: product).call}"))
-      end
-
-      # `If-Match` puede venir con comillas, con el prefijo debil `W/` o como
-      # `*`. `*` significa "cualquier version, siempre que exista": el producto
-      # ya se resolvio en set_product, asi que equivale a no poner precondicion.
-      def expected_version
-        raw = request.headers['If-Match'].to_s.strip
-        return nil if raw.blank? || raw == '*'
-
-        raw.delete_prefix('W/').delete_prefix('"').delete_suffix('"')
-      end
-
-      # 412 y no 409, apartandose de lo que pedia la card. Es el codigo que HTTP
-      # define para una precondicion que no se cumple, y de paso resuelve solo el
-      # requisito de distinguirlo: este endpoint ya devuelve 409 por SKU
-      # duplicado y por lock de stock ocupado, y un tercer 409 obligaria al front
-      # a leer el cuerpo para saber cual es. Con 412 alcanza el status.
-      def render_precondition_failed(exception)
-        render json: { error: exception.message, current_version: exception.current_version },
-               status: :precondition_failed
+        expose_etag(Catalog::ProductVersion.new(product: product).call)
       end
 
       def set_product
