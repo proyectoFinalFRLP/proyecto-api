@@ -76,7 +76,7 @@ Mismo principio data-driven que `Service#quotes_shipping?` y `Service#dispatches
 
 En los dos casos la plantilla tiene que mapear `external_status`. La validación del modelo rechaza vincular una plantilla que no cumpla esto —la de cotización, por ejemplo— o a la plantilla consigo misma: el barrido llamaría todos los ciclos a un endpoint que no contesta estados.
 
-Como una plantilla de seguimiento masiva mapea `tracking_number`, `dispatches_shipment?` la habría tomado por una de despacho. Se excluye explícitamente: saber contestar por un envío no es saber despachar uno.
+Como una plantilla de seguimiento masiva mapea `tracking_number`, `dispatches_shipment?` la habría tomado por una de despacho. Se excluye explícitamente, y **por el vínculo, no por la forma**: es de seguimiento la plantilla a la que algún courier apunta con `tracking_service_id` (`Service#tracking_template?`). Excluirla por la forma del mapper (`answers_tracking?`) dejaba sin poder despachar a una plantilla de despacho cuyo proveedor contesta una lista (`envios[].numero`), que tiene exactamente la misma forma; y `ConfirmDispatch` la rechazaba diciendo que no mapeaba el número de seguimiento, que sí mapeaba. El vínculo es además lo que el barrido ya usa como fuente de verdad, así que no queda una segunda definición que pueda discrepar. `answers_tracking?` sigue existiendo para lo que sí decide la forma: validar que la plantilla vinculada sepa contestar.
 
 ### El mismo núcleo que el push
 
