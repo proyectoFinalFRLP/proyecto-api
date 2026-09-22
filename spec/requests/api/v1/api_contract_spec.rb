@@ -23,17 +23,19 @@ require 'rails_helper'
 CLAVES = {
   me: %w[id email company_id company created_at updated_at],
   empresa: %w[id name],
-  producto_fila: %w[id sku name description category weight dimensions total_stock
+  producto_fila: %w[id sku name description category weight dimensions total_stock stock_status
                     in_transit_quantity primary_warehouse warehouse_count created_at updated_at],
   producto: %w[id sku name description category weight dimensions total_stock
                in_transit_quantity stocks created_at updated_at],
   stock: %w[id quantity warehouse_id warehouse created_at updated_at],
   deposito: %w[id name address zip_code],
   orden_fila: %w[id external_order_id customer_name customer_document customer_address
-                 customer_zip_code status courier total_amount item_count created_at updated_at],
+                 customer_zip_code customer_city customer_province status courier total_amount
+                 item_count created_at updated_at],
   orden: %w[id external_order_id customer_name customer_document customer_address
-            customer_zip_code status total_amount order_items created_at updated_at],
-  linea: %w[id product_id quantity unit_price product created_at updated_at],
+            customer_zip_code customer_city customer_province status total_amount order_items
+            created_at updated_at],
+  linea: %w[id product_id warehouse_id quantity unit_price product created_at updated_at],
   courier: %w[id service_id name],
   envio: %w[id order_id status tracking_number shipping_label_url shipping_cost courier events
             created_at updated_at],
