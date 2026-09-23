@@ -23,8 +23,11 @@ module Api
       COURIER_ERROR_LIMIT = 300
 
       def index
-        page = [params[:page].to_i, 1].max
-        per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
+        # `scalar_param` y no `params[...]` directo: una query con `?page[]=1`
+        # entrega un Array, y `Array#to_i` no existe — el listado moría con un
+        # 500. Mismo criterio que orders#index y products#index (TESIS-124).
+        page = [scalar_param(:page).to_i, 1].max
+        per_page = (scalar_param(:per_page) || 20).to_i.clamp(1, 100)
 
         # La precarga es load-bearing: ShipmentListSerializer lee el nombre del
         # courier a través de la plantilla del Service, y sin ella son dos
@@ -82,10 +85,19 @@ module Api
       # Un status desconocido no se filtra ni se rechaza: `where` lo busca igual
       # y devuelve la lista vacía, que es la respuesta honesta para un filtro que
       # no matchea nada (status es un string plano, no un enum: no rompe).
+      #
+      # Desconocido no es lo mismo que mal formado, y por eso los dos filtros
+      # pasan por `scalar_param`. `?status[foo]=bar` reventaba con un TypeError;
+      # `?order_id[]=1` era peor porque NO reventaba: `where` recibía el Array y
+      # lo traducía a un `IN`, así que la query filtraba por varias órdenes a la
+      # vez —una capacidad que nadie declaró ni documentó— y el 200 lo tapaba.
       def filtered_shipments
+        status = scalar_param(:status)
+        order_id = scalar_param(:order_id)
+
         shipments = policy_scope(Shipment)
-        shipments = shipments.where(status: params[:status]) if params[:status].present?
-        shipments = shipments.where(order_id: params[:order_id]) if params[:order_id].present?
+        shipments = shipments.where(status: status) if status.present?
+        shipments = shipments.where(order_id: order_id) if order_id.present?
         shipments
       end
 

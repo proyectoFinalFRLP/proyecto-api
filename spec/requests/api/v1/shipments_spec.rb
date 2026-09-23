@@ -51,6 +51,62 @@ RSpec.describe 'Shipments API', type: :request do
       expect(response).to have_http_status(:unauthorized)
     end
 
+    # Una query mal armada es un error del cliente, no del servidor (TESIS-124).
+    # Antes `?page[]=1` y `?per_page[]=1` salían 500 —`Array#to_i` no existe— y
+    # `?status[foo]=bar` también, por el TypeError de meter un
+    # ActionController::Parameters en un `where`.
+    #
+    # `?order_id[]=1` era el más engañoso porque NO fallaba: `where` traducía el
+    # Array a un `IN`, así que el listado filtraba por varias órdenes a la vez y
+    # contestaba 200. Una capacidad que nadie declaró, escondida detrás de una
+    # respuesta exitosa.
+    #
+    # Se responde 400 y no «se ignora el filtro»: descartarlo en silencio
+    # devolvería el listado entero, que es una respuesta plausible y equivocada.
+    context 'when a query parameter is malformed' do
+      it 'returns 400 for a page that is not a single value' do
+        get '/api/v1/shipments', params: { page: ['2'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a per_page that is not a single value' do
+        get '/api/v1/shipments', params: { per_page: ['1'] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a status that is not a single value' do
+        get '/api/v1/shipments', params: { status: { foo: 'bar' } }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for an order_id that is not a single value' do
+        get '/api/v1/shipments', params: { order_id: %w[1 2] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'says which parameter is wrong' do
+        get '/api/v1/shipments', params: { order_id: %w[1 2] }, headers: headers
+
+        expect(response.parsed_body['error']).to include('order_id')
+      end
+    end
+
+    # La distinción que la card pide conservar: mal formado es 400, pero un valor
+    # desconocido se filtra igual y devuelve la lista vacía, que es la respuesta
+    # honesta para un filtro que no matchea nada.
+    it 'answers an empty list for a status that simply does not exist', :aggregate_failures do
+      shipment_for('Juan')
+
+      get '/api/v1/shipments', params: { status: 'inventado' }, headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['data']).to be_empty
+    end
+
     context 'when authenticated' do
       before do
         shipment_for('Ana', status: 'in_transit', integration: courier('Andreani'),
