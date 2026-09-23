@@ -246,6 +246,42 @@ services = [
       'EntregadoAlDestinatario' => 'delivered',
       'Entregado' => 'delivered'
     }
+  },
+  # Courier SIN webhooks de tracking (TESIS-49): su estado sólo se conoce
+  # preguntándole. Despacha con esta plantilla, igual que Andreani, pero no
+  # mapea rutas de push: no hay push que leer.
+  {
+    service_name: 'Correo Argentino',
+    type: 'courier',
+    uri: 'https://api.correoargentino.com.ar/micorreo/v1/shipping/import',
+    http_method: 'POST',
+    request_mapper: { 'recipient.address.postalCode' => 'destination_zip_code' },
+    response_mapper: { 'trackingNumber' => 'tracking_number' },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  # Plantilla de CONSULTA de tracking de Correo Argentino (TESIS-49). La URI
+  # interpola el número de seguimiento: una consulta por envío (ver
+  # Service#answers_tracking?). La vincula a 'Correo Argentino' el bloque de
+  # tracking_service más abajo.
+  {
+    service_name: 'Correo Argentino - Seguimiento',
+    type: 'courier',
+    uri: 'https://api.correoargentino.com.ar/micorreo/v1/shipping/tracking/:tracking_number',
+    http_method: 'GET',
+    request_mapper: {},
+    response_mapper: {
+      'ultimoEvento.estado' => 'external_status',
+      'ultimoEvento.fecha' => 'occurred_at',
+      'ultimoEvento.planta' => 'description'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {
+      'PREIMPOSICION' => 'ready_to_ship',
+      'EN TRANSITO' => 'in_transit',
+      'EN DISTRIBUCION' => 'in_transit',
+      'ENTREGADO' => 'delivered'
+    }
   }
 ]
 
@@ -263,6 +299,13 @@ services.each do |attrs|
   # propio service_name.
   service.update!(attrs.slice(*Service::MAPPER_FIELDS.map(&:to_sym)))
 end
+
+# Correo Argentino no empuja el tracking: se le pregunta con su plantilla de
+# seguimiento (TESIS-49). El vínculo va aparte del loop de arriba porque
+# referencia a otra plantilla, que recién existe cuando el loop terminó.
+correo_service = Service.find_by(service_name: 'Correo Argentino')
+correo_tracking = Service.find_by(service_name: 'Correo Argentino - Seguimiento')
+correo_service&.update!(tracking_service: correo_tracking) if correo_tracking
 
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
 # La variable ml_integration la consume la orden de webhook de la sección TESIS-40
@@ -603,6 +646,16 @@ if norte_company && andreani_service
       s.company = norte_company
       s.status = 'pending'
     end
+  end
+end
+
+# Integración de Distribuidora Norte con Correo Argentino: la que despacha y,
+# por su plantilla de seguimiento, la que recorre la consulta periódica de
+# tracking (TESIS-49). La consulta usa estas mismas credenciales.
+if norte_company && correo_service
+  CompanyIntegration.find_or_create_by!(company: norte_company, service: correo_service) do |ci|
+    ci.credentials = { 'access_token' => 'DEMO-TOKEN-CORREO' }
+    ci.is_active = true
   end
 end
 

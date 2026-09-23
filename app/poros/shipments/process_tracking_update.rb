@@ -47,81 +47,15 @@ module Shipments
       register_event(shipment)
     end
 
+    # Las reglas de idempotencia, orden y transaccionalidad viven en
+    # RegisterTrackingEvent: son las mismas para la consulta periódica (TESIS-49).
     def register_event(shipment)
-      ActiveRecord::Base.transaction do
-        # FOR UPDATE: serializa los eventos del mismo envío. Los chequeos de
-        # duplicado/desorden van adentro del lock a propósito: afuera, dos
-        # entregas simultáneas del mismo evento pasarían las dos.
-        shipment.lock!
-        next if duplicate?(shipment) || stale?(shipment)
-
-        event = ShipmentEvent.create!(event_attributes(shipment))
-        shipment.update!(status: translated[:internal_status]) if advances_status?(shipment)
-        event
-      end
-    rescue ActiveRecord::RecordNotUnique
-      # Otro worker ya escribió este mismo evento (mismo shipment_id +
-      # external_status + occurred_at, ver índice único de la migración): la
-      # bitácora ya lo tiene, no es un fallo.
-      nil
+      RegisterTrackingEvent.new(shipment: shipment, translated: translated).call
     end
 
     def find_shipment
       Shipment.find_by(tracking_number: translated[:tracking_number],
                        company_integration_id: @log.company_integration_id)
-    end
-
-    def event_attributes(shipment)
-      {
-        shipment: shipment,
-        internal_status: internal_status_for(shipment),
-        external_status: translated[:external_status],
-        description: translated[:description],
-        occurred_at: occurred_at
-      }
-    end
-
-    # occurred_at es NOT NULL en la tabla; si el courier no lo mandó en el
-    # payload, usamos el momento del procesamiento en lugar de fallar.
-    def occurred_at
-      @occurred_at ||= translated[:occurred_at] || Time.current
-    end
-
-    # Si la plantilla no supo traducir el estado externo (no está en el
-    # response_value_mapper, o el valor traducido no pertenece a
-    # Shipment::STATUSES), el evento igual se registra, pero como puramente
-    # informativo: conserva el último estado conocido del envío en vez de
-    # perder el movimiento o inventar un estado.
-    def internal_status_for(shipment)
-      translated[:internal_status] || shipment.status
-    end
-
-    def advances_status?(shipment)
-      translated[:internal_status].present? && translated[:internal_status] != shipment.status
-    end
-
-    def duplicate?(shipment)
-      return duplicate_without_timestamp?(shipment) if translated[:occurred_at].nil?
-
-      shipment.shipment_events.exists?(external_status: translated[:external_status],
-                                       occurred_at: occurred_at)
-    end
-
-    # Sin fecha del courier, occurred_at se sintetiza con Time.current en cada
-    # entrega (ver occurred_at) y nunca coincide entre reintentos: comparar por
-    # timestamp exacto no sirve para distinguir un reintento de un movimiento
-    # legítimo. Para una bitácora de auditoría el default seguro es no duplicar,
-    # así que acá se compara contra el último evento del envío por external_status.
-    def duplicate_without_timestamp?(shipment)
-      last_event = shipment.shipment_events.order(occurred_at: :desc).first
-      last_event&.external_status == translated[:external_status]
-    end
-
-    # Llegó desordenado: ya hay registrado un evento con occurred_at más nuevo
-    # para este envío. Se descarta en lugar de pisar un estado más reciente.
-    def stale?(shipment)
-      last_occurred_at = shipment.shipment_events.maximum(:occurred_at)
-      last_occurred_at.present? && occurred_at < last_occurred_at
     end
 
     # Esto sí es un error real que va a la DLQ: no es un paquete ajeno (eso lo

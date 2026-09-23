@@ -73,6 +73,21 @@ RSpec.describe Integrations::ParseExternalCollection, type: :poro do
     end
   end
 
+  describe '#element_mapper' do
+    it 'returns the collection entries with paths relative to each element' do
+      expect(described_class.new(service: service, payload: payload).element_mapper)
+        .to eq('item.id' => 'external_product_id', 'quantity' => 'quantity')
+    end
+
+    context 'when the mapper declares no collection' do
+      let(:mapper) { { 'id' => 'external_order_id' } }
+
+      it 'is empty' do
+        expect(described_class.new(service: service, payload: payload).element_mapper).to eq({})
+      end
+    end
+  end
+
   describe '#source_elements' do
     it 'returns the raw elements before translating them' do
       collection = described_class.new(service: service, payload: payload)

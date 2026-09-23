@@ -80,6 +80,131 @@ RSpec.describe Service, type: :model do
     end
   end
 
+  describe '#answers_tracking?' do
+    before do
+      service.type = 'courier'
+      service.uri = 'https://api.correo.test/envios/:tracking_number/estado'
+      service.response_mapper = { 'estado.descripcion' => 'external_status' }
+    end
+
+    it 'is true for a courier template queried by tracking number' do
+      expect(service.answers_tracking?).to be true
+    end
+
+    it 'is true for a batch template that returns a list of shipments' do
+      service.uri = 'https://api.correo.test/envios/estado'
+      service.response_mapper = { 'envios[].numero' => 'tracking_number',
+                                  'envios[].estado' => 'external_status' }
+      expect(service.answers_tracking?).to be true
+    end
+
+    # Es la plantilla de despacho de un courier con push (ADR-011): mapea el
+    # estado para leer el webhook, pero no sabe contestar una consulta.
+    it 'is false when the template maps a status but does not say how to ask for it' do
+      service.uri = 'https://api.correo.test/ordenes-de-envio'
+      expect(service.answers_tracking?).to be false
+    end
+
+    it 'is false when the template does not map an external status' do
+      service.response_mapper = { 'tarifa.total' => 'shipping_cost' }
+      expect(service.answers_tracking?).to be false
+    end
+
+    it 'is false for a sales channel' do
+      service.type = 'ecommerce'
+      expect(service.answers_tracking?).to be false
+    end
+  end
+
+  describe '#tracks_in_batch?' do
+    it 'is true when the tracking number is read from a collection' do
+      service.response_mapper = { 'envios[].numero' => 'tracking_number' }
+      expect(service.tracks_in_batch?).to be true
+    end
+
+    it 'is false when the tracking number is a single value' do
+      service.response_mapper = { 'numero' => 'tracking_number' }
+      expect(service.tracks_in_batch?).to be false
+    end
+  end
+
+  # Qué plantilla es de seguimiento lo dice el vínculo, no la forma del mapper:
+  # las dos pueden mapear el número de seguimiento desde una colección.
+  describe '#dispatches_shipment? next to a tracking template' do
+    let(:batch_mapper) do
+      { 'envios[].numero' => 'tracking_number', 'envios[].estado' => 'external_status' }
+    end
+
+    def template(name, uri)
+      described_class.create!(service_name: name, type: 'courier', http_method: 'POST',
+                              uri: uri, response_mapper: batch_mapper)
+    end
+
+    it 'is false for the template a courier asks for its tracking' do
+      tracking = template('Correo - Seguimiento', 'https://api.correo.test/envios/estado')
+      template('Correo', 'https://api.correo.test/ordenes').update!(tracking_service: tracking)
+
+      expect(tracking.dispatches_shipment?).to be false
+    end
+
+    # La trampa de la review: un endpoint de despacho que contesta una lista
+    # tiene la forma de una consulta masiva, y no por eso deja de despachar.
+    it 'is true for a dispatch template whose provider answers with a list' do
+      dispatch = template('Correo', 'https://api.correo.test/ordenes')
+
+      expect(dispatch.dispatches_shipment?).to be true
+    end
+  end
+
+  describe '#tracking_template?' do
+    it 'is false for a template nobody points at' do
+      expect(service.tracking_template?).to be false
+    end
+  end
+
+  describe 'tracking_service' do
+    subject(:courier) do
+      described_class.new(service_name: 'Correo', type: 'courier', http_method: 'POST',
+                          uri: 'https://api.correo.test/ordenes')
+    end
+
+    let(:tracking_template) do
+      described_class.create!(service_name: 'Correo - Seguimiento', type: 'courier',
+                              http_method: 'GET',
+                              uri: 'https://api.correo.test/envios/:tracking_number',
+                              response_mapper: { 'estado' => 'external_status' })
+    end
+
+    it 'accepts a template that answers tracking queries' do
+      courier.tracking_service = tracking_template
+      expect(courier).to be_valid
+    end
+
+    it 'rejects a template that does not answer tracking queries' do
+      courier.tracking_service = described_class.create!(
+        service_name: 'Correo - Cotización', type: 'courier', http_method: 'POST',
+        uri: 'https://api.correo.test/tarifas', response_mapper: { 'total' => 'shipping_cost' }
+      )
+      expect(courier).not_to be_valid
+    end
+
+    it 'rejects pointing a template at itself' do
+      tracking_template.tracking_service = tracking_template
+      expect(tracking_template).not_to be_valid
+    end
+
+    it 'rejects a tracking template on a sales channel' do
+      service.tracking_service = tracking_template
+      expect(service).not_to be_valid
+    end
+
+    it 'is released when the tracking template is destroyed' do
+      courier.update!(tracking_service: tracking_template)
+      tracking_template.destroy!
+      expect(courier.reload.tracking_service).to be_nil
+    end
+  end
+
   it 'persists nested JSONB mappers', :aggregate_failures do
     service.update!(request_mapper: { 'order' => { 'id' => 'external_id' } })
     expect(service.reload.request_mapper).to eq('order' => { 'id' => 'external_id' })

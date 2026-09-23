@@ -170,4 +170,23 @@ RSpec.describe Shipments::TranslateTrackingPayload, type: :poro do
       expect(result[:tracking_number]).to be_nil
     end
   end
+
+  # Un elemento de una respuesta masiva de tracking (TESIS-49): se traduce con el
+  # mapper del elemento, relativo a él, no con el response_mapper completo.
+  context 'when given a derived mapper' do
+    subject(:result) do
+      described_class.new(service: service, payload: element,
+                          mapper: { 'numero' => 'tracking_number',
+                                    'estado' => 'external_status' }).call
+    end
+
+    let(:element) { { 'numero' => 'AND-7', 'estado' => 'Entregado' } }
+
+    it 'reads the element with that mapper and keeps translating the status',
+       :aggregate_failures do
+      expect(result[:tracking_number]).to eq('AND-7')
+      expect(result[:external_status]).to eq('Entregado')
+      expect(result[:internal_status]).to eq('delivered')
+    end
+  end
 end

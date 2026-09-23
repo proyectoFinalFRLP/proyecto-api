@@ -19,6 +19,11 @@ development:
     class: Auth::PurgeExpiredTokensJob
     queue: low
     schedule: every day at 4am
+  # Consulta periódica de tracking a los couriers sin webhooks (TESIS-49).
+  poll_courier_tracking:
+    class: Shipments::ScanPullTrackingJob
+    queue: low
+    schedule: every 30 minutes
 
 production:
   clear_solid_queue_finished_jobs:
@@ -34,3 +39,8 @@ production:
     class: Auth::PurgeExpiredTokensJob
     queue: low
     schedule: every day at 4am
+  # Consulta periódica de tracking a los couriers sin webhooks (TESIS-49).
+  poll_courier_tracking:
+    class: Shipments::ScanPullTrackingJob
+    queue: low
+    schedule: every 30 minutes

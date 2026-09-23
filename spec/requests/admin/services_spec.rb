@@ -70,6 +70,31 @@ RSpec.describe 'Admin services panel (Avo)', type: :request do
         expect(service.reload.uri).to eq('https://nueva.uri.com')
       end
     end
+
+    describe 'tracking template of a courier' do
+      let(:courier) do
+        Service.create!(service_name: 'Correo', type: 'courier', http_method: 'POST',
+                        uri: 'https://api.correo.test/ordenes')
+      end
+      let!(:tracking_template) do
+        Service.create!(service_name: 'Correo - Seguimiento', type: 'courier', http_method: 'GET',
+                        uri: 'https://api.correo.test/envios/:tracking_number',
+                        response_mapper: { 'estado' => 'external_status' })
+      end
+
+      it 'is assigned from the edit form' do
+        patch "/admin/resources/services/#{courier.id}",
+              params: { service: { tracking_service_id: tracking_template.id } }
+        expect(courier.reload.tracking_service).to eq(tracking_template)
+      end
+
+      it 'is shown on the courier page', :aggregate_failures do
+        courier.update!(tracking_service: tracking_template)
+        get "/admin/resources/services/#{courier.id}"
+        expect(response).to have_http_status(:ok)
+        expect(response.body).to include('Correo - Seguimiento')
+      end
+    end
   end
 
   def valid_params

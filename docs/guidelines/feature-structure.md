@@ -60,7 +60,7 @@ app/jobs/
 ├── orders/
 │   └── process_webhook_event_job.rb
 └── shipments/
-    └── pull_tracking_status_job.rb
+    └── poll_tracking_job.rb
 ```
 
 ### Controllers, Serializers, Policies

@@ -120,6 +120,68 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
     end
   end
 
+  describe 'speaking with another template of the same provider' do
+    let(:tracking_template) do
+      Service.create!(service_name: 'Andreani - Seguimiento', type: 'courier', http_method: 'GET',
+                      uri: 'https://api.andreani.com/tracking/:tracking_number')
+    end
+
+    before do
+      stub_request(:get, 'https://api.andreani.com/tracking/AND-1')
+        .to_return(status: 200, body: {}.to_json)
+    end
+
+    it 'uses the given template with the credentials of the integration' do
+      described_class.new(company_integration: integration, service: tracking_template,
+                          uri_params: { tracking_number: 'AND-1' }).fetch
+      expect(WebMock).to have_requested(:get, 'https://api.andreani.com/tracking/AND-1')
+        .with(headers: { 'Authorization' => 'Bearer SECRET-TOKEN' })
+    end
+  end
+
+  describe 'timeouts' do
+    let(:http) { Net::HTTP.new('api.andreani.com', 443) }
+
+    before do
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      stub_request(:post, 'https://api.andreani.com/envios/42')
+        .to_return(status: 200, body: {}.to_json)
+    end
+
+    it 'uses the given timeout and keeps the default for the one not given' do
+      described_class.new(company_integration: integration, uri_params: { order_id: 42 },
+                          timeouts: { read: 3 }).call
+      expect([http.open_timeout, http.read_timeout]).to eq([10, 3])
+    end
+  end
+
+  describe '#fetch' do
+    def fetch_raw
+      described_class.new(company_integration: integration,
+                          payload: { customer_zip_code: '1900' },
+                          uri_params: { order_id: 42 }).fetch
+    end
+
+    it 'returns the JSON body untouched by the response mappers' do
+      stub_request(:post, 'https://api.andreani.com/envios/42')
+        .to_return(status: 200, body: { estado: 'Entregado', extra: 1 }.to_json)
+
+      expect(fetch_raw).to eq('estado' => 'Entregado', 'extra' => 1)
+    end
+
+    it 'raises AdapterExecutionError on an HTTP error, like #call' do
+      stub_request(:post, 'https://api.andreani.com/envios/42').to_return(status: 503)
+
+      expect { fetch_raw }.to raise_error(Integrations::AdapterExecutionError, /HTTP 503/)
+    end
+
+    it 'raises AdapterExecutionError on a network failure, like #call' do
+      stub_request(:post, 'https://api.andreani.com/envios/42').to_timeout
+
+      expect { fetch_raw }.to raise_error(Integrations::AdapterExecutionError, /request failed/)
+    end
+  end
+
   describe 'bodyless methods' do
     before do
       service.update!(http_method: 'GET', uri: 'https://api.andreani.com/envios/:order_id')
