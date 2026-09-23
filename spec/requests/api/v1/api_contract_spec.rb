@@ -104,9 +104,12 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
   # ───────────────────────────────────────────────────────── forma del sobre
   #
-  # La regla la fija ADR-015 (TESIS-107) y es una sola: **una colección viaja
-  # envuelta en `data`** —más `meta` si pagina— y **un recurso solo viaja
-  # pelado**. Los errores, siempre `{ "error": "..." }`.
+  # La regla la fija ADR-015 (TESIS-107, TESIS-108) y es una sola: **una
+  # colección viaja en `data` + `meta`** y **un recurso solo viaja pelado**.
+  # Los errores, siempre `{ "error": "..." }`.
+  #
+  # No hay colección sin `meta`: desde TESIS-108 todas paginan, así que el
+  # consumidor puede leer `total` en cualquiera sin preguntarse cuál lo trae.
   #
   # Antes eran cuatro formas distintas, porque cada card eligió la suya y nadie
   # la escribió. Estos ejemplos son lo que impide que vuelva a pasar: agregar
@@ -121,13 +124,15 @@ RSpec.describe 'API contract with the frontend', type: :request do
       expect(response.parsed_body['meta'].keys).to match_array(claves[:meta])
     end
 
-    # Sin `meta`: el listado no pagina. Es la mitad de TESIS-108.
-    it 'wraps an unpaginated collection in data alone' do
+    # Antes devolvía `data` sola porque no paginaba. Desde TESIS-108 no queda
+    # ninguna así: un listado sin techo puede devolver la tabla entera.
+    it 'wraps every collection in data plus meta, with no exception', :aggregate_failures do
       warehouse
 
       get '/api/v1/warehouses', headers: headers
 
-      expect(response.parsed_body.keys).to eq(['data'])
+      expect(response.parsed_body.keys).to match_array(%w[data meta])
+      expect(response.parsed_body['meta'].keys).to match_array(claves[:meta])
     end
 
     it 'returns a single resource with no envelope at all' do
@@ -139,10 +144,10 @@ RSpec.describe 'API contract with the frontend', type: :request do
     # Era el único que devolvía un array pelado. Un array en la raíz no admite
     # `meta` sin romper a quien lo consume, así que ninguna colección puede
     # quedar así.
-    it 'wraps the integrations listing too, with no exception' do
+    it 'wraps the integrations listing too, which used to be a bare array' do
       get '/api/v1/integrations', headers: headers
 
-      expect(response.parsed_body.keys).to eq(['data'])
+      expect(response.parsed_body.keys).to match_array(%w[data meta])
     end
 
     # Los errores sí son consistentes en toda la API, y conviene que siga así.

@@ -25,10 +25,10 @@ RSpec.describe 'Integrations API', type: :request do
     # Era el único listado que contestaba un array pelado. Un array en la raíz
     # no deja lugar para `meta` sin romper a quien lo consume, y obligaba al
     # front a recordar que éste es la excepción (ADR-015, TESIS-107).
-    it 'wraps the collection in data, like every other listing' do
+    it 'wraps the collection in data and meta, like every other listing' do
       get '/api/v1/integrations', headers: headers
 
-      expect(response.parsed_body.keys).to eq(['data'])
+      expect(response.parsed_body.keys).to match_array(%w[data meta])
     end
 
     context 'when the company has the service configured' do

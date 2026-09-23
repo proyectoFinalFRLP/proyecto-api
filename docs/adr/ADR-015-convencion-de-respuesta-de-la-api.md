@@ -26,8 +26,8 @@ Mientras hubo una sola pantalla consumiendo la API la inconsistencia era barata.
 
 ```
 GET    /api/v1/products        → { "data": [ {...}, {...} ], "meta": { page, per_page, total } }
-GET    /api/v1/warehouses      → { "data": [ {...}, {...} ] }
-GET    /api/v1/integrations    → { "data": [ {...}, {...} ] }
+GET    /api/v1/warehouses      → { "data": [ {...}, {...} ], "meta": { ... } }
+GET    /api/v1/integrations    → { "data": [ {...}, {...} ], "meta": { ... } }
 
 GET    /api/v1/products/:id    → { "id": 1, "sku": "...", ... }
 POST   /api/v1/products        → { "id": 1, "sku": "...", ... }
@@ -36,7 +36,7 @@ PUT    /api/v1/products/:id    → { "id": 1, "sku": "...", ... }
 cualquier error                → { "error": "..." }
 ```
 
-`meta` aparece sólo si el listado pagina, y es siempre `page`, `per_page` y `total`, contando el scope **ya filtrado**.
+`meta` es siempre `page`, `per_page` y `total`, contando el scope **ya filtrado**. No hay colección sin `meta`: desde TESIS-108 todas paginan, así que el consumidor puede leer `total` en cualquiera sin preguntarse cuál lo trae.
 
 El único endpoint que hubo que cambiar fue `integrations#index`, que devolvía un array en la raíz.
 
@@ -55,7 +55,7 @@ La puerta queda abierta: pasar de esta convención a la otra es aditivo del lado
 **A favor**
 
 - La regla se enuncia en una línea y no tiene excepciones que justificar.
-- Ninguna colección queda con un array en la raíz, así que cualquiera puede empezar a paginar sin romper su contrato. Es la precondición de TESIS-108.
+- Ninguna colección queda con un array en la raíz, así que todas pudieron empezar a paginar sin romper su contrato. Fue la precondición de TESIS-108, que se hizo justo encima.
 - El comentario-trampa del frontend se borra: lo que explicaba ya no pasa.
 - `spec/requests/api/v1/api_contract_spec.rb` (TESIS-90) fija las tres formas, así que un endpoint nuevo que invente una cuarta rompe la suite.
 
