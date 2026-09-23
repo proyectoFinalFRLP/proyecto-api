@@ -104,13 +104,13 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
   # ───────────────────────────────────────────────────────── forma del sobre
   #
-  # Hoy la API responde con CUATRO formas distintas. No es una decisión: cada
-  # card eligió la suya y nadie la escribió. TESIS-107 las unifica.
+  # La regla la fija ADR-015 (TESIS-107) y es una sola: **una colección viaja
+  # envuelta en `data`** —más `meta` si pagina— y **un recurso solo viaja
+  # pelado**. Los errores, siempre `{ "error": "..." }`.
   #
-  # Se fijan igual, y a propósito: mientras la inconsistencia exista, el front
-  # tiene que saber cuál le toca a cada endpoint, y este archivo es el único
-  # lugar donde eso está dicho. Cuando entre TESIS-107, estos cuatro ejemplos
-  # son la lista de lo que hay que cambiar.
+  # Antes eran cuatro formas distintas, porque cada card eligió la suya y nadie
+  # la escribió. Estos ejemplos son lo que impide que vuelva a pasar: agregar
+  # un endpoint con otra forma tiene que romper acá.
   describe 'the shape of the envelope, endpoint by endpoint' do
     it 'wraps a paginated collection in data plus meta', :aggregate_failures do
       product
@@ -136,11 +136,13 @@ RSpec.describe 'API contract with the frontend', type: :request do
       expect(response.parsed_body.keys).to include('sku')
     end
 
-    # El único endpoint que devuelve un array pelado, sin objeto que lo envuelva.
-    it 'returns a bare array for the integrations listing' do
+    # Era el único que devolvía un array pelado. Un array en la raíz no admite
+    # `meta` sin romper a quien lo consume, así que ninguna colección puede
+    # quedar así.
+    it 'wraps the integrations listing too, with no exception' do
       get '/api/v1/integrations', headers: headers
 
-      expect(response.parsed_body).to be_an(Array)
+      expect(response.parsed_body.keys).to eq(['data'])
     end
 
     # Los errores sí son consistentes en toda la API, y conviene que siga así.
