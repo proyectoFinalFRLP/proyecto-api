@@ -312,6 +312,38 @@ RSpec.describe 'Warehouses API', type: :request do
           .to eq('Cannot delete warehouse with order lines taken from it')
       end
     end
+
+    # Hallazgo de la QA de TESIS-82: la FK de stock_transfers es restrict y el
+    # modelo no la adelantaba, así que este borrado respondía 500. El destino de
+    # una transferencia en tránsito no tiene stock propio todavía: las unidades
+    # se le suman recién al recibirla.
+    context 'when a stock transfer references it and it has no stock of its own' do
+      it 'returns 409 and keeps it as the destination of a transfer in transit', :aggregate_failures do
+        create_transfer_touching_warehouse(as: :destination)
+
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response).to have_http_status(:conflict)
+        expect(Warehouse.find_by(id: warehouse.id)).to be_present
+      end
+
+      it 'returns 409 as the origin of a transfer too' do
+        create_transfer_touching_warehouse(as: :origin)
+
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response).to have_http_status(:conflict)
+      end
+
+      it 'says the transfers are what block it' do
+        create_transfer_touching_warehouse(as: :destination)
+
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response.parsed_body['error'])
+          .to eq('Cannot delete warehouse with stock transfers from or to it')
+      end
+    end
   end
 
   def create_warehouse_with_stock
@@ -324,5 +356,15 @@ RSpec.describe 'Warehouses API', type: :request do
     order = Order.create!(company: company, customer_name: 'Cliente')
     OrderItem.create!(order: order, product: product, warehouse: warehouse,
                       quantity: 1, unit_price: 100)
+  end
+
+  # Una transferencia en tránsito entre `warehouse` y otro depósito, sin stock en
+  # `warehouse`. `as:` dice qué papel cumple en ella.
+  def create_transfer_touching_warehouse(as:)
+    other = Warehouse.create!(company: company, name: 'Sucursal', zip_code: '1900', address: 'Calle 2')
+    product = Product.create!(company: company, sku: 'SKU-3', name: 'En viaje')
+    origin, destination = as == :origin ? [warehouse, other] : [other, warehouse]
+    StockTransfer.create!(company: company, product: product, origin_warehouse: origin,
+                          destination_warehouse: destination, quantity: 1, dispatched_at: Time.current)
   end
 end
