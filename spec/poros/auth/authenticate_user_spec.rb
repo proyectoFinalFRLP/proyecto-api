@@ -12,6 +12,14 @@ RSpec.describe Auth::AuthenticateUser, type: :poro do
     expect(token).to be_present
   end
 
+  # Devise guarda el email normalizado; el que se tipea en el login puede venir
+  # con otras mayúsculas o con espacios alrededor.
+  it 'finds the account whatever the case and the surrounding spaces of the email' do
+    token = described_class.new(email: ' Log@TEST.com ', password: 'password123',
+                                company: company).call
+    expect(token).to be_present
+  end
+
   it 'returns nil for a wrong password' do
     token = described_class.new(email: 'log@test.com', password: 'wrong', company: company).call
     expect(token).to be_nil

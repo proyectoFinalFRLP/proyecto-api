@@ -171,6 +171,12 @@ RSpec.describe 'Auth API', type: :request do
       expect(payload['company_id']).to eq(company.id)
     end
 
+    # Hallazgo de la QA de TESIS-82: Devise guarda el email en minúsculas, y
+    # quien lo tipeaba con alguna mayúscula recibía 401 con la password correcta.
+    it 'accepts the email in another case and with surrounding spaces' do
+      expect(login(email: ' Log@TEST.com ').first).to eq(200)
+    end
+
     it 'returns 401 on wrong password' do
       expect(login(password: 'wrong').first).to eq(401)
     end

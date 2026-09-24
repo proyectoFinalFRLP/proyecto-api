@@ -29,7 +29,16 @@ module Auth
     # tenant de ese token y no por el que se está intentando. El scope acá es el
     # de la company resuelta por slug, y sólo ese.
     def find_user
-      User.unscoped.find_by(company_id: @company.id, email: @email)
+      User.unscoped.find_by(company_id: @company.id, email: normalized_email)
+    end
+
+    # Devise guarda el email en minúsculas y sin espacios alrededor
+    # (case_insensitive_keys y strip_whitespace_keys), pero esa normalización
+    # sólo corre al guardar y en sus propios finders, y este find_by es nuestro.
+    # Sin esto, quien se registró como «Ana@Norte.com» no podía entrar tipeando
+    # el email igual que al registrarse.
+    def normalized_email
+      @email.to_s.strip.downcase
     end
   end
 end
