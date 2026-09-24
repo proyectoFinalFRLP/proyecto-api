@@ -31,6 +31,15 @@ RSpec.describe Auth::AuthenticateUser, type: :poro do
     expect(token).to be_nil
   end
 
+  # Una cuenta del registro público que todavía no aprobaron: credenciales
+  # correctas, pero no hay token hasta que la aprueben.
+  it 'returns nil for an account pending approval' do
+    User.create!(email: 'pend@test.com', password: 'password123', company: company, approved: false)
+
+    token = described_class.new(email: 'pend@test.com', password: 'password123', company: company).call
+    expect(token).to be_nil
+  end
+
   # El controller pasa el resultado de resolver el slug, que es nil cuando el
   # tenant no existe o está inactivo. El PORO no puede confundir eso con un
   # login global.

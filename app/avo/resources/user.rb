@@ -13,6 +13,9 @@ module Avo
         field :id, as: :id
         field :email, as: :text, required: true
         field :company, as: :belongs_to
+        # El registro público crea la cuenta sin aprobar (Auth::RegisterUser):
+        # hasta que se tilde acá, no puede loguearse.
+        field :approved, as: :boolean
         field :created_at, as: :date_time, only_on: :index
       end
 

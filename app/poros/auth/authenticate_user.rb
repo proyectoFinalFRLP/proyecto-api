@@ -10,14 +10,14 @@ module Auth
     end
 
     # Devuelve nil ante cualquier fallo — tenant no resuelto, email inexistente
-    # en ese tenant, usuario de otro tenant o password incorrecta. El caller no
-    # puede distinguir los casos, que es justamente el punto: el 401 tiene que
-    # ser idéntico para todos.
+    # en ese tenant, usuario de otro tenant, password incorrecta o cuenta que
+    # todavía no aprobaron. El caller no puede distinguir los casos, que es
+    # justamente el punto: el 401 tiene que ser idéntico para todos.
     def call
       return nil if @company.nil?
 
       user = find_user
-      return nil unless user&.valid_password?(@password)
+      return nil unless user&.valid_password?(@password) && user.approved?
 
       Warden::JWTAuth::UserEncoder.new.call(user, :user, nil).first
     end
