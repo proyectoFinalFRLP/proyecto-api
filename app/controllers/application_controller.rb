@@ -42,6 +42,26 @@ class ApplicationController < ActionController::API
 
   def index_action? = action_name == 'index'
 
+  # Devise valida el token (firma, vencimiento, denylist); acá se suma lo que el
+  # token no puede saber: si la empresa de la cuenta sigue activa. El JWT de una
+  # empresa dada de baja sigue siendo válido hasta vencer, y sin este chequeo
+  # seguía operando hasta 24 h después de la baja.
+  #
+  # Va sobre authenticate_user! y no en active_for_authentication? de Devise a
+  # propósito: ese hook corta con 401 cualquier request que traiga el token,
+  # también los que no exigen sesión (login, registro, tenant-config). Acá sólo
+  # corre donde se pide sesión.
+  def authenticate_user!(*)
+    super
+    return if current_company.is_active?
+
+    render_session_refused('The company of this account is not active')
+  end
+
+  def render_session_refused(message)
+    render json: { error: message }, status: :unauthorized
+  end
+
   def set_current_tenant
     Current.company_id = current_user&.company_id
     Current.user = current_user

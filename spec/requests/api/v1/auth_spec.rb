@@ -170,6 +170,27 @@ RSpec.describe 'Auth API', type: :request do
     end
   end
 
+  # El JWT sigue siendo válido hasta vencer aunque la empresa se dé de baja. La
+  # baja tiene que cortar también las sesiones que ya estaban abiertas, no sólo
+  # los logins nuevos.
+  describe 'a session whose company is deactivated' do
+    let(:user) { User.create!(email: 'baja@test.com', password: 'password123', company: company) }
+    let(:auth) do
+      post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }, headers: tenant_header
+      { 'Authorization' => "Bearer #{response.parsed_body['token']}" }
+    end
+
+    it 'stops authenticating the token it already had', :aggregate_failures do
+      headers = auth
+      company.update!(is_active: false)
+
+      get '/api/v1/warehouses', headers: headers
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(response.parsed_body['error']).to eq('The company of this account is not active')
+    end
+  end
+
   describe 'DELETE /api/v1/auth/logout' do
     let(:user) { User.create!(email: 'out@test.com', password: 'password123', company: company) }
     let(:token) do
