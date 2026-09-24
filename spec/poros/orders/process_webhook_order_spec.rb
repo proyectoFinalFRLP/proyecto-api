@@ -340,7 +340,6 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
     let(:payload) { order_payload(items: [line('MLA-1', 2, 1500.5)]) }
     let(:winner) { Order.find_by!(external_order_id: 'ML-1001') }
 
-
     before do
       publish('SKU-1', 'MLA-1')
       described_class.new(webhook_log: create_log).call
