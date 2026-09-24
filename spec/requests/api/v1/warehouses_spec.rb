@@ -202,6 +202,18 @@ RSpec.describe 'Warehouses API', type: :request do
       post '/api/v1/warehouses', params: {}, headers: headers, as: :json
       expect(response).to have_http_status(:bad_request)
     end
+
+    # Hallazgo de la QA de TESIS-82: `require` devolvía lo que llegara en la
+    # clave y `permit` reventaba sobre un String, con un 500.
+    it 'returns 400 when warehouse is not an object' do
+      post '/api/v1/warehouses', params: { warehouse: 'Central' }, headers: headers, as: :json
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'returns 400 when warehouse is a list' do
+      post '/api/v1/warehouses', params: { warehouse: [warehouse_attrs] }, headers: headers, as: :json
+      expect(response).to have_http_status(:bad_request)
+    end
   end
 
   describe 'PUT /api/v1/warehouses/:id' do
@@ -230,6 +242,14 @@ RSpec.describe 'Warehouses API', type: :request do
           headers: headers, as: :json
 
       expect(response).to have_http_status(:not_found)
+    end
+
+    it 'returns 400 and changes nothing when warehouse is not an object', :aggregate_failures do
+      put "/api/v1/warehouses/#{warehouse.id}", params: { warehouse: 'Actualizado' },
+                                                headers: headers, as: :json
+
+      expect(response).to have_http_status(:bad_request)
+      expect(warehouse.reload.name).to eq('Central')
     end
 
     it 'updates via PATCH as well', :aggregate_failures do

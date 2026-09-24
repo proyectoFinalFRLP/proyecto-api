@@ -46,12 +46,15 @@ module Api
         authorize @warehouse
       end
 
+      # `expect` y no `require` + `permit`: si `warehouse` llega como String o
+      # como Array, `require` lo devuelve igual y `permit` revienta con
+      # NoMethodError, que salía como 500. `expect` responde 400.
+      #
+      # Un company_id en el body se sigue ignorando: `expect` descarta en
+      # silencio las claves que no permite. (El comentario anterior decía que
+      # respondía 400; en Rails 8.1 no es así, y el spec de company_id lo fija.)
       def warehouse_params
-        # permit (no expect) es intencional y load-bearing: expect usa
-        # on_unpermitted: :raise, así que un body con company_id daría 400 en
-        # vez de ignorarlo — rompiendo el requisito de la card.
-        # rubocop:disable-next Rails/StrongParametersExpect
-        params.require(:warehouse).permit(:name, :zip_code, :address)
+        params.expect(warehouse: %i[name zip_code address])
       end
 
       # Tres cosas bloquean el borrado y el mensaje tiene que decir cuál. Se
