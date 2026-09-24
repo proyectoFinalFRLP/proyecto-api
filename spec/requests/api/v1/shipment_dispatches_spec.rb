@@ -137,6 +137,28 @@ RSpec.describe 'Shipment dispatch API', type: :request do
     expect(response.parsed_body['error']).to include('Service Unavailable')
   end
 
+  # Las otras dos formas del cuerpo de un tercero. Con el cuerpo vacío no hay
+  # nada que propagar y el mensaje tiene que quedar en el del adaptador —no en
+  # un ": " colgando—; con un JSON que no es objeto se propaga tal cual, porque
+  # no hay campo del que sacar el motivo. Ninguna de las dos se probaba
+  # (TESIS-93).
+  it 'keeps the adapter message when the courier answers with an empty body',
+     :aggregate_failures do
+    stub_request(:post, 'https://andreani.test/ordenes').to_return(status: 503, body: '')
+    dispatch_shipment
+
+    expect(response.parsed_body['error']).to include('503')
+    expect(response.parsed_body['error']).not_to end_with(': ')
+  end
+
+  it 'propagates a JSON body that is not an object' do
+    stub_request(:post, 'https://andreani.test/ordenes')
+      .to_return(status: 422, body: '["codigo postal invalido"]')
+    dispatch_shipment
+
+    expect(response.parsed_body['error']).to include('codigo postal invalido')
+  end
+
   it 'returns 502 when the courier answers without a tracking number' do
     stub_courier(body: { etiqueta: 'https://l.test/1.pdf' })
     dispatch_shipment

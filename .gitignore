@@ -32,3 +32,6 @@
 # Ignore key files for decrypting credentials and more.
 /config/*.key
 
+
+# Reporte de cobertura de SimpleCov (TESIS-93).
+/coverage/

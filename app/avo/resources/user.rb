@@ -5,8 +5,10 @@ module Avo
     class User < Avo::BaseResource
       self.title = :email
       self.includes = [:company]
+      # Ver el comentario de Avo::Resources::Company: el término tipeado llega
+      # como `q` (TESIS-93).
       self.search = {
-        query: -> { query.where('email ILIKE ?', "%#{search_term}%") }
+        query: -> { query.where('email ILIKE ?', "%#{q}%") }
       }
 
       def fields

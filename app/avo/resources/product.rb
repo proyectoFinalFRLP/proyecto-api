@@ -5,9 +5,11 @@ module Avo
     class Product < Avo::BaseResource
       self.title = :name
       self.includes = %i[company stocks]
+      # Ver el comentario de Avo::Resources::Company: el término tipeado llega
+      # como `q` (TESIS-93).
       self.search = {
         query: lambda {
-          query.where('name ILIKE ? OR sku ILIKE ?', "%#{search_term}%", "%#{search_term}%")
+          query.where('name ILIKE ? OR sku ILIKE ?', "%#{q}%", "%#{q}%")
         }
       }
 

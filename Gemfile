@@ -60,6 +60,11 @@ end
 group :test do
   # Stubs de HTTP para testear el adaptador de integraciones sin red real.
   gem 'webmock'
+
+  # Mide qué líneas ejecuta la suite (TESIS-93). require: false porque lo
+  # arranca spec_helper antes de cargar la aplicación: lo que se carga antes
+  # que SimpleCov no se mide.
+  gem 'simplecov', require: false
 end
 
 gem 'devise', '~> 5.0'

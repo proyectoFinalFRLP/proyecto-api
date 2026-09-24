@@ -13,6 +13,30 @@
 # it.
 #
 # See https://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
+# La medición de cobertura arranca antes que cualquier otra cosa: SimpleCov
+# sólo ve los archivos que se cargan después de él, y `rails_helper` carga la
+# aplicación entera (TESIS-93).
+require 'simplecov'
+
+SimpleCov.start 'rails' do
+  enable_coverage :branch
+
+  skip '/spec/'
+  skip '/config/'
+  skip '/db/'
+
+  group 'POROs', 'app/poros'
+  group 'Policies', 'app/policies'
+  group 'Serializers', 'app/serializers'
+  group 'Concerns', %w[app/controllers/concerns app/models/concerns]
+
+  # Un piso, no una meta. Existe para que un PR que deje código nuevo sin un
+  # solo ejemplo ponga la suite en rojo, no para perseguir el 100%: hoy la
+  # medición está en 99.88% de líneas y 100% de ramas, así que el margen es el
+  # que hace falta para que el piso avise y no moleste.
+  minimum_coverage line: 99, branch: 95
+end
+
 RSpec.configure do |config|
   # rspec-expectations config goes here. You can use an alternate
   # assertion/expectation library such as wrong or the stdlib/minitest
