@@ -38,9 +38,6 @@ cualquier error                → { "error": "..." }
 
 `error` es una sola clave y un solo string, y **siempre está**. Puede venir acompañado de datos para recuperarse: el 409 del locking optimista agrega `current_version`, que es lo que el frontend necesita para reintentar. Lo que no se admite es otra clave en su lugar —`errors` en plural, un array, un objeto por campo—, porque entonces el consumidor tiene que probar dos formas.
 
-```
-```
-
 `meta` aparece sólo si el listado pagina, y es siempre `page`, `per_page` y `total`, contando el scope **ya filtrado**.
 
 Hubo que cambiar dos endpoints. `integrations#index`, que devolvía un array en la raíz, y `auth/register`, que respondía sus dos errores como `{ "errors": [...] }` —plural y array—. El registro no lo detectó la primera pasada porque el spec de contrato no lo cubría; ahora sí.
