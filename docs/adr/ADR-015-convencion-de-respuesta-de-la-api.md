@@ -36,7 +36,16 @@ PUT    /api/v1/products/:id    → { "id": 1, "sku": "...", ... }
 cualquier error                → { "error": "..." }
 ```
 
-`meta` es siempre `page`, `per_page` y `total`, contando el scope **ya filtrado**. No hay colección sin `meta`: desde TESIS-108 todas paginan, así que el consumidor puede leer `total` en cualquiera sin preguntarse cuál lo trae.
+`meta` es siempre `page`, `per_page` y `total`, contando el scope **ya filtrado**.
+
+**Qué lleva `meta` y qué no.** Desde TESIS-108 pagina todo **listado de registros** —productos, depósitos, órdenes, envíos, transferencias, eventos fallidos, mapeos, integraciones—, así que ahí el consumidor puede leer `total` sin preguntarse cuál lo trae. Van envueltos en `data` **sin** `meta`, en cambio, los que no son listados de registros:
+
+| Respuesta | Por qué no pagina |
+| --- | --- |
+| `GET /orders/provinces`, `GET /products/categories` | Vocabularios fijos del dominio, no filas de una tabla: su tamaño lo fija el código, no los datos de la empresa |
+| `POST /orders/:id/quotes` | El resultado de una acción —una cotización por courier configurado—, no una consulta |
+
+La distinción importa para el consumidor: leer `meta.total` en cualquiera de esas tres devuelve `undefined`. La regla corta es **si el largo lo decide la empresa, pagina; si lo decide el código, no**.
 
 El único endpoint que hubo que cambiar fue `integrations#index`, que devolvía un array en la raíz.
 

@@ -120,7 +120,8 @@ RSpec.describe 'Pagination', type: :request do
       product = Product.create!(company: company, sku: 'NOR-X', name: 'Producto')
       warehouse
       ['/api/v1/products', '/api/v1/warehouses', '/api/v1/orders', '/api/v1/shipments',
-       '/api/v1/failed-events', '/api/v1/integrations', "/api/v1/products/#{product.id}/mappings"]
+       '/api/v1/failed-events', '/api/v1/integrations', '/api/v1/stock-transfers',
+       "/api/v1/products/#{product.id}/mappings"]
     end
 
     def meta_of(path)

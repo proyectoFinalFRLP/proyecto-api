@@ -5,9 +5,13 @@ module Api
     # Paginación de los listados de la API (TESIS-108).
     #
     # Existía copiada literal en cuatro controllers —el mismo `[page.to_i, 1].max`
-    # y el mismo `clamp(1, 100)`— y ausente en otros tres, que devolvían la tabla
-    # entera. Esto es la única definición de las dos cosas: cuántas filas se
-    # devuelven y cómo se arma el `meta` que las acompaña.
+    # y el mismo `clamp(1, 100)`— y ausente en otros cuatro, que devolvían la
+    # tabla entera. Esto es la única definición de las dos cosas: cuántas filas
+    # se devuelven y cómo se arma el `meta` que las acompaña.
+    #
+    # Todo listado de registros pasa por acá. Los vocabularios fijos
+    # (`/orders/provinces`, `/products/categories`) y el resultado de una acción
+    # (`/orders/:id/quotes`) no: su largo lo decide el código, no la empresa.
     #
     # La forma de la respuesta la fija ADR-015: la colección va en `data` y el
     # `meta` al lado, con `page`, `per_page` y `total`. El `total` cuenta el
