@@ -13,7 +13,7 @@ RSpec.describe 'Auth attempt limit', type: :request do
 
   let(:company) { Company.create!(name: 'Acme', tax_id: '20-11111111-1', slug: 'acme') }
   let(:counter) { ActiveSupport::Cache::MemoryStore.new }
-  let(:max_attempts) { Api::V1::Auth::AttemptLimit::MAX_ATTEMPTS }
+  let(:max_attempts) { FailedAttemptLimit::MAX_ATTEMPTS }
 
   before do
     User.create!(email: 'log@test.com', password: 'password123', company: company)
@@ -70,7 +70,7 @@ RSpec.describe 'Auth attempt limit', type: :request do
   it 'lets the IP in again once the window is over' do
     use_up_attempts
 
-    travel(Api::V1::Auth::AttemptLimit::WINDOW + 1.second) do
+    travel(FailedAttemptLimit::WINDOW + 1.second) do
       expect(login(password: 'password123')).to have_http_status(:ok)
     end
   end

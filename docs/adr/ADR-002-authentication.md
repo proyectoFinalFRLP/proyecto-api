@@ -148,6 +148,8 @@ emitidos, no sesiones abiertas, y no hay de dónde sacar los que no se cerraron.
 No había freno: después de 30 passwords incorrectas seguidas, la correcta
 entraba. Login y registro aceptan ahora 10 intentos cada 3 minutos por IP
 (`Api::V1::Auth::AttemptLimit`) y después responden 429 con `Retry-After`.
+Desde TESIS-129 el contador vive en `FailedAttemptLimit`, que el login de la
+API comparte con el del backoffice (ver ADR-017), cada uno con su cuenta.
 
 - En el login cuentan **sólo los intentos fallidos**. Contar todos (el
   `rate_limit` de Rails cuenta requests) dejaba afuera al undécimo operario que

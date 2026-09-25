@@ -49,6 +49,8 @@ en:
       signed_in: "Signed in successfully."
       signed_out: "Signed out successfully."
       already_signed_out: "Signed out successfully."
+      # Login del backoffice con los intentos agotados (Admin::SessionsController).
+      too_many_attempts: "Too many failed attempts, try again later."
     unlocks:
       send_instructions: "You will receive an email with instructions for how to unlock your account in a few minutes."
       send_paranoid_instructions: "If your account exists, you will receive an email with instructions for how to unlock it in a few minutes."
