@@ -132,12 +132,29 @@ Va sobre `authenticate_user!` y no en `active_for_authentication?` a propósito:
 el hook de Devise corta con 401 cualquier request que traiga el token, también
 los que no exigen sesión (login, registro, tenant-config).
 
+El logout es la excepción: `DELETE /auth/logout` sólo exige un token válido, y
+revoca aunque la empresa esté inactiva o la cuenta sin aprobar. Si respondiera
+401, el token nunca entraría a la denylist y, como el corte es reversible,
+cualquier copia de él volvería a servir al reactivarse la empresa o aprobarse
+de nuevo la cuenta dentro de sus 24 h.
+
+El corte es una suspensión, no una baja: reactivar la empresa devuelve el
+acceso a los tokens que siguen vivos y que nadie cerró. Revocar todos los tokens
+de la empresa al desactivarla se descartó por ahora: la denylist guarda `jti`
+emitidos, no sesiones abiertas, y no hay de dónde sacar los que no se cerraron.
+
 ### Límite de intentos por IP
 
 No había freno: después de 30 passwords incorrectas seguidas, la correcta
 entraba. Login y registro aceptan ahora 10 intentos cada 3 minutos por IP
-(`Api::V1::Auth::AttemptLimit`, sobre el `rate_limit` de Rails) y después
-responden 429 con `Retry-After`.
+(`Api::V1::Auth::AttemptLimit`) y después responden 429 con `Retry-After`.
+
+- En el login cuentan **sólo los intentos fallidos**. Contar todos (el
+  `rate_limit` de Rails cuenta requests) dejaba afuera al undécimo operario que
+  entra al turno detrás del mismo NAT, con la password correcta. Agotados los
+  intentos se rechaza sin evaluar la password, también la correcta.
+- En el registro cuentan todos, con el `rate_limit` de Rails: cada pedido crea
+  una solicitud y no hay un uso normal que lo repita.
 
 - Se prefirió al `:lockable` de Devise porque bloquear la cuenta deja que
   cualquiera deje afuera a otro usuario tipeando mal su password a propósito.
@@ -152,3 +169,15 @@ Devise guarda el email en minúsculas y sin espacios, pero sólo normaliza al
 guardar y en sus propios finders. `Auth::AuthenticateUser` busca con su propio
 `find_by`, así que quien se registró como «Ana@Norte.com» recibía 401 con la
 password correcta. Ahora normaliza igual antes de buscar.
+
+### El tiempo del 401 no delata qué emails existen
+
+Con un email inexistente (o un tenant no resuelto) no había password contra la
+cual correr bcrypt, y el 401 volvía mucho antes que el de una password
+incorrecta: el cuerpo era idéntico, pero el tiempo de respuesta enumeraba
+usuarios. `Auth::AuthenticateUser` compara ahora contra un digest descartable,
+armado con el mismo `Devise::Encryptor` y el mismo costo, cuando no encuentra la
+cuenta.
+
+- ⚠️ En `Auth::RegisterUser` queda una diferencia más chica: el camino del email
+  ya tomado se saltea el INSERT. Se deja como limitación conocida.
