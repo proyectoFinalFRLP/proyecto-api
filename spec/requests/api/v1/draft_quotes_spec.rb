@@ -140,4 +140,49 @@ RSpec.describe 'Draft quotes API', type: :request do
       expect(response.parsed_body['error']).to include('maximum')
     end
   end
+
+  # Cada cotización sale a los couriers sin crear nada (TESIS-131). En test la
+  # cache es :null_store y el límite nunca se alcanza; acá el contador usa una
+  # cache de verdad, sólo durante cada ejemplo.
+  describe 'rate limit' do
+    let(:counter) { ActiveSupport::Cache::MemoryStore.new }
+
+    # Agota el cupo del usuario y olvida los requests que hizo para eso: lo que
+    # importa es qué pasa con el siguiente.
+    def use_up_quotes
+      Api::V1::DraftQuotesController::QUOTES_PER_WINDOW.times { quote_draft }
+      WebMock.reset_executed_requests!
+    end
+
+    before do
+      courier
+      stub_request(:post, rates).to_return(status: 200, body: { precio: 2500.0, dias: 3 }.to_json)
+      store = Api::V1::DraftQuotesController.cache_store
+      allow(store).to receive(:increment) { |*args, **options| counter.increment(*args, **options) }
+    end
+
+    it 'lets the quotes of the window through' do
+      use_up_quotes
+
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'answers 429 past the limit, without asking the couriers', :aggregate_failures do
+      use_up_quotes
+      quote_draft
+
+      expect(response).to have_http_status(:too_many_requests)
+      expect(response.headers['Retry-After']).to eq('60')
+      expect(WebMock).not_to have_requested(:post, rates)
+    end
+
+    it 'counts each user apart' do
+      other = User.create!(email: 'b@example.com', password: 'password123', company: company)
+      other_headers = auth_headers(other)
+      use_up_quotes
+      quote_draft(auth: other_headers)
+
+      expect(response).to have_http_status(:ok)
+    end
+  end
 end

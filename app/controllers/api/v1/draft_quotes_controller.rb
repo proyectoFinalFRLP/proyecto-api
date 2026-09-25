@@ -14,6 +14,20 @@ module Api
       # `{ error }` que el resto de la API.
       rescue_from ActionController::ParameterMissing, with: :render_bad_request
 
+      # Es el primer endpoint autenticado que sale a los couriers sin dejar nada
+      # en la base: antes cotizar exigía crear la orden, que era un freno natural.
+      # Sin tope, un cliente en loop —un `useEffect` mal puesto que cotiza en
+      # cada tecla— genera tantas llamadas a los proveedores como quiera, con las
+      # credenciales de la empresa. Se cuenta por usuario y no por IP: todos los
+      # requests llegan autenticados, y un depósito detrás de un mismo NAT no
+      # debería compartir el cupo. El asistente cotiza al entrar al paso 3 y en
+      # cada reintento, así que 20 por minuto sobra para el uso normal.
+      QUOTES_PER_WINDOW = 20
+      QUOTE_WINDOW = 1.minute
+
+      rate_limit to: QUOTES_PER_WINDOW, within: QUOTE_WINDOW, only: :create,
+                 by: -> { current_user.id }, with: :render_too_many_quotes
+
       def create
         # Cotizar un borrador es el paso previo a darlo de alta: se autoriza como
         # crear una orden. Cada request va a los couriers con las credenciales de
@@ -81,6 +95,11 @@ module Api
         return value if value&.positive?
 
         raise MalformedParameterError, "each item needs a positive integer #{key}"
+      end
+
+      def render_too_many_quotes
+        response.set_header('Retry-After', QUOTE_WINDOW.to_i.to_s)
+        render json: { error: 'Too many quotes, try again later' }, status: :too_many_requests
       end
 
       # `expect` cubre la clave ausente, no el valor vacío: sin esto un id en
