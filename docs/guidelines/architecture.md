@@ -388,7 +388,10 @@ respuesta un dato que no sirve más tarde.
 del request**, no desde un job. El motivo es el producto: el usuario está
 esperando la lista de tarifas para elegir una. Devolverla por un job obligaría a
 sondear o a abrir un canal de tiempo real para un dato que se consume en el acto
-y que caduca enseguida.
+y que caduca enseguida. `POST /api/v1/quotes` (TESIS-131) es la misma cotización
+sobre un alta que todavía no se confirmó, y corre por el mismo caso de uso: la
+excepción es una sola, no dos (ver
+[ADR-016](../adr/ADR-016-cotizacion-del-alta-manual.md)).
 
 `POST /api/v1/shipments/:id/dispatch` (TESIS-47) hace lo propio con el operador
 que el usuario eligió: le pide la etiqueta y devuelve el número de seguimiento y
