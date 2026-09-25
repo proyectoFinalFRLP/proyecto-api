@@ -5,8 +5,10 @@ module Avo
     class User < Avo::BaseResource
       self.title = :email
       self.includes = [:company]
+      # Avo 4 le pasa el texto buscado como `q`. `search_term` no existe en ese
+      # contexto, y con él la búsqueda respondía 500 (TESIS-129).
       self.search = {
-        query: -> { query.where('email ILIKE ?', "%#{search_term}%") }
+        query: -> { query.where('email ILIKE ?', "%#{q}%") }
       }
       # Editar una cuenta sin tocar la password: los campos vacíos no se mandan.
       self.devise_password_optional = true
