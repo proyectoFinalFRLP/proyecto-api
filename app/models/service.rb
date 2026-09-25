@@ -162,11 +162,23 @@ class Service < ApplicationRecord
     errors.add(:quote_service, reason) if reason
   end
 
+  # Las dos últimas reglas sostienen lo que la cotización asume: cada opción
+  # cotizada se despacha con UNA integración (QuoteShipment#dispatchers indexa
+  # por plantilla de cotización). Si dos plantillas de despacho compartieran el
+  # cotizador, una de las dos desaparecía de las opciones sin aviso; y una
+  # plantilla que no despacha con cotizador cargado es una configuración que no
+  # hace nada. El índice único de `quote_service_id` lo respalda en la base.
   def quote_service_problem
     return if quote_service.nil?
     return 'solo aplica a couriers' unless courier?
     return 'no puede ser la misma plantilla' if quote_service == self
+    return 'solo aplica a la plantilla con la que el courier despacha' unless dispatches_shipment?
+    return 'no es una plantilla de cotización' unless quote_service.quotes_shipping?
 
-    'no es una plantilla de cotización' unless quote_service.quotes_shipping?
+    'ya es la plantilla de cotización de otro courier' if quote_service_taken?
+  end
+
+  def quote_service_taken?
+    self.class.where(quote_service_id: quote_service_id).where.not(id: id).exists?
   end
 end

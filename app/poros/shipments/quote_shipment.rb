@@ -73,6 +73,8 @@ module Shipments
     # La integración que despacha por cada plantilla de cotización, indexada por
     # el id de esa plantilla. La cotización la contesta una plantilla y la
     # etiqueta la emite otra; el vínculo lo declara `Service#quote_service`.
+    # `index_by` no pierde a nadie porque una plantilla de cotización es de un
+    # solo despachador: lo valida Service y lo respalda un índice único.
     def dispatchers
       @dispatchers ||= active_couriers.select { |ci| ci.service.dispatches_shipment? }
                                       .select { |ci| ci.service.quote_service_id.present? }

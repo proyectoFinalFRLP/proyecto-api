@@ -237,6 +237,48 @@ RSpec.describe Service, type: :model do
       expect(quote_template).not_to be_valid
     end
 
+    # Otra plantilla de despacho del mismo proveedor, como «Andreani Express».
+    def other_dispatcher(**attrs)
+      described_class.create!(service_name: 'Andreani Express', type: 'courier', http_method: 'POST',
+                              uri: 'https://api.andreani.test/express',
+                              response_mapper: { 'numero' => 'tracking_number' }, **attrs)
+    end
+
+    # Sin esto QuoteShipment#dispatchers se quedaba con uno de los dos y el otro
+    # desaparecía de las opciones sin aviso: lo encontró la review de TESIS-131.
+    it 'rejects a quote template that another courier already dispatches with', :aggregate_failures do
+      other_dispatcher(quote_service: quote_template)
+      courier.quote_service = quote_template
+
+      expect(courier).not_to be_valid
+      expect(courier.errors[:quote_service]).to include('ya es la plantilla de cotización de otro courier')
+    end
+
+    it 'lets the courier that has the quote template keep it' do
+      courier.update!(quote_service: quote_template)
+      courier.uri = 'https://api.andreani.test/v2/ordenes'
+
+      expect(courier).to be_valid
+    end
+
+    it 'backs the rule with a unique index' do
+      courier.update!(quote_service: quote_template)
+
+      expect { other_dispatcher.update_column(:quote_service_id, quote_template.id) } # rubocop:disable Rails/SkipsModelValidations
+        .to raise_error(ActiveRecord::RecordNotUnique)
+    end
+
+    # Una plantilla de cotización o de seguimiento con cotizador cargado es una
+    # configuración que no hace nada: la cotización sólo mira a los que despachan.
+    it 'rejects a quote template on a template that does not dispatch', :aggregate_failures do
+      tracking = described_class.new(service_name: 'Andreani - Seguimiento', type: 'courier',
+                                     http_method: 'GET', quote_service: quote_template,
+                                     uri: 'https://api.andreani.test/envios/:tracking_number')
+
+      expect(tracking).not_to be_valid
+      expect(tracking.errors[:quote_service]).to include('solo aplica a la plantilla con la que el courier despacha')
+    end
+
     it 'rejects a quote template on a sales channel' do
       service.quote_service = quote_template
       expect(service).not_to be_valid

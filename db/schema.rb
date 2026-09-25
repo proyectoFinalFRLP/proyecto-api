@@ -157,7 +157,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_130000) do
     t.string "type", null: false
     t.datetime "updated_at", null: false
     t.string "uri", null: false
-    t.index ["quote_service_id"], name: "index_services_on_quote_service_id"
+    t.index ["quote_service_id"], name: "index_services_on_quote_service_id", unique: true
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
     t.index ["tracking_service_id"], name: "index_services_on_tracking_service_id"
     t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
