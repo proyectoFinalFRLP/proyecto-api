@@ -56,6 +56,24 @@ RSpec.describe Auth::AuthenticateUser, type: :poro do
     expect(token).to be_nil
   end
 
+  # Sin cuenta que comparar se corre bcrypt igual: si no, el tiempo de respuesta
+  # diría qué emails existen aunque el resultado sea el mismo nil.
+  it 'still runs bcrypt when the email does not exist' do
+    allow(Devise::Encryptor).to receive(:compare).and_call_original
+
+    described_class.new(email: 'ghost@test.com', password: 'password123', company: company).call
+
+    expect(Devise::Encryptor).to have_received(:compare).with(User, described_class.dummy_digest, 'password123')
+  end
+
+  it 'still runs bcrypt when the tenant could not be resolved' do
+    allow(Devise::Encryptor).to receive(:compare).and_call_original
+
+    described_class.new(email: 'log@test.com', password: 'password123', company: nil).call
+
+    expect(Devise::Encryptor).to have_received(:compare).once
+  end
+
   # User incluye CompanyScoped: si el default scope se colara acá, un Current
   # heredado de otro request decidiría el tenant en vez del slug.
   it 'ignores a leftover Current.company_id and honours the given company' do
