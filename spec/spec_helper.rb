@@ -34,7 +34,14 @@ SimpleCov.start 'rails' do
   # solo ejemplo ponga la suite en rojo, no para perseguir el 100%: hoy la
   # medición está en 99.88% de líneas y 100% de ramas, así que el margen es el
   # que hace falta para que el piso avise y no moleste.
-  minimum_coverage line: 99, branch: 95
+  #
+  # Sólo se evalúa sobre la suite entera. Una corrida parcial —un archivo, un
+  # ejemplo suelto, `--only-failures`— mide una fracción de la aplicación y
+  # siempre quedaría debajo del piso: terminaría en error por algo que no es un
+  # test rojo, que es la forma más rápida de acostumbrar a todos a ignorar el
+  # exit code. El CI y el hook de pre-push corren la suite completa, y son los
+  # dos lugares donde el piso hace falta.
+  minimum_coverage line: 99, branch: 95 if ENV['CI'] || ENV['COVERAGE_FLOOR']
 end
 
 RSpec.configure do |config|

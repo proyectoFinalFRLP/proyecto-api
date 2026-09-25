@@ -353,8 +353,11 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
       allow(Order).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique.new(unique_violation))
     end
 
+    # El nombre del índice sale de la constante del PORO y no escrito a mano: si
+    # alguien renombra el índice, el guard y este stub cambian juntos en vez de
+    # desincronizarse en silencio y dejar el ejemplo probando otra cosa.
     def unique_violation
-      'PG::UniqueViolation: duplicate key value violates unique constraint "index_orders_on_company_id_and_external_order_id"'
+      %(PG::UniqueViolation: duplicate key value violates unique constraint "#{described_class::ORDERS_UNIQUE_INDEX}")
     end
 
     it 'returns the order the other worker registered' do
