@@ -29,10 +29,9 @@ La consecuencia es que la seguridad del backoffice descansa entera en el login y
 
 - **Mensaje genérico.** Una password incorrecta y un email inexistente responden igual: 422 y «Invalid email or password.».
 - **Mismo tiempo de respuesta.** `config.paranoid = true` en Devise. Sin él, bcrypt sólo corría cuando el email tenía cuenta, y el rechazo de un email inexistente volvía ~200 ms antes: el mensaje era idéntico, pero el tiempo decía qué emails de admin existen. La opción es global, pero hoy sólo la usa el login del backoffice: la API no pasa por las estrategias de Devise.
-- **Límite de intentos por IP.** 10 intentos fallidos cada 3 minutos por IP. Después responde 429 con `Retry-After` y no evalúa la password, tampoco la correcta. Cuenta sólo los fallidos: `Admin::SessionsController` atrapa el `throw :warden` del fallo, lo cuenta y lo vuelve a tirar, así la respuesta sigue siendo la de Devise. Es el mismo criterio que TESIS-82 para el login de la API: por IP y no con `:lockable`.
+- **Límite de intentos por IP.** 10 intentos fallidos cada 3 minutos por IP. Después responde 429 con `Retry-After` y no evalúa la password, tampoco la correcta. Cuenta sólo los fallidos: `Admin::SessionsController` atrapa el `throw :warden` del fallo, lo cuenta y lo vuelve a tirar, así la respuesta sigue siendo la de Devise. Es el mismo criterio que TESIS-82 fijó para el login de la API (por IP y no con `:lockable`), y el mismo contador: `FailedAttemptLimit` es compartido, y cada login lleva su propia cuenta, así que agotar los intentos de la API no bloquea el backoffice desde la misma IP, ni al revés.
   - ⚠️ No frena un ataque repartido entre muchas IPs. Se aceptó a cambio de no exponer al admin a un bloqueo provocado.
   - ⚠️ Las condiciones de despliegue son las de TESIS-82: el contador vive en la cache de la app (Solid Cache en producción), y `request.remote_ip` tiene que ser la IP del cliente y no la del proxy.
-  - Cuando TESIS-82 llegue a `master` va a haber dos contadores parecidos (API en JSON, backoffice en HTML). Son candidatos a unificarse.
 
 ### Sesión
 
@@ -68,7 +67,7 @@ El recurso User no pedía password, y crear un usuario desde el backoffice falla
 - Al crear, el formulario pide password y confirmación. Al editar son opcionales (`devise_password_optional`) y sirven para asignar una nueva.
 - La empresa es obligatoria y el email es único en toda la base: son las validaciones del modelo.
 - Un usuario no se muda de empresa. El campo `company` no se envía al editar (`disabled` en la vista de edición), y si igual llegara un `company_id`, `CompanyScoped` rechaza el cambio.
-- Las cuentas que crea el backoffice pueden loguearse en el acto.
+- Las cuentas que crea el backoffice pueden loguearse en el acto (`approved` nace en `true`). Las que llegan por el registro público son solicitudes de acceso (TESIS-82) y se aprueban desde el mismo recurso, tildando `approved`.
 
 ## Alternativas consideradas
 
