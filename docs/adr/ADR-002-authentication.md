@@ -84,3 +84,100 @@ una pestaña. Hay un spec dedicado a ese caso.
   puramente stateless: es el precio de poder revocar
 - ⚠️ La tabla es global y **no** lleva `CompanyScoped`. Filtrar por empresa
   dejaría pasar un token revocado desde otro contexto de tenant
+
+
+---
+
+## Actualización — QA del módulo de auth (2026-09-24, TESIS-82)
+
+La validación del módulo encontró cuatro huecos en cómo se entra y cómo se
+sigue adentro. Esta sección registra cómo se cerró cada uno.
+
+### El registro es una solicitud de acceso
+
+`POST /auth/register` creaba una cuenta que podía loguearse en el acto, dentro
+de la empresa que nombrara el header `X-Tenant-Slug`. El slug es público (es el
+subdominio), así que cualquiera podía darse de alta en cualquier empresa y leer
+todos sus datos. TESIS-120 ya había sacado `company_id` del body, pero el slug
+que lo reemplazó también lo elige quien llama.
+
+Registrarse pasa a ser pedir acceso, que es lo que dice la pantalla S02
+(«Solicitá acceso al espacio de operación de tu organización»):
+
+- `users.approved`, booleano con **default `true`**. Las cuentas que ya existían
+  y las que crean el backoffice, los seeds o la consola nacen habilitadas; sólo
+  `Auth::RegisterUser` crea cuentas en `false`.
+- Una cuenta sin aprobar no obtiene token: el login le responde el mismo 401 que
+  a una password incorrecta. Se aprueba desde el backoffice (campo `approved` del
+  recurso User).
+- El endpoint responde **202 con el mismo cuerpo** haya creado la solicitud o no.
+  El email es único en toda la base, y el viejo 422 «Email has already been
+  taken» decía qué emails tenían cuenta en cualquier empresa. Los errores de
+  formato se siguen informando, pero antes de mirar si el email existe: si no,
+  una password corta respondería distinto según el email estuviera tomado.
+
+Se descartó hacer el email único por empresa: resolvía la enumeración pero
+pedía reemplazar la validación de Devise y una migración de índices, y el 202
+indistinguible ya la cierra.
+
+### La sesión se revisa en cada request, no sólo al loguearse
+
+El JWT sigue siendo válido hasta vencer aunque cambie algo que el token no
+puede saber. Una empresa dada de baja seguía operando hasta 24 h con los tokens
+que ya tenía. `ApplicationController#authenticate_user!` revisa ahora, después
+de Devise, que la empresa siga activa y la cuenta aprobada, y responde 401 si
+no.
+
+Va sobre `authenticate_user!` y no en `active_for_authentication?` a propósito:
+el hook de Devise corta con 401 cualquier request que traiga el token, también
+los que no exigen sesión (login, registro, tenant-config).
+
+El logout es la excepción: `DELETE /auth/logout` sólo exige un token válido, y
+revoca aunque la empresa esté inactiva o la cuenta sin aprobar. Si respondiera
+401, el token nunca entraría a la denylist y, como el corte es reversible,
+cualquier copia de él volvería a servir al reactivarse la empresa o aprobarse
+de nuevo la cuenta dentro de sus 24 h.
+
+El corte es una suspensión, no una baja: reactivar la empresa devuelve el
+acceso a los tokens que siguen vivos y que nadie cerró. Revocar todos los tokens
+de la empresa al desactivarla se descartó por ahora: la denylist guarda `jti`
+emitidos, no sesiones abiertas, y no hay de dónde sacar los que no se cerraron.
+
+### Límite de intentos por IP
+
+No había freno: después de 30 passwords incorrectas seguidas, la correcta
+entraba. Login y registro aceptan ahora 10 intentos cada 3 minutos por IP
+(`Api::V1::Auth::AttemptLimit`) y después responden 429 con `Retry-After`.
+
+- En el login cuentan **sólo los intentos fallidos**. Contar todos (el
+  `rate_limit` de Rails cuenta requests) dejaba afuera al undécimo operario que
+  entra al turno detrás del mismo NAT, con la password correcta. Agotados los
+  intentos se rechaza sin evaluar la password, también la correcta.
+- En el registro cuentan todos, con el `rate_limit` de Rails: cada pedido crea
+  una solicitud y no hay un uso normal que lo repita.
+
+- Se prefirió al `:lockable` de Devise porque bloquear la cuenta deja que
+  cualquiera deje afuera a otro usuario tipeando mal su password a propósito.
+- El contador vive en la cache de la app: Solid Cache en producción, compartida
+  por todos los procesos. ⚠️ El entorno desplegado necesita la base de cache
+  (`proyecto_api_production_cache`), y `request.remote_ip` tiene que ser la IP
+  del cliente y no la del proxy: si no, todos comparten un solo contador.
+
+### El email del login se normaliza
+
+Devise guarda el email en minúsculas y sin espacios, pero sólo normaliza al
+guardar y en sus propios finders. `Auth::AuthenticateUser` busca con su propio
+`find_by`, así que quien se registró como «Ana@Norte.com» recibía 401 con la
+password correcta. Ahora normaliza igual antes de buscar.
+
+### El tiempo del 401 no delata qué emails existen
+
+Con un email inexistente (o un tenant no resuelto) no había password contra la
+cual correr bcrypt, y el 401 volvía mucho antes que el de una password
+incorrecta: el cuerpo era idéntico, pero el tiempo de respuesta enumeraba
+usuarios. `Auth::AuthenticateUser` compara ahora contra un digest descartable,
+armado con el mismo `Devise::Encryptor` y el mismo costo, cuando no encuentra la
+cuenta.
+
+- ⚠️ En `Auth::RegisterUser` queda una diferencia más chica: el camino del email
+  ya tomado se saltea el INSERT. Se deja como limitación conocida.
