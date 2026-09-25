@@ -3,7 +3,11 @@
 module Api
   module V1
     class IntegrationsController < ApplicationController
-      skip_after_action :verify_authorized, :verify_policy_scoped
+      # El listado no pasa por Pundit: lo usa el widget de nodos del panel
+      # aunque la empresa no tenga la feature `integrations`, y sólo muestra las
+      # plantillas globales con el estado de la propia empresa. El alta y la
+      # modificación sí: ver CompanyIntegrationPolicy.
+      skip_after_action :verify_policy_scoped
 
       def index
         integrations = current_company.company_integrations.index_by(&:service_id)
@@ -13,6 +17,7 @@ module Api
       end
 
       def update
+        authorize CompanyIntegration
         integration = Integrations::UpsertIntegration.new(
           company: current_company,
           service_id: params[:service_id],
