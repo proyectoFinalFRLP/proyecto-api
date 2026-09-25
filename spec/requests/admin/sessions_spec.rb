@@ -76,5 +76,13 @@ RSpec.describe 'Admin backoffice session', type: :request do
 
       expect(landing_path(panel_path)).to eq('/admin/sign_in')
     end
+
+    # Sin no-store, el botón «atrás» del navegador podía volver a mostrar una
+    # página del panel desde su cache después del logout.
+    it 'keeps the panel pages out of the browser cache' do
+      get panel_path
+
+      expect(response.headers['Cache-Control']).to eq('no-store')
+    end
   end
 end

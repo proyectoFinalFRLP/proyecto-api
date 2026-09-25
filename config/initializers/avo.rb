@@ -193,3 +193,9 @@ Avo.configure do |config|
   #   link "Profile", path: "/avo/profile", icon: "tabler/outline/user-circle"
   # }
 end
+
+# Corre antes del eager load, así los controllers de Avo que se cargan después
+# heredan el before_action.
+Rails.configuration.to_prepare do
+  Avo::ApplicationController.include Admin::UncacheablePages
+end
