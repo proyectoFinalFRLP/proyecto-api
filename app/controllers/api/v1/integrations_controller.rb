@@ -3,14 +3,11 @@
 module Api
   module V1
     class IntegrationsController < ApplicationController
-      skip_after_action :verify_authorized, :verify_policy_scoped
-
-      # El flag `integrations` de la empresa no se miraba acá: el front oculta la
-      # sección, pero una empresa sin la feature la configuraba igual llamando al
-      # endpoint directo. Se corta el alta y la modificación. El listado queda
-      # abierto porque lo usa el widget de nodos del panel, y sólo muestra las
-      # plantillas globales con el estado de la propia empresa.
-      before_action :require_integrations_feature, only: :update
+      # El listado no pasa por Pundit: lo usa el widget de nodos del panel
+      # aunque la empresa no tenga la feature `integrations`, y sólo muestra las
+      # plantillas globales con el estado de la propia empresa. El alta y la
+      # modificación sí: ver CompanyIntegrationPolicy.
+      skip_after_action :verify_policy_scoped
 
       def index
         integrations = current_company.company_integrations.index_by(&:service_id)
@@ -20,6 +17,7 @@ module Api
       end
 
       def update
+        authorize CompanyIntegration
         integration = Integrations::UpsertIntegration.new(
           company: current_company,
           service_id: params[:service_id],
@@ -30,13 +28,6 @@ module Api
       end
 
       private
-
-      def require_integrations_feature
-        return if current_company.feature_enabled?(:integrations)
-
-        render json: { error: 'The integrations feature is not enabled for this company' },
-               status: :forbidden
-      end
 
       def credentials_params
         raw = params.require(:credentials)
