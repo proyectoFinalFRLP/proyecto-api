@@ -19,6 +19,9 @@ module Avo
         # Una cuenta no se muda de empresa: el campo no se envía al editar, y si
         # igual llegara un company_id, CompanyScoped rechaza el cambio.
         field :company, as: :belongs_to, disabled: -> { view.edit? }
+        # El registro público crea la cuenta sin aprobar (Auth::RegisterUser):
+        # hasta que se tilde acá, no puede loguearse.
+        field :approved, as: :boolean
         password_fields
         field :created_at, as: :date_time, only_on: :index
       end

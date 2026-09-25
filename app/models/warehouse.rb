@@ -12,6 +12,17 @@ class Warehouse < ApplicationRecord
   # devolución sin destino. La FK es restrict por lo mismo; esto la adelanta a
   # un 409 legible en vez de un InvalidForeignKey.
   has_many :order_items, dependent: :restrict_with_error
+  # Tampoco si una transferencia lo tiene como origen o como destino: la FK de
+  # stock_transfers también es restrict, y sin esto el borrado llegaba a la base
+  # y respondía 500. El caso real es el destino de una transferencia en
+  # tránsito: todavía no tiene stock propio, porque las unidades se le suman
+  # recién al recibirla.
+  has_many :outgoing_transfers, class_name: 'StockTransfer', inverse_of: :origin_warehouse,
+                                foreign_key: :origin_warehouse_id,
+                                dependent: :restrict_with_error
+  has_many :incoming_transfers, class_name: 'StockTransfer', inverse_of: :destination_warehouse,
+                                foreign_key: :destination_warehouse_id,
+                                dependent: :restrict_with_error
 
   validates :name, presence: true
   validates :zip_code, presence: true

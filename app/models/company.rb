@@ -33,6 +33,13 @@ class Company < ApplicationRecord
     active.find_by(slug: normalized)
   end
 
+  # Un flag ausente es un flag apagado, mismo criterio que el front
+  # (isFeatureEnabled): la empresa que no compró la feature no la tiene
+  # declarada, y el default nunca puede ser habilitarla.
+  def feature_enabled?(feature)
+    features[feature.to_s] == true
+  end
+
   private
 
   def assign_default_slug
