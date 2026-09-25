@@ -30,6 +30,10 @@ RSpec.describe AdminUser, type: :model do
     expect(admin_user.valid_password?('admin123')).to be(true)
   end
 
+  it 'ends the session after 30 minutes without activity' do
+    expect(described_class.timeout_in).to eq(30.minutes)
+  end
+
   describe '#expire_sessions!' do
     before { admin_user.save! }
 

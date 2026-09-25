@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
 class AdminUser < ApplicationRecord
-  devise :database_authenticatable, :rememberable, :validatable
+  # La sesión vence a los 30 minutos sin actividad (TESIS-129). «Recordarme» la
+  # estira a las 2 semanas de :rememberable: Devise no aplica el timeout
+  # mientras la cookie de remember esté vigente. Se aceptó así (ADR-017).
+  devise :database_authenticatable, :rememberable, :validatable, :timeoutable,
+         timeout_in: 30.minutes
 
   # Devise guarda en la cookie de sesión [id, authenticatable_salt] y la da por
   # buena mientras el salt coincida. El salt sale del hash de la password, y el
