@@ -107,13 +107,26 @@ RSpec.describe 'Shipment dispatch API', type: :request do
 
     # Se valida antes de pedir la etiqueta: el courier la cobra, y gastarla en
     # un despacho que después no se puede guardar es plata tirada.
-    { 'negative' => -1, 'not a number' => 'mucho' }.each do |label, cost|
+    #
+    # Los tres últimos son números que BigDecimal acepta y la columna no
+    # (decimal(10,2)): antes pasaban el chequeo del controller, se pedía la
+    # etiqueta y el `update!` fallaba después, con el envío todavía en `pending`
+    # y el número de seguimiento perdido en el rollback.
+    { 'negative' => -1, 'not a number' => 'mucho', 'too big for the column' => 100_000_000,
+      'NaN' => 'NaN', 'infinite' => 'Infinity' }.each do |label, cost|
       it "answers 400 for a cost that is #{label}, without asking the courier", :aggregate_failures do
         dispatch_shipment(shipping_cost: cost)
 
         expect(response).to have_http_status(:bad_request)
         expect(WebMock).not_to have_requested(:post, 'https://andreani.test/ordenes')
+        expect(shipment.reload).to have_attributes(status: 'pending', tracking_number: nil)
       end
+    end
+
+    it 'takes the largest cost the column holds' do
+      dispatch_shipment(shipping_cost: '99999999.99')
+
+      expect(shipment.reload.shipping_cost).to eq(BigDecimal('99999999.99'))
     end
   end
 

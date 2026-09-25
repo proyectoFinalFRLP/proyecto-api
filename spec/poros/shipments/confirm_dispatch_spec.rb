@@ -128,6 +128,29 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
     expect(dispatch.reload.shipping_label_url).to be_nil
   end
 
+  # La regla del costo es la del modelo: lo que el `update!` rechazaría se
+  # rechaza antes de pedir la etiqueta, que el courier cobra (TESIS-131).
+  describe 'when the confirmed cost does not fit the shipment' do
+    def dispatch_costing(cost)
+      described_class.new(shipment: shipment, company_integration: integration,
+                          origin_warehouse: warehouse, shipping_cost: cost).call
+    end
+
+    it 'refuses a cost out of the range of the column, saying why' do
+      expect { dispatch_costing(BigDecimal('1e8')) }
+        .to raise_error(Shipments::InvalidShippingCostError, 'shipping_cost must be less than 100000000')
+    end
+
+    it 'does not call the courier', :aggregate_failures do
+      stub = stub_courier
+      %w[1e8 NaN Infinity -1].each do |cost|
+        expect { dispatch_costing(BigDecimal(cost)) }.to raise_error(Shipments::InvalidShippingCostError)
+      end
+
+      expect(stub).not_to have_been_requested
+    end
+  end
+
   describe 'when the shipment is not pending' do
     let(:shipment) do
       Shipment.create!(company: company, order: order, status: 'in_transit',

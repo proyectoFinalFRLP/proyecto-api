@@ -40,6 +40,19 @@ RSpec.describe Shipment, type: :model do
     expect(shipment.errors[:shipping_cost]).to include('must be greater than or equal to 0')
   end
 
+  # decimal(10,2): lo que no entra en la columna es un error de validación, no
+  # un RangeError de la base (TESIS-131).
+  it 'accepts the largest shipping_cost the column holds' do
+    shipment.shipping_cost = BigDecimal('99999999.99')
+    expect(shipment).to be_valid
+  end
+
+  it 'rejects a shipping_cost that does not fit the column', :aggregate_failures do
+    shipment.shipping_cost = Shipment::MAX_SHIPPING_COST
+    expect(shipment).not_to be_valid
+    expect(shipment.errors[:shipping_cost]).to include('must be less than 100000000')
+  end
+
   it 'is invalid without a company' do
     shipment.company = nil
     expect(shipment).not_to be_valid

@@ -45,6 +45,7 @@ module Shipments
     def call
       validate_integration!
       validate_status!(@shipment)
+      validate_cost!
 
       parsed = request_label
       persist(parsed)
@@ -64,6 +65,23 @@ module Shipments
       return if shipment.status == DISPATCHABLE_STATUS && shipment.tracking_number.blank?
 
       raise AlreadyDispatchedError.new(shipment: shipment)
+    end
+
+    # El costo se prueba contra la regla del modelo —la misma que aplica el
+    # `update!` de `persist`— y no contra una copia: si la columna cambia, la
+    # validación la sigue. Sin esto, un costo que el modelo rechaza (fuera de
+    # rango, NaN, infinito) pasaba, se pedía la etiqueta y el `update!` fallaba
+    # después: el envío seguía en `pending` y un reintento emitía otra etiqueta.
+    #
+    # Se valida un envío nuevo con sólo el costo para no tocar `@shipment` antes
+    # de la llamada externa; del resultado se lee únicamente `shipping_cost`.
+    def validate_cost!
+      return if @shipping_cost.nil?
+
+      probe = Shipment.new(shipping_cost: @shipping_cost)
+      probe.validate
+      reasons = probe.errors.messages_for(:shipping_cost)
+      raise InvalidShippingCostError, reasons if reasons.any?
     end
 
     def validate_integration!
