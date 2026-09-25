@@ -17,10 +17,26 @@ module Shipments
     # request y el usuario está esperando. La card pide 3-5s.
     TIMEOUTS = { open: 4, read: 4 }.freeze
 
-    def initialize(order:, origin_warehouse:)
+    # La cotización de una orden que ya existe (TESIS-46): el destino y las
+    # líneas salen de la orden.
+    def self.for_order(order:, origin_warehouse:)
+      new(origin_warehouse: origin_warehouse,
+          destination: { zip_code: order.customer_zip_code, address: order.customer_address },
+          lines: order.order_items.includes(:product).map { |item| [item.product, item.quantity] })
+    end
+
+    # Lo que se cotiza es el paquete, no la orden: de dónde sale, a dónde va y
+    # qué lleva. Así se puede cotizar también un alta que todavía no se confirmó
+    # (TESIS-131), sin crear la orden —y descontar el stock— para averiguar
+    # cuánto cuesta enviarla.
+    #
+    # `lines` son pares `[producto, cantidad]`, y `destination` lleva
+    # `:zip_code` y `:address`.
+    def initialize(origin_warehouse:, destination:, lines:)
       super()
-      @order = order
       @origin = origin_warehouse
+      @destination = destination
+      @lines = lines
     end
 
     def call
@@ -100,18 +116,18 @@ module Shipments
       {
         'origin_zip_code' => @origin.zip_code,
         'origin_address' => @origin.address,
-        'destination_zip_code' => @order.customer_zip_code,
-        'destination_address' => @order.customer_address,
+        'destination_zip_code' => @destination[:zip_code],
+        'destination_address' => @destination[:address],
         'total_weight' => total_weight,
-        'total_items' => @order.order_items.sum(:quantity)
+        'total_items' => @lines.sum { |_product, quantity| quantity }
       }
     end
 
-    # Peso del paquete: la suma de peso × cantidad de cada ítem. `products.weight`
+    # Peso del paquete: la suma de peso × cantidad de cada línea. `products.weight`
     # es decimal y arranca en 0, así que un producto sin peso cargado no rompe la
     # cotización — suma cero.
     def total_weight
-      @order.order_items.includes(:product).sum { |item| item.product.weight * item.quantity }
+      @lines.sum { |product, quantity| product.weight * quantity }
     end
   end
 end

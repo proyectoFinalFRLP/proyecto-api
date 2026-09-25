@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe Shipments::QuoteShipment, type: :poro do
-  subject(:quotes) { described_class.new(order: order, origin_warehouse: origin).call }
+  subject(:quotes) { described_class.for_order(order: order, origin_warehouse: origin).call }
 
   let(:company) { Company.create!(name: 'Acme', tax_id: '20-12345678-9') }
   let(:origin) do
@@ -117,6 +117,36 @@ RSpec.describe Shipments::QuoteShipment, type: :poro do
     # Pedirle una tarifa sería llamar al endpoint equivocado del proveedor.
     it 'is not asked for a quote' do
       expect(quotes).to eq([])
+    end
+  end
+
+  # Lo que viaja es el paquete de la orden: peso × cantidad de cada línea y el
+  # total de bultos, además de origen y destino.
+  context 'when quoting an order' do
+    let(:rates) { 'https://fast.test/rates' }
+
+    before do
+      sensor = Product.create!(company: company, sku: 'S-1', name: 'Sensor', weight: 0.5)
+      cable = Product.create!(company: company, sku: 'C-1', name: 'Cable', weight: 2)
+      order.order_items.create!(product: sensor, quantity: 3, unit_price: 100)
+      order.order_items.create!(product: cable, quantity: 2, unit_price: 100)
+
+      integrate(Service.create!(service_name: 'Fast', type: 'courier', http_method: 'POST',
+                                uri: rates, request_value_mapper: {}, response_value_mapper: {},
+                                request_mapper: { 'desde' => 'origin_zip_code',
+                                                  'hasta' => 'destination_zip_code',
+                                                  'kilos' => 'total_weight',
+                                                  'bultos' => 'total_items' },
+                                response_mapper: { 'precio' => 'shipping_cost' }))
+      stub_request(:post, rates).to_return(status: 200, body: { precio: 900 }.to_json)
+    end
+
+    it 'sends its weight, its item count, its origin and its destination' do
+      quotes
+
+      expect(WebMock).to have_requested(:post, rates)
+        .with(body: hash_including('desde' => '1900', 'hasta' => '5000',
+                                   'kilos' => '5.5', 'bultos' => 5))
     end
   end
 
