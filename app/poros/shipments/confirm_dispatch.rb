@@ -31,11 +31,15 @@ module Shipments
     # es NOT NULL y es lo que la pantalla muestra como lo que pasó (TESIS-60).
     INITIAL_EXTERNAL_STATUS = 'Etiqueta generada'
 
-    def initialize(shipment:, company_integration:, origin_warehouse:)
+    # `shipping_cost` es el de la opción que el operador confirmó al cotizar
+    # (TESIS-131). Es opcional: un despacho que no lo trae deja el costo como
+    # estaba.
+    def initialize(shipment:, company_integration:, origin_warehouse:, shipping_cost: nil)
       super()
       @shipment = shipment
       @integration = company_integration
       @origin = origin_warehouse
+      @shipping_cost = shipping_cost
     end
 
     def call
@@ -140,9 +144,16 @@ module Shipments
         @shipment.update!(company_integration: @integration,
                           tracking_number: tracking_number!(parsed),
                           shipping_label_url: parsed[LABEL_KEY],
-                          status: DISPATCHED_STATUS)
+                          status: DISPATCHED_STATUS,
+                          **confirmed_cost)
         register_event
       end
+    end
+
+    # El costo se escribe sólo si vino: sin él, el despacho no tiene por qué
+    # borrar uno que ya estuviera cargado.
+    def confirmed_cost
+      @shipping_cost.nil? ? {} : { shipping_cost: @shipping_cost }
     end
 
     # Sin número de seguimiento el despacho no sirve para nada: no se puede
