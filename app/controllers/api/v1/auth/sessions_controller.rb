@@ -7,6 +7,7 @@ module Api
         include TenantFromSlug
         include AttemptLimit
 
+        before_action :refuse_exhausted_attempts, only: :create
         skip_before_action :authenticate_user!, only: :create
         skip_after_action :verify_authorized, :verify_policy_scoped
 
@@ -25,6 +26,7 @@ module Api
           if token
             render json: { token: token }, status: :ok
           else
+            count_failed_attempt
             render json: { error: 'Invalid email or password' }, status: :unauthorized
           end
         end

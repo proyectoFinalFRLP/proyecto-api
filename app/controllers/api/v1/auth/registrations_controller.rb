@@ -7,6 +7,8 @@ module Api
         include TenantFromSlug
         include AttemptLimit
 
+        rate_limit to: MAX_ATTEMPTS, within: WINDOW, only: :create,
+                   with: :render_too_many_attempts
         skip_before_action :authenticate_user!
         skip_after_action :verify_authorized, :verify_policy_scoped
 

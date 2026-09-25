@@ -17,9 +17,9 @@ RSpec.describe 'Auth attempt limit', type: :request do
 
   before do
     User.create!(email: 'log@test.com', password: 'password123', company: company)
-    allow(Api::V1::Auth::SessionsController.cache_store).to receive(:increment) do |*args, **options|
-      counter.increment(*args, **options)
-    end
+    store = Api::V1::Auth::SessionsController.cache_store
+    allow(store).to receive(:increment) { |*args, **options| counter.increment(*args, **options) }
+    allow(store).to receive(:read) { |*args, **options| counter.read(*args, **options) }
   end
 
   def login(password: 'wrong', ip: '203.0.113.7')
@@ -36,6 +36,15 @@ RSpec.describe 'Auth attempt limit', type: :request do
     (max_attempts - 1).times { login }
 
     expect(login(password: 'password123')).to have_http_status(:ok)
+  end
+
+  # Lo que se frena es al que prueba contraseñas, no al que entra: un depósito
+  # con varios operarios detrás del mismo NAT loguea muchas veces al empezar el
+  # turno.
+  it 'does not count the logins that succeed' do
+    (max_attempts + 2).times { login(password: 'password123') }
+
+    expect(response).to have_http_status(:ok)
   end
 
   it 'answers 429 once the attempts run out, even with the right password', :aggregate_failures do
