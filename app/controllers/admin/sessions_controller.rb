@@ -33,6 +33,12 @@ module Admin
       throw :warden, failure
     end
 
+    # Rota el token antes de cerrar la sesión: ver AdminUser#authenticatable_salt.
+    def destroy
+      current_admin_user&.expire_sessions!
+      super
+    end
+
     private
 
     def after_sign_in_path_for(_resource)

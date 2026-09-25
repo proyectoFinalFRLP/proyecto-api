@@ -29,4 +29,19 @@ RSpec.describe AdminUser, type: :model do
     admin_user.save!
     expect(admin_user.valid_password?('admin123')).to be(true)
   end
+
+  describe '#expire_sessions!' do
+    before { admin_user.save! }
+
+    # Devise valida la cookie de sesión comparando este salt: si cambia, las
+    # cookies emitidas antes dejan de servir.
+    it 'changes the salt that validates the session cookie' do
+      expect { admin_user.expire_sessions! }.to change(admin_user, :authenticatable_salt)
+    end
+
+    it 'keeps the password' do
+      admin_user.expire_sessions!
+      expect(admin_user.reload.valid_password?('admin123')).to be(true)
+    end
+  end
 end
