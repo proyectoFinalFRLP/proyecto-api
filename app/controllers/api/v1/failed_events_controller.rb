@@ -34,15 +34,20 @@ module Api
 
       private
 
+      # `scalar_param` y no `params[...]`: `?event_type[]=x` entrega un Array, y
+      # `where` lo traduce a un `IN` —filtra por otra cosa que lo pedido, con un
+      # 200 que no delata nada— mientras que `?event_type[foo]=x` levanta
+      # TypeError y sale como 500. Mismo criterio que envíos y órdenes.
       def filtered_events
         events = policy_scope(FailedEvent)
-        events = events.where(status: params[:status]) if valid_status?
-        events = events.where(event_type: params[:event_type]) if params[:event_type].present?
+        events = events.where(status: scalar_param(:status)) if valid_status?
+        event_type = scalar_param(:event_type)
+        events = events.where(event_type: event_type) if event_type.present?
         events
       end
 
       def valid_status?
-        FailedEvent.statuses.key?(params[:status])
+        FailedEvent.statuses.key?(scalar_param(:status))
       end
 
       def set_failed_event

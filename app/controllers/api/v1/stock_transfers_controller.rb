@@ -11,8 +11,13 @@ module Api
         transfers = policy_scope(StockTransfer)
                     .includes(:product, :origin_warehouse, :destination_warehouse)
                     .order(dispatched_at: :desc)
-        transfers = transfers.where(status: params[:status]) if params[:status].present?
-        transfers = transfers.where(product_id: params[:product_id]) if params[:product_id].present?
+        # `scalar_param` y no `params[...]`: un `?status[]=received` entrega un
+        # Array que `where` convierte en un `IN`, y un `?product_id[foo]=1`
+        # levanta TypeError → 500. Mismo criterio que envíos y órdenes.
+        status = scalar_param(:status)
+        product_id = scalar_param(:product_id)
+        transfers = transfers.where(status: status) if status.present?
+        transfers = transfers.where(product_id: product_id) if product_id.present?
 
         render json: { data: StockTransferSerializer.render_as_hash(transfers) }
       end
