@@ -40,6 +40,16 @@ module Api
 
           head :no_content
         end
+
+        private
+
+        # El logout pasa aunque la empresa esté dada de baja o la cuenta haya
+        # perdido la aprobación. Es lo único que quien quedó afuera todavía quiere
+        # hacer, y si se le respondiera 401 el token nunca entraría a la denylist:
+        # con la empresa reactivada o la cuenta aprobada de nuevo dentro de sus
+        # 24 h, cualquier copia de ese token volvería a servir. El token sí tiene
+        # que ser válido: eso lo sigue exigiendo Devise.
+        def session_refusal = nil
       end
     end
   end

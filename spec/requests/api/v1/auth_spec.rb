@@ -265,6 +265,33 @@ RSpec.describe 'Auth API', type: :request do
       expect(response).to have_http_status(:unauthorized)
       expect(response.parsed_body['error']).to eq('This account is pending approval')
     end
+
+    # El logout es lo único que quien quedó afuera todavía puede querer hacer. Si
+    # se le respondiera 401, el token no entraría a la denylist y volvería a
+    # servir al revertirse el cambio dentro de sus 24 h.
+    def logout_and_revert(change, revert)
+      headers = auth
+      change.call
+      delete '/api/v1/auth/logout', headers: headers
+      status = response.status
+      revert.call
+      get '/api/v1/warehouses', headers: headers
+      [status, response.status]
+    end
+
+    it 'can still log out while the company is inactive, for good' do
+      statuses = logout_and_revert(-> { company.update!(is_active: false) },
+                                   -> { company.update!(is_active: true) })
+
+      expect(statuses).to eq([204, 401])
+    end
+
+    it 'can still log out while the account is pending approval, for good' do
+      statuses = logout_and_revert(-> { user.update!(approved: false) },
+                                   -> { user.update!(approved: true) })
+
+      expect(statuses).to eq([204, 401])
+    end
   end
 
   describe 'DELETE /api/v1/auth/logout' do
