@@ -156,6 +156,26 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
       expect(response.parsed_body.keys).to eq(['error'])
     end
+
+    # El registro respondía `errors` en plural y con un array: era la cuarta
+    # forma que este ADR vino a sacar, y no la veía nadie porque el endpoint no
+    # estaba acá. Los dos caminos que fallan, fijados.
+    it 'reports a failed registration with the same single error key' do
+      post '/api/v1/auth/register',
+           params: { email: 'no-es-un-mail', password: '123' },
+           headers: { 'X-Tenant-Slug' => company.slug }
+
+      expect(response.parsed_body.keys).to eq(['error'])
+    end
+
+    it 'reports an unknown tenant with the same single error key', :aggregate_failures do
+      post '/api/v1/auth/register',
+           params: { email: 'nuevo@example.com', password: 'password123' },
+           headers: { 'X-Tenant-Slug' => 'no-existe' }
+
+      expect(response.parsed_body.keys).to eq(['error'])
+      expect(response.parsed_body['error']).to be_a(String)
+    end
   end
 
   # ──────────────────────────────────────────────── los campos que el front lee

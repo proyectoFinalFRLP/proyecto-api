@@ -16,7 +16,11 @@ module Api
           user = ::Auth::RegisterUser.new(params: user_params, company: company).call
           render json: UserSerializer.render(user), status: :created
         rescue ActiveRecord::RecordInvalid => e
-          render json: { errors: e.record.errors.full_messages }, status: :unprocessable_content
+          # `error` en singular y con un string, como el resto de la API
+          # (ADR-015). Los mensajes se unen en una oración: el consumidor de un
+          # alta que falla muestra el motivo, no arma una lista.
+          render json: { error: e.record.errors.full_messages.to_sentence },
+                 status: :unprocessable_content
         end
 
         private
@@ -29,10 +33,10 @@ module Api
         end
 
         # Mismo cuerpo para slug ausente, inexistente e inactivo: la respuesta no
-        # dice si el tenant existe. Se usa el shape `errors` que ya devuelve el
-        # 422 de validación, para que el frontend no distinga dos formatos.
+        # dice si el tenant existe. Misma forma que el 422 de validación de acá
+        # arriba y que la de toda la API, así el frontend no distingue formatos.
         def render_unknown_tenant
-          render json: { errors: ['Unable to complete registration'] },
+          render json: { error: 'Unable to complete registration' },
                  status: :unprocessable_content
         end
       end
