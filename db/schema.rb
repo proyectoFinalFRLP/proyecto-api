@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_24_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -147,6 +147,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
   create_table "services", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "http_method", null: false
+    t.bigint "quote_service_id"
     t.jsonb "request_mapper", default: {}, null: false
     t.jsonb "request_value_mapper", default: {}, null: false
     t.jsonb "response_mapper", default: {}, null: false
@@ -156,6 +157,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
     t.string "type", null: false
     t.datetime "updated_at", null: false
     t.string "uri", null: false
+    t.index ["quote_service_id"], name: "index_services_on_quote_service_id"
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
     t.index ["tracking_service_id"], name: "index_services_on_tracking_service_id"
     t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
@@ -274,6 +276,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_21_130000) do
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade
   add_foreign_key "product_mappings", "products", on_delete: :cascade
   add_foreign_key "products", "companies", on_delete: :cascade
+  add_foreign_key "services", "services", column: "quote_service_id", on_delete: :nullify
   add_foreign_key "services", "services", column: "tracking_service_id", on_delete: :nullify
   add_foreign_key "shipment_events", "shipments", on_delete: :cascade
   add_foreign_key "shipments", "companies", on_delete: :cascade

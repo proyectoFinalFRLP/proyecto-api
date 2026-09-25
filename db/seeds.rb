@@ -307,6 +307,12 @@ correo_service = Service.find_by(service_name: 'Correo Argentino')
 correo_tracking = Service.find_by(service_name: 'Correo Argentino - Seguimiento')
 correo_service&.update!(tracking_service: correo_tracking) if correo_tracking
 
+# Andreani cotiza con una plantilla y despacha con otra (TESIS-131): el vínculo
+# es lo que deja despachar la opción que el operador eligió al cotizar.
+andreani_dispatch = Service.find_by(service_name: 'Andreani')
+andreani_quote = Service.find_by(service_name: 'Andreani - Cotización')
+andreani_dispatch&.update!(quote_service: andreani_quote) if andreani_quote
+
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
 # La variable ml_integration la consume la orden de webhook de la sección TESIS-40
 # más abajo (sin ella, `db:seed` cortaba con NameError: undefined ml_integration).

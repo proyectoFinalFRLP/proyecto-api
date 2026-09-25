@@ -205,6 +205,55 @@ RSpec.describe Service, type: :model do
     end
   end
 
+  # La plantilla que cotiza por el courier que despacha con ésta (TESIS-131).
+  describe 'quote_service' do
+    subject(:courier) do
+      described_class.new(service_name: 'Andreani', type: 'courier', http_method: 'POST',
+                          uri: 'https://api.andreani.test/ordenes',
+                          response_mapper: { 'numero' => 'tracking_number' })
+    end
+
+    let(:quote_template) do
+      described_class.create!(service_name: 'Andreani - Cotización', type: 'courier',
+                              http_method: 'POST', uri: 'https://api.andreani.test/tarifas',
+                              response_mapper: { 'total' => 'shipping_cost' })
+    end
+
+    it 'accepts a template that quotes shipping' do
+      courier.quote_service = quote_template
+      expect(courier).to be_valid
+    end
+
+    it 'rejects a template that does not quote shipping' do
+      courier.quote_service = described_class.create!(
+        service_name: 'Andreani - Seguimiento', type: 'courier', http_method: 'GET',
+        uri: 'https://api.andreani.test/envios/:tracking_number'
+      )
+      expect(courier).not_to be_valid
+    end
+
+    it 'rejects pointing a template at itself' do
+      quote_template.quote_service = quote_template
+      expect(quote_template).not_to be_valid
+    end
+
+    it 'rejects a quote template on a sales channel' do
+      service.quote_service = quote_template
+      expect(service).not_to be_valid
+    end
+
+    it 'lets the quote template reach the courier it quotes for' do
+      courier.update!(quote_service: quote_template)
+      expect(quote_template.quoted_services).to contain_exactly(courier)
+    end
+
+    it 'is released when the quote template is destroyed' do
+      courier.update!(quote_service: quote_template)
+      quote_template.destroy!
+      expect(courier.reload.quote_service).to be_nil
+    end
+  end
+
   it 'persists nested JSONB mappers', :aggregate_failures do
     service.update!(request_mapper: { 'order' => { 'id' => 'external_id' } })
     expect(service.reload.request_mapper).to eq('order' => { 'id' => 'external_id' })
