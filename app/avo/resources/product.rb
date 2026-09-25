@@ -5,9 +5,11 @@ module Avo
     class Product < Avo::BaseResource
       self.title = :name
       self.includes = %i[company stocks]
+      # Avo 4 le pasa el texto buscado como `q`. `search_term` no existe en ese
+      # contexto, y con él la búsqueda respondía 500 (TESIS-129).
       self.search = {
         query: lambda {
-          query.where('name ILIKE ? OR sku ILIKE ?', "%#{search_term}%", "%#{search_term}%")
+          query.where('name ILIKE ? OR sku ILIKE ?', "%#{q}%", "%#{q}%")
         }
       }
 
