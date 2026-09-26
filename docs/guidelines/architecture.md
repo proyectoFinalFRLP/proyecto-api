@@ -523,6 +523,15 @@ worker.stop
 
 Alternativas: WSL, Docker, o dejar la verificación de workers al CI/deploy (Linux).
 
+⚠️ **En macOS los workers se caen al arrancar** (`Abort trap: 6`, con un volcado de memoria que menciona `performForkChildInitialize`). Solid Queue arranca sus procesos con `fork`, y macOS aborta el proceso hijo si toca clases de Objective-C que el padre dejó a medio inicializar. Pasa igual con `bin/jobs` y con los workers dentro de Puma. Se evita con esta variable de entorno:
+
+```bash
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES bin/jobs
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES SOLID_QUEUE_IN_PUMA=1 bin/rails server   # todo en un proceso, como en el deploy
+```
+
+Conviene exportarla en el perfil de la terminal (`~/.zshrc`). En Linux (el deploy) no hace falta.
+
 ### 8.4 Tareas programadas
 
 `config/recurring.yml` declara los cronjobs (formato de recurring tasks de Solid Queue):
