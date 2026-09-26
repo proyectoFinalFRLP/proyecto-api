@@ -95,6 +95,33 @@ RSpec.describe 'Integrations API', type: :request do
       expect(raw).not_to include('SECRET-TOKEN')
     end
 
+    # `credentials` tiene que ser un objeto. Un string o un array pasan el
+    # `require` —que sólo mira que no venga vacío— y reventarían recién adentro
+    # del cifrado, como 500. El guard los corta antes; nadie lo ejercitaba
+    # (TESIS-93).
+    context 'when credentials is not an object' do
+      it 'rejects a string instead of failing inside the encryption' do
+        put "/api/v1/integrations/#{service.id}",
+            params: { credentials: 'ACCESS-TOKEN' }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'rejects an array' do
+        put "/api/v1/integrations/#{service.id}",
+            params: { credentials: ['ACCESS-TOKEN'] }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'stores nothing' do
+        expect do
+          put "/api/v1/integrations/#{service.id}",
+              params: { credentials: 'ACCESS-TOKEN' }, headers: headers, as: :json
+        end.not_to change(CompanyIntegration, :count)
+      end
+    end
+
     it 'returns 404 for an unknown service' do
       put '/api/v1/integrations/999999', params: payload, headers: headers, as: :json
       expect(response).to have_http_status(:not_found)

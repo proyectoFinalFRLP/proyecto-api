@@ -45,6 +45,29 @@ RSpec.describe 'Failed events API', type: :request do
       expect(response.parsed_body['meta']).to eq('page' => 1, 'per_page' => 2, 'total' => 4)
     end
 
+    # El filtro por tipo es el que usa el panel de la DLQ para separar las
+    # ingestas de webhook de los requests salientes. Estaba sin ejercitar: la
+    # suite pasaba igual si la línea no filtraba nada (TESIS-93).
+    it 'filters by event type' do
+      outbound = create_event(company, event_type: 'integrations.outbound_sync')
+      create_event(company, event_type: 'orders.ingestion')
+
+      get '/api/v1/failed-events', params: { event_type: 'integrations.outbound_sync' },
+                                   headers: headers
+
+      expect(response.parsed_body['data'].pluck('id')).to contain_exactly(outbound.id)
+    end
+
+    it 'combines the type filter with the status one' do
+      create_event(company, event_type: 'orders.ingestion', status: :pending)
+      dead = create_event(company, event_type: 'orders.ingestion', status: :dead)
+
+      get '/api/v1/failed-events', params: { event_type: 'orders.ingestion', status: 'dead' },
+                                   headers: headers
+
+      expect(response.parsed_body['data'].pluck('id')).to contain_exactly(dead.id)
+    end
+
     it 'ignores an unknown status filter' do
       get '/api/v1/failed-events', params: { status: 'exploded' }, headers: headers
 

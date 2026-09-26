@@ -416,6 +416,34 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
+      # `items: ['SKU-1']` pasa el chequeo de Array y revienta recién en
+      # `item.permit`, como 500. El guard lo corta con 422 y nadie lo
+      # ejercitaba (TESIS-93).
+      it 'rejects when an item is not an object', :aggregate_failures do
+        post '/api/v1/orders',
+             params: { order: { customer_name: 'X', items: ['SKU-1'] } },
+             headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('product_id', 'quantity', 'unit_price')
+      end
+
+      it 'rejects when only one of the items is not an object' do
+        post '/api/v1/orders',
+             params: { order: { customer_name: 'X', items: [default_item, 42] } },
+             headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
+      it 'creates nothing when an item is not an object' do
+        expect do
+          post '/api/v1/orders',
+               params: { order: { customer_name: 'X', items: ['SKU-1'] } },
+               headers: headers, as: :json
+        end.not_to change(Order, :count)
+      end
+
       it 'rejects when items is empty' do
         post '/api/v1/orders',
              params: { order: { customer_name: 'X', items: [] } },
