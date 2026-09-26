@@ -3,18 +3,16 @@
 module Api
   module V1
     class StockTransfersController < ApplicationController
+      include Paginatable
+
       before_action :set_transfer, only: %i[receive cancel]
       rescue_from Catalog::InsufficientWarehouseStockError, with: :render_unprocessable
       rescue_from Catalog::SettleTransfer::NotInFlightError, with: :render_conflict
 
       def index
-        transfers = policy_scope(StockTransfer)
-                    .includes(:product, :origin_warehouse, :destination_warehouse)
-                    .order(dispatched_at: :desc)
-        transfers = transfers.where(status: params[:status]) if params[:status].present?
-        transfers = transfers.where(product_id: params[:product_id]) if params[:product_id].present?
+        transfers, meta = paginate(filtered_transfers)
 
-        render json: { data: StockTransferSerializer.render_as_hash(transfers) }
+        render json: { data: StockTransferSerializer.render_as_hash(transfers), meta: meta }
       end
 
       def create
@@ -39,6 +37,17 @@ module Api
       end
 
       private
+
+      # Las unidades en vuelo, filtrables por estado y por producto. El listado
+      # del catálogo pide las de un producto para el «+N Incoming» de su ficha.
+      def filtered_transfers
+        transfers = policy_scope(StockTransfer)
+                    .includes(:product, :origin_warehouse, :destination_warehouse)
+                    .order(dispatched_at: :desc)
+        transfers = transfers.where(status: params[:status]) if params[:status].present?
+        transfers = transfers.where(product_id: params[:product_id]) if params[:product_id].present?
+        transfers
+      end
 
       def settle(outcome)
         transfer = Catalog::SettleTransfer.new(transfer: @transfer, outcome: outcome).call

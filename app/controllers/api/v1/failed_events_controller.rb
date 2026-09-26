@@ -3,20 +3,14 @@
 module Api
   module V1
     class FailedEventsController < ApplicationController
+      include Paginatable
+
       before_action :set_failed_event, only: %i[requeue discard]
 
       def index
-        page = [params[:page].to_i, 1].max
-        per_page = params.fetch(:per_page, 20).to_i.clamp(1, 100)
+        events, meta = paginate(filtered_events.order(created_at: :desc))
 
-        events = filtered_events.order(created_at: :desc)
-                                .offset((page - 1) * per_page)
-                                .limit(per_page)
-
-        render json: {
-          data: FailedEventSerializer.render_as_hash(events),
-          meta: { page: page, per_page: per_page, total: filtered_events.count }
-        }
+        render json: { data: FailedEventSerializer.render_as_hash(events), meta: meta }
       end
 
       # POST /api/v1/failed-events/:id/retry (`retry` es palabra reservada en Ruby)

@@ -139,15 +139,17 @@ Una sola regla, fijada en [ADR-015](../adr/ADR-015-convencion-de-respuesta-de-la
 
 ```
 GET  /api/v1/products      → { "data": [ ... ], "meta": { page, per_page, total } }
-GET  /api/v1/warehouses    → { "data": [ ... ] }
+GET  /api/v1/warehouses    → { "data": [ ... ], "meta": { page, per_page, total } }
 GET  /api/v1/products/:id  → { "id": 1, "sku": "...", ... }
 POST /api/v1/products      → { "id": 1, "sku": "...", ... }
 cualquier error            → { "error": "..." }
 ```
 
-`meta` aparece sólo si el listado pagina, y cuenta el scope **ya filtrado**, no la tabla entera.
+`meta` cuenta el scope **ya filtrado**, no la tabla entera, y lo lleva todo **listado de registros**: ninguno devuelve una cantidad ilimitada de filas. Los vocabularios fijos (`/orders/provinces`, `/products/categories`) y el resultado de una acción (`/orders/:id/quotes`) viajan en `data` sin `meta`, porque su largo lo decide el código y no los datos de la empresa (ver ADR-015).
 
-Ninguna colección devuelve un array en la raíz: un array pelado no admite agregarle `meta` sin romper a quien lo consume. `spec/requests/api/v1/api_contract_spec.rb` fija las tres formas, así que un endpoint nuevo que invente una cuarta rompe la suite.
+El cálculo vive en un solo lugar, el concern `Api::V1::Paginatable`, con el techo (`MAX_PER_PAGE = 100`) y los dos defaults: 20 para una pantalla paginada y 100 para los listados que el consumidor lee enteros —depósitos, mapeos, integraciones— y usa para llenar un select. `page` y `per_page` fuera de rango se acotan en vez de romper.
+
+`spec/requests/api/v1/pagination_spec.rb` fija los bordes una vez y recorre los listados que enumera, verificando que cada uno traiga `meta` y respete el techo; `api_contract_spec.rb` fija las formas de los endpoints que enumera. Las dos listas están escritas a mano: **un listado nuevo hay que sumarlo ahí**, o la suite no se entera de que existe.
 
 ### 4.1 Flujo de un webhook entrante
 

@@ -26,8 +26,8 @@ Mientras hubo una sola pantalla consumiendo la API la inconsistencia era barata.
 
 ```
 GET    /api/v1/products        → { "data": [ {...}, {...} ], "meta": { page, per_page, total } }
-GET    /api/v1/warehouses      → { "data": [ {...}, {...} ] }
-GET    /api/v1/integrations    → { "data": [ {...}, {...} ] }
+GET    /api/v1/warehouses      → { "data": [ {...}, {...} ], "meta": { ... } }
+GET    /api/v1/integrations    → { "data": [ {...}, {...} ], "meta": { ... } }
 
 GET    /api/v1/products/:id    → { "id": 1, "sku": "...", ... }
 POST   /api/v1/products        → { "id": 1, "sku": "...", ... }
@@ -38,7 +38,16 @@ cualquier error                → { "error": "..." }
 
 `error` es una sola clave y un solo string, y **siempre está**. Puede venir acompañado de datos para recuperarse: el 409 del locking optimista agrega `current_version`, que es lo que el frontend necesita para reintentar. Lo que no se admite es otra clave en su lugar —`errors` en plural, un array, un objeto por campo—, porque entonces el consumidor tiene que probar dos formas.
 
-`meta` aparece sólo si el listado pagina, y es siempre `page`, `per_page` y `total`, contando el scope **ya filtrado**.
+`meta` es siempre `page`, `per_page` y `total`, contando el scope **ya filtrado**.
+
+**Qué lleva `meta` y qué no.** Desde TESIS-108 pagina todo **listado de registros** —productos, depósitos, órdenes, envíos, transferencias, eventos fallidos, mapeos, integraciones—, así que ahí el consumidor puede leer `total` sin preguntarse cuál lo trae. Van envueltos en `data` **sin** `meta`, en cambio, los que no son listados de registros:
+
+| Respuesta | Por qué no pagina |
+| --- | --- |
+| `GET /orders/provinces`, `GET /products/categories` | Vocabularios fijos del dominio, no filas de una tabla: su tamaño lo fija el código, no los datos de la empresa |
+| `POST /orders/:id/quotes` | El resultado de una acción —una cotización por courier configurado—, no una consulta |
+
+La distinción importa para el consumidor: leer `meta.total` en cualquiera de esas tres devuelve `undefined`. La regla corta es **si el largo lo decide la empresa, pagina; si lo decide el código, no**.
 
 Hubo que cambiar dos endpoints. `integrations#index`, que devolvía un array en la raíz, y `auth/register`, que respondía sus dos errores como `{ "errors": [...] }` —plural y array—. El registro no lo detectó la primera pasada porque el spec de contrato no lo cubría; ahora sí.
 
@@ -59,7 +68,7 @@ La puerta queda abierta: pasar de esta convención a la otra es aditivo del lado
 **A favor**
 
 - La regla se enuncia en una línea y no tiene excepciones que justificar.
-- Ninguna colección queda con un array en la raíz, así que cualquiera puede empezar a paginar sin romper su contrato. Es la precondición de TESIS-108.
+- Ninguna colección queda con un array en la raíz, así que todas pudieron empezar a paginar sin romper su contrato. Fue la precondición de TESIS-108, que se hizo justo encima.
 - El comentario-trampa del frontend se borra: lo que explicaba ya no pasa.
 - `spec/requests/api/v1/api_contract_spec.rb` (TESIS-90) fija las tres formas **sobre los endpoints que enumera**, hoy incluido el registro. La lista está escrita a mano: un endpoint nuevo con otra forma no rompe nada hasta que se lo agrega ahí. Recorrer todas las rutas sería otra card; mientras tanto, sumar el endpoint al spec es parte de agregarlo.
 
