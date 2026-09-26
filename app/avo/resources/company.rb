@@ -5,13 +5,11 @@ module Avo
     class Company < Avo::BaseResource
       self.title = :name
       self.includes = []
-      # `q` y no `search_term`: es el nombre con el que Avo 4 entrega lo tipeado
-      # al lambda (`Avo::ExecutionContext.new(..., q: params[:q])`). Con el otro
-      # nombre, buscar en el panel levanta NameError (TESIS-93).
+      # Avo 4 le pasa el texto buscado como `q`. `search_term` no existe en ese
+      # contexto, y con él la búsqueda respondía 500 (TESIS-129).
       self.search = {
         query: lambda {
-          query.where('name ILIKE ? OR slug ILIKE ? OR tax_id ILIKE ?', "%#{q}%",
-                      "%#{q}%", "%#{q}%")
+          query.where('name ILIKE :term OR slug ILIKE :term OR tax_id ILIKE :term', term: "%#{q}%")
         }
       }
 

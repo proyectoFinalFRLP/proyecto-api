@@ -21,23 +21,24 @@ RSpec.describe 'Auth API', type: :request do
       [response.status, response.body]
     end
 
-    it 'creates a user', :aggregate_failures do
+    # Registrarse es pedir acceso (S02): la cuenta queda pendiente y la respuesta
+    # no devuelve nada que el que llama pueda usar.
+    it 'creates the account as a request pending approval', :aggregate_failures do
       expect { register }.to change(User, :count).by(1)
-      expect(response).to have_http_status(:created)
+      expect(response).to have_http_status(:accepted)
+      expect(User.last.approved).to be(false)
     end
 
-    it 'creates the user inside the tenant of the slug' do
+    it 'answers only that the request is pending' do
+      register
+
+      expect(response.parsed_body).to eq('status' => 'pending_approval')
+    end
+
+    it 'creates the account inside the tenant of the slug' do
       register
 
       expect(User.last.company).to eq(company)
-    end
-
-    it 'returns the user without exposing the password', :aggregate_failures do
-      register
-      body = response.parsed_body
-
-      expect(body['email']).to eq('new@test.com')
-      expect(body.keys).not_to include('password', 'encrypted_password')
     end
 
     it 'stores the password hashed, never in plain text', :aggregate_failures do
@@ -47,11 +48,68 @@ RSpec.describe 'Auth API', type: :request do
       expect(User.last.encrypted_password).not_to eq('password123')
     end
 
-    it 'rejects a duplicate email' do
-      User.create!(email: 'dup@test.com', password: 'password123', company: company)
-      register(valid_params.merge(email: 'dup@test.com'))
+    it 'returns 422 for invalid input' do
+      expect(register(valid_params.merge(password: '123')).first).to eq(422)
+    end
 
-      expect(response).to have_http_status(:unprocessable_content)
+    # El agujero que encontró la QA de TESIS-82: el registro daba acceso
+    # inmediato, y el slug es público (es el subdominio). Cualquiera se daba de
+    # alta en cualquier empresa y leía sus datos.
+    context 'when the account was just requested' do
+      def login_attempt(password: valid_params[:password])
+        post '/api/v1/auth/login', params: valid_params.merge(password: password), headers: tenant_header
+        [response.status, response.body]
+      end
+
+      before { register }
+
+      it 'cannot log in, and the answer is the one of a wrong password', :aggregate_failures do
+        pending_login = login_attempt
+
+        expect(pending_login.first).to eq(401)
+        expect(pending_login).to eq(login_attempt(password: 'wrong'))
+      end
+
+      it 'logs in once it is approved' do
+        User.last.update!(approved: true)
+
+        expect(login_attempt.first).to eq(200)
+      end
+    end
+
+    # El email es único en toda la base. Si la respuesta cambiara cuando ya tiene
+    # cuenta, el registro diría qué emails existen, en esta empresa o en otra.
+    context 'when the email already has an account' do
+      let(:otra) { Company.create!(name: 'Otra', tax_id: '20-22222222-2', slug: 'otra') }
+
+      before do
+        User.create!(email: 'ajeno@test.com', password: 'password123', company: otra)
+        User.create!(email: 'propio@test.com', password: 'password123', company: company)
+      end
+
+      it 'does not create a second account' do
+        expect { register(valid_params.merge(email: 'ajeno@test.com')) }.not_to change(User, :count)
+      end
+
+      it 'answers exactly like for a new email when the account is in another company' do
+        taken = register(valid_params.merge(email: 'ajeno@test.com'))
+
+        expect(taken).to eq(register(valid_params.merge(email: 'nuevo@test.com')))
+      end
+
+      it 'answers exactly like for a new email when the account is in the same company' do
+        taken = register(valid_params.merge(email: 'propio@test.com'))
+
+        expect(taken).to eq(register(valid_params.merge(email: 'nuevo@test.com')))
+      end
+
+      # Un error de formato se informa siempre. Si sólo se informara cuando el
+      # email está libre, la diferencia lo delataría igual.
+      it 'reports invalid input without telling whether the email exists' do
+        taken = register(valid_params.merge(email: 'ajeno@test.com', password: '123'))
+
+        expect(taken).to eq(register(valid_params.merge(email: 'nuevo@test.com', password: '123')))
+      end
     end
 
     # El agujero que cierra TESIS-120: hasta acá `company_id` era un parámetro
@@ -63,7 +121,7 @@ RSpec.describe 'Auth API', type: :request do
       it 'ignores it and uses the tenant of the slug', :aggregate_failures do
         register(valid_params.merge(company_id: otra.id))
 
-        expect(response).to have_http_status(:created)
+        expect(response).to have_http_status(:accepted)
         expect(User.last.company).to eq(company)
         expect(otra.users).to be_empty
       end
@@ -111,6 +169,12 @@ RSpec.describe 'Auth API', type: :request do
 
       expect(payload['user_id']).to eq(User.last.id)
       expect(payload['company_id']).to eq(company.id)
+    end
+
+    # Hallazgo de la QA de TESIS-82: Devise guarda el email en minúsculas, y
+    # quien lo tipeaba con alguna mayúscula recibía 401 con la password correcta.
+    it 'accepts the email in another case and with surrounding spaces' do
+      expect(login(email: ' Log@TEST.com ').first).to eq(200)
     end
 
     it 'returns 401 on wrong password' do
@@ -167,6 +231,66 @@ RSpec.describe 'Auth API', type: :request do
       it 'responds byte for byte like an unknown tenant' do
         expect(cross_tenant).to eq(login(slug: 'no-existe'))
       end
+    end
+  end
+
+  # El JWT sigue siendo válido hasta vencer aunque la cuenta deje de estar
+  # habilitada. Dar de baja la empresa, o quitarle la aprobación a la cuenta,
+  # tiene que cortar también las sesiones que ya estaban abiertas, no sólo los
+  # logins nuevos.
+  describe 'a session that stops being allowed' do
+    let(:user) { User.create!(email: 'baja@test.com', password: 'password123', company: company) }
+    let(:auth) do
+      post '/api/v1/auth/login', params: { email: user.email, password: 'password123' }, headers: tenant_header
+      { 'Authorization' => "Bearer #{response.parsed_body['token']}" }
+    end
+
+    # Se abre la sesión, pasa el cambio y recién ahí se usa el token.
+    def request_after_change
+      headers = auth
+      yield
+      get '/api/v1/warehouses', headers: headers
+    end
+
+    it 'ends when the company is deactivated', :aggregate_failures do
+      request_after_change { company.update!(is_active: false) }
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(response.parsed_body['error']).to eq('The company of this account is not active')
+    end
+
+    it 'ends when the account loses its approval', :aggregate_failures do
+      request_after_change { user.update!(approved: false) }
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(response.parsed_body['error']).to eq('This account is pending approval')
+    end
+
+    # El logout es lo único que quien quedó afuera todavía puede querer hacer. Si
+    # se le respondiera 401, el token no entraría a la denylist y volvería a
+    # servir al revertirse el cambio dentro de sus 24 h.
+    def logout_and_revert(change, revert)
+      headers = auth
+      change.call
+      delete '/api/v1/auth/logout', headers: headers
+      status = response.status
+      revert.call
+      get '/api/v1/warehouses', headers: headers
+      [status, response.status]
+    end
+
+    it 'can still log out while the company is inactive, for good' do
+      statuses = logout_and_revert(-> { company.update!(is_active: false) },
+                                   -> { company.update!(is_active: true) })
+
+      expect(statuses).to eq([204, 401])
+    end
+
+    it 'can still log out while the account is pending approval, for good' do
+      statuses = logout_and_revert(-> { user.update!(approved: false) },
+                                   -> { user.update!(approved: true) })
+
+      expect(statuses).to eq([204, 401])
     end
   end
 

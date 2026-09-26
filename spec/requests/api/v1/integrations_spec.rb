@@ -3,7 +3,9 @@
 require 'rails_helper'
 
 RSpec.describe 'Integrations API', type: :request do
-  let(:company) { Company.create!(name: 'Tenant A', tax_id: '30-11111111-1') }
+  let(:company) do
+    Company.create!(name: 'Tenant A', tax_id: '30-11111111-1', features: { 'integrations' => true })
+  end
   let(:user) { User.create!(email: 'a@example.com', password: 'password123', company: company) }
   let(:headers) { auth_headers(user) }
   let!(:service) do
@@ -127,6 +129,27 @@ RSpec.describe 'Integrations API', type: :request do
         put "/api/v1/integrations/#{service.id}", params: payload, headers: headers, as: :json
         integration = CompanyIntegration.find_by!(company: company, service: service)
         expect(integration.credentials).to eq('access_token' => 'SECRET-TOKEN')
+      end
+    end
+
+    # La QA de TESIS-82 encontró que el flag sólo lo aplicaba el front: una
+    # empresa sin la feature configuraba integraciones llamando al endpoint.
+    context 'when the company does not have the integrations feature' do
+      before { company.update!(features: { 'integrations' => false }) }
+
+      it 'refuses to configure the integration', :aggregate_failures do
+        expect do
+          put "/api/v1/integrations/#{service.id}", params: payload, headers: headers, as: :json
+        end.not_to change(CompanyIntegration, :count)
+        expect(response).to have_http_status(:forbidden)
+      end
+
+      # El widget de nodos del panel lo pide igual, y sólo lista las plantillas
+      # globales con el estado de la propia empresa.
+      it 'still lists the services' do
+        get '/api/v1/integrations', headers: headers
+
+        expect(response).to have_http_status(:ok)
       end
     end
 

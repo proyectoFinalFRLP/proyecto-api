@@ -41,6 +41,25 @@ RSpec.describe Company, type: :model do
 
       expect(company.reload.branding['primary_color']).to eq('#2E7D32')
     end
+
+    describe '#feature_enabled?' do
+      it 'is true for a feature turned on' do
+        company.features = { 'integrations' => true }
+
+        expect(company.feature_enabled?(:integrations)).to be(true)
+      end
+
+      it 'is false for a feature turned off' do
+        company.features = { 'integrations' => false }
+
+        expect(company.feature_enabled?(:integrations)).to be(false)
+      end
+
+      # La empresa que no compró la feature no la tiene declarada.
+      it 'is false for a feature that is not declared' do
+        expect(company.feature_enabled?(:integrations)).to be(false)
+      end
+    end
   end
 
   describe 'slug' do

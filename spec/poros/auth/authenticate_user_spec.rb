@@ -12,6 +12,14 @@ RSpec.describe Auth::AuthenticateUser, type: :poro do
     expect(token).to be_present
   end
 
+  # Devise guarda el email normalizado; el que se tipea en el login puede venir
+  # con otras mayúsculas o con espacios alrededor.
+  it 'finds the account whatever the case and the surrounding spaces of the email' do
+    token = described_class.new(email: ' Log@TEST.com ', password: 'password123',
+                                company: company).call
+    expect(token).to be_present
+  end
+
   it 'returns nil for a wrong password' do
     token = described_class.new(email: 'log@test.com', password: 'wrong', company: company).call
     expect(token).to be_nil
@@ -31,12 +39,39 @@ RSpec.describe Auth::AuthenticateUser, type: :poro do
     expect(token).to be_nil
   end
 
+  # Una cuenta del registro público que todavía no aprobaron: credenciales
+  # correctas, pero no hay token hasta que la aprueben.
+  it 'returns nil for an account pending approval' do
+    User.create!(email: 'pend@test.com', password: 'password123', company: company, approved: false)
+
+    token = described_class.new(email: 'pend@test.com', password: 'password123', company: company).call
+    expect(token).to be_nil
+  end
+
   # El controller pasa el resultado de resolver el slug, que es nil cuando el
   # tenant no existe o está inactivo. El PORO no puede confundir eso con un
   # login global.
   it 'returns nil when the tenant could not be resolved' do
     token = described_class.new(email: 'log@test.com', password: 'password123', company: nil).call
     expect(token).to be_nil
+  end
+
+  # Sin cuenta que comparar se corre bcrypt igual: si no, el tiempo de respuesta
+  # diría qué emails existen aunque el resultado sea el mismo nil.
+  it 'still runs bcrypt when the email does not exist' do
+    allow(Devise::Encryptor).to receive(:compare).and_call_original
+
+    described_class.new(email: 'ghost@test.com', password: 'password123', company: company).call
+
+    expect(Devise::Encryptor).to have_received(:compare).with(User, described_class.dummy_digest, 'password123')
+  end
+
+  it 'still runs bcrypt when the tenant could not be resolved' do
+    allow(Devise::Encryptor).to receive(:compare).and_call_original
+
+    described_class.new(email: 'log@test.com', password: 'password123', company: nil).call
+
+    expect(Devise::Encryptor).to have_received(:compare).once
   end
 
   # User incluye CompanyScoped: si el default scope se colara acá, un Current
