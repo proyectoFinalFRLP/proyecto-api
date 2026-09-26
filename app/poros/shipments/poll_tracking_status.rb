@@ -51,8 +51,13 @@ module Shipments
 
     # Se revalida al ejecutar, no al encolar: entre el barrido y este job el
     # envío pudo entregarse (por otro ciclo, o a mano desde el panel).
+    # `order(:id)` no es cosmético: en la consulta masiva los números viajan
+    # concatenados en la URI, así que sin un orden fijo el mismo lote produce
+    # URLs distintas entre corridas. Postgres puede devolver las filas en
+    # cualquier orden, y eso ya hacía fallar de forma intermitente al spec que
+    # fija la URL del lote (TESIS-93).
     def shipments
-      @shipments ||= @integration.shipments.in_flight.where(id: @shipment_ids).to_a
+      @shipments ||= @integration.shipments.in_flight.where(id: @shipment_ids).order(:id).to_a
     end
 
     # Pares [envío, movimiento traducido] a registrar.

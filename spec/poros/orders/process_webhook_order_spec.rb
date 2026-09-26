@@ -320,6 +320,65 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
     end
   end
 
+  # La carrera de dos workers sobre el mismo evento (TESIS-93).
+  #
+  # Hay dos defensas contra el duplicado y sólo la primera estaba probada. La
+  # validación de unicidad del modelo atrapa el reintento normal —el proveedor
+  # reentrega el webhook y el segundo worker lo ve ya registrado—, pero entre
+  # esa consulta y el INSERT hay una ventana: si los dos workers la atraviesan a
+  # la vez, los dos pasan la validación y el que llega segundo choca contra el
+  # índice único (company_id, external_order_id).
+  #
+  # Eso es lo que se simula acá: el `find_by` de entrada devuelve `nil` (estamos
+  # dentro de la ventana) y el INSERT falla con la violación del índice, que es
+  # lo que contesta Postgres en producción. Lo que se verifica es qué hace el
+  # worker que pierde: devolver la venta ya registrada, no `nil` ni una segunda
+  # orden.
+  context 'when another worker registered the same sale first' do
+    subject(:losing_worker) { described_class.new(webhook_log: create_log) }
+
+    let(:payload) { order_payload(items: [line('MLA-1', 2, 1500.5)]) }
+    let(:winner) { Order.find_by!(external_order_id: 'ML-1001') }
+
+    before do
+      publish('SKU-1', 'MLA-1')
+      described_class.new(webhook_log: create_log).call
+      winner
+
+      calls = 0
+      allow(Order).to receive(:find_by).and_wrap_original do |original, *args|
+        calls += 1
+        calls == 1 ? nil : original.call(*args)
+      end
+      allow(Order).to receive(:create!).and_raise(ActiveRecord::RecordNotUnique.new(unique_violation))
+    end
+
+    # El nombre del índice sale de la constante del PORO y no escrito a mano: si
+    # alguien renombra el índice, el guard y este stub cambian juntos en vez de
+    # desincronizarse en silencio y dejar el ejemplo probando otra cosa.
+    def unique_violation
+      %(PG::UniqueViolation: duplicate key value violates unique constraint "#{described_class::ORDERS_UNIQUE_INDEX}")
+    end
+
+    it 'returns the order the other worker registered' do
+      expect(losing_worker.call).to eq(winner)
+    end
+
+    it 'does not register the sale twice' do
+      expect { losing_worker.call }.not_to change(Order, :count)
+    end
+
+    it 'does not deduct the stock a second time' do
+      expect { losing_worker.call }.not_to(change { stock_of('SKU-1') })
+    end
+
+    it 'marks its own log as processed, not failed' do
+      log_of_the_loser = losing_worker.instance_variable_get(:@log)
+
+      expect { losing_worker.call }.to change { log_of_the_loser.reload.status }.to('processed')
+    end
+  end
+
   context 'when the channel reports a status the OMS does not know' do
     before { publish('SKU-1', 'MLA-1') }
 

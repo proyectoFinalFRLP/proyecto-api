@@ -886,6 +886,32 @@ RSpec.describe 'Products API', type: :request do
     # para ejercitar el handler `render_constraint_violation` de
     # ApplicationController con la excepción que dispararía PostgreSQL si esa
     # validación no existiera.
+    # La otra mitad del mismo handler: cualquier CHECK que no sea el de stock
+    # contesta un mensaje genérico a propósito. El de PostgreSQL nombra tabla y
+    # restricción, y eso no tiene por qué salir de la API. Sólo estaba probada
+    # la rama específica (TESIS-93).
+    context 'when the violated constraint is not the one about stock' do
+      it 'returns 422 with a generic message', :aggregate_failures do
+        violation = ActiveRecord::CheckViolation.new('PG::CheckViolation: ERROR: new row for relation "orders" violates check constraint "orders_total_amount_non_negative"')
+        allow(Products::UpdateProduct).to receive(:new).and_raise(violation)
+
+        patch "/api/v1/products/#{product.id}", params: { product: { name: 'X' } }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to eq('invalid data: a database constraint was violated')
+      end
+
+      it 'does not leak the table nor the name of the constraint', :aggregate_failures do
+        violation = ActiveRecord::CheckViolation.new('PG::CheckViolation: ERROR: new row for relation "orders" violates check constraint "orders_total_amount_non_negative"')
+        allow(Products::UpdateProduct).to receive(:new).and_raise(violation)
+
+        patch "/api/v1/products/#{product.id}", params: { product: { name: 'X' } }, headers: headers, as: :json
+
+        expect(response.parsed_body['error']).not_to include('orders')
+        expect(response.parsed_body['error']).not_to include('orders_total_amount_non_negative')
+      end
+    end
+
     context 'when the underlying update raises a database CHECK violation' do
       it 'returns 422 with a stock-specific message', :aggregate_failures do
         violation = ActiveRecord::CheckViolation.new('PG::CheckViolation: ERROR: new row for relation "stocks" violates check constraint "stocks_quantity_non_negative"')
