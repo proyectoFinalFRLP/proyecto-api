@@ -67,7 +67,14 @@ RSpec.describe Integrations::TestConnection, type: :poro do
     it 'completes the declared settings the company did not load' do
       test_connection
       expect(integration.reload.settings)
-        .to eq('shop_domain' => 'demo.myshopify.com', 'location_id' => 'gid://shopify/Location/7')
+        .to include('shop_domain' => 'demo.myshopify.com', 'location_id' => 'gid://shopify/Location/7')
+    end
+
+    # Es lo que la pantalla de integraciones muestra para decir a qué cuenta
+    # está conectada la empresa.
+    it 'remembers the name of the account' do
+      test_connection
+      expect(integration.reload.settings['account_name']).to eq('Demo Store')
     end
 
     context 'when the company already chose a location' do
@@ -78,6 +85,15 @@ RSpec.describe Integrations::TestConnection, type: :poro do
       it 'keeps it' do
         test_connection
         expect(integration.reload.settings['location_id']).to eq('gid://shopify/Location/9')
+      end
+    end
+
+    context 'when the account was renamed' do
+      let(:settings) { { 'shop_domain' => 'demo.myshopify.com', 'account_name' => 'Old Name' } }
+
+      it 'updates the name' do
+        test_connection
+        expect(integration.reload.settings['account_name']).to eq('Demo Store')
       end
     end
   end

@@ -8,7 +8,9 @@ module Integrations
   # contesta sirve además para completar la configuración que la empresa no
   # tiene por qué conocer: los settings declarados por la plantilla que siguen
   # vacíos y vienen en la respuesta (en Shopify, `location_id`, la ubicación
-  # donde se publica el stock).
+  # donde se publica el stock). Y guarda el nombre de la cuenta
+  # (`account_name`), que es lo que la empresa ve para saber a qué cuenta está
+  # conectada: ése se pisa siempre, porque la cuenta se puede renombrar.
   #
   # Nunca propaga el error del proveedor: lo devuelve como mensaje, que es lo
   # que la pantalla le muestra al usuario.
@@ -49,9 +51,10 @@ module Integrations
     def complete_settings(response)
       settings = @integration.settings || {}
       missing = service.setting_keys.select { |key| settings[key].blank? && response[key].present? }
-      return if missing.empty?
+      learned = response.slice(*missing, ACCOUNT_NAME_KEY).compact_blank
+      return if learned <= settings
 
-      @integration.update!(settings: settings.merge(response.slice(*missing)))
+      @integration.update!(settings: settings.merge(learned))
     end
 
     def success_message(response)
