@@ -12,6 +12,12 @@ class Shipment < ApplicationRecord
   # cuota del proveedor.
   IN_FLIGHT_STATUSES = %w[ready_to_ship in_transit].freeze
 
+  # Tope de `shipping_cost`: la columna es decimal(10,2), así que lo más grande
+  # que entra es 99.999.999,99. Validarlo en el modelo hace que un costo fuera de
+  # rango sea un error de validación y no un RangeError de la base; el despacho
+  # lo prueba contra esta regla antes de pedir la etiqueta (TESIS-131).
+  MAX_SHIPPING_COST = 100_000_000
+
   belongs_to :company
   # La integración se asigna al inicializar el envío y puede no existir todavía
   # (se completa al confirmar el despacho con un courier).
@@ -26,7 +32,8 @@ class Shipment < ApplicationRecord
   scope :in_flight, -> { where(status: IN_FLIGHT_STATUSES).where.not(tracking_number: nil) }
 
   validates :status, presence: true, inclusion: { in: STATUSES }
-  validates :shipping_cost, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
+  validates :shipping_cost, numericality: { greater_than_or_equal_to: 0,
+                                            less_than: MAX_SHIPPING_COST }, allow_nil: true
   # Restricción 1 a 1 de la card: una orden no puede tener dos envíos. El índice
   # único sobre order_id (migración) es la garantía a nivel motor; la validación
   # del modelo da un mensaje de error limpio antes de llegar a la DB.

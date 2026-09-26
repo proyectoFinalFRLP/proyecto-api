@@ -43,10 +43,10 @@ RSpec.describe 'Shipment dispatch API', type: :request do
   end
 
   def dispatch_shipment(id: shipment.id, integration_id: integration.id,
-                        warehouse_id: warehouse.id, auth: headers)
+                        warehouse_id: warehouse.id, auth: headers, **extra)
     post "/api/v1/shipments/#{id}/dispatch",
          params: { dispatch: { company_integration_id: integration_id,
-                               origin_warehouse_id: warehouse_id } },
+                               origin_warehouse_id: warehouse_id, **extra } },
          headers: auth, as: :json
   end
 
@@ -82,6 +82,51 @@ RSpec.describe 'Shipment dispatch API', type: :request do
     it 'returns the first event of the log' do
       expect(response.parsed_body['events'].pluck('external_status'))
         .to eq(['Etiqueta generada'])
+    end
+  end
+
+  # El costo de la opción que el operador confirmó al cotizar (TESIS-131). Sin
+  # esto el detalle de la orden mostraba el envío «a cotizar» para siempre.
+  describe 'the confirmed shipping cost' do
+    before { stub_courier }
+
+    it 'is kept on the shipment and read back from it', :aggregate_failures do
+      dispatch_shipment(shipping_cost: 2500.5)
+      expect(response.parsed_body['shipping_cost']).to eq(2500.5)
+
+      get "/api/v1/shipments/#{shipment.id}", headers: headers
+      expect(response.parsed_body['shipping_cost']).to eq(2500.5)
+    end
+
+    it 'leaves the cost as it was when the dispatch does not bring one' do
+      shipment.update!(shipping_cost: 900)
+      dispatch_shipment
+
+      expect(shipment.reload.shipping_cost).to eq(900)
+    end
+
+    # Se valida antes de pedir la etiqueta: el courier la cobra, y gastarla en
+    # un despacho que después no se puede guardar es plata tirada.
+    #
+    # Los tres últimos son números que BigDecimal acepta y la columna no
+    # (decimal(10,2)): antes pasaban el chequeo del controller, se pedía la
+    # etiqueta y el `update!` fallaba después, con el envío todavía en `pending`
+    # y el número de seguimiento perdido en el rollback.
+    { 'negative' => -1, 'not a number' => 'mucho', 'too big for the column' => 100_000_000,
+      'NaN' => 'NaN', 'infinite' => 'Infinity' }.each do |label, cost|
+      it "answers 400 for a cost that is #{label}, without asking the courier", :aggregate_failures do
+        dispatch_shipment(shipping_cost: cost)
+
+        expect(response).to have_http_status(:bad_request)
+        expect(WebMock).not_to have_requested(:post, 'https://andreani.test/ordenes')
+        expect(shipment.reload).to have_attributes(status: 'pending', tracking_number: nil)
+      end
+    end
+
+    it 'takes the largest cost the column holds' do
+      dispatch_shipment(shipping_cost: '99999999.99')
+
+      expect(shipment.reload.shipping_cost).to eq(BigDecimal('99999999.99'))
     end
   end
 

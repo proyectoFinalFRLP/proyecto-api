@@ -24,12 +24,22 @@ class Service < ApplicationRecord
   has_many :tracked_services, class_name: 'Service', foreign_key: :tracking_service_id,
                               inverse_of: :tracking_service, dependent: :nullify
 
+  # Plantilla con la que se le piden tarifas a este courier (TESIS-131). Cuelga
+  # de la plantilla que despacha, igual que la de seguimiento: es lo que permite
+  # pasar de una opción cotizada a su despacho, porque la cotización la contesta
+  # una plantilla y la etiqueta la emite otra.
+  belongs_to :quote_service, class_name: 'Service', optional: true,
+                             inverse_of: :quoted_services
+  has_many :quoted_services, class_name: 'Service', foreign_key: :quote_service_id,
+                             inverse_of: :quote_service, dependent: :nullify
+
   validates :service_name, presence: true, uniqueness: true
   validates :uri, presence: true
   validates :http_method, presence: true
   validates :type, presence: true, inclusion: { in: TYPES }
   validate :mappers_are_valid_json
   validate :tracking_service_answers_tracking
+  validate :quote_service_quotes_shipping
 
   # Sólo los canales de e-commerce generan ventas: el gateway lo usa para decidir
   # si un webhook entrante va al procesador de órdenes (TESIS-43) o queda a la
@@ -145,5 +155,30 @@ class Service < ApplicationRecord
     return 'no puede ser la misma plantilla' if tracking_service == self
 
     'no es una plantilla de consulta de tracking' unless tracking_service.answers_tracking?
+  end
+
+  def quote_service_quotes_shipping
+    reason = quote_service_problem
+    errors.add(:quote_service, reason) if reason
+  end
+
+  # Las dos últimas reglas sostienen lo que la cotización asume: cada opción
+  # cotizada se despacha con UNA integración (QuoteShipment#dispatchers indexa
+  # por plantilla de cotización). Si dos plantillas de despacho compartieran el
+  # cotizador, una de las dos desaparecía de las opciones sin aviso; y una
+  # plantilla que no despacha con cotizador cargado es una configuración que no
+  # hace nada. El índice único de `quote_service_id` lo respalda en la base.
+  def quote_service_problem
+    return if quote_service.nil?
+    return 'solo aplica a couriers' unless courier?
+    return 'no puede ser la misma plantilla' if quote_service == self
+    return 'solo aplica a la plantilla con la que el courier despacha' unless dispatches_shipment?
+    return 'no es una plantilla de cotización' unless quote_service.quotes_shipping?
+
+    'ya es la plantilla de cotización de otro courier' if quote_service_taken?
+  end
+
+  def quote_service_taken?
+    self.class.where(quote_service_id: quote_service_id).where.not(id: id).exists?
   end
 end

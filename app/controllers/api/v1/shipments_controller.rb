@@ -15,6 +15,7 @@ module Api
       rescue_from Shipments::AlreadyDispatchedError, with: :render_conflict
       rescue_from Shipments::InvalidCourierIntegrationError, with: :render_unprocessable
       rescue_from Shipments::DispatchResponseError, with: :render_bad_gateway
+      rescue_from Shipments::InvalidShippingCostError, with: :render_bad_request
       rescue_from Integrations::AdapterExecutionError, with: :render_courier_failure
       # El parámetro que falta es un 400 de contrato, no un 422 de negocio.
       rescue_from ActionController::ParameterMissing, with: :render_bad_request
@@ -68,7 +69,7 @@ module Api
 
         dispatched = Shipments::ConfirmDispatch.new(
           shipment: shipment, company_integration: courier_integration,
-          origin_warehouse: origin_warehouse
+          origin_warehouse: origin_warehouse, shipping_cost: shipping_cost
         ).call
 
         render json: ShipmentSerializer.render(dispatched), status: :ok
@@ -118,7 +119,19 @@ module Api
       end
 
       def dispatch_params
-        params.expect(dispatch: %i[company_integration_id origin_warehouse_id])
+        params.expect(dispatch: %i[company_integration_id origin_warehouse_id shipping_cost])
+      end
+
+      # El costo de la opción que el operador confirmó al cotizar (TESIS-131).
+      # Opcional: sin él, el despacho funciona como antes. Acá sólo se lee como
+      # número; el rango lo valida ConfirmDispatch contra el modelo, antes de
+      # llamar al courier, para que la regla viva en un solo lugar.
+      def shipping_cost
+        raw = dispatch_params[:shipping_cost]
+        return nil if raw.blank?
+
+        BigDecimal(raw.to_s, exception: false) ||
+          raise(MalformedParameterError, 'shipping_cost must be a number')
       end
 
       # `expect` cubre la clave ausente, no el valor vacío: sin esto un id en

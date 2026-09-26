@@ -17,10 +17,26 @@ module Shipments
     # request y el usuario está esperando. La card pide 3-5s.
     TIMEOUTS = { open: 4, read: 4 }.freeze
 
-    def initialize(order:, origin_warehouse:)
+    # La cotización de una orden que ya existe (TESIS-46): el destino y las
+    # líneas salen de la orden.
+    def self.for_order(order:, origin_warehouse:)
+      new(origin_warehouse: origin_warehouse,
+          destination: { zip_code: order.customer_zip_code, address: order.customer_address },
+          lines: order.order_items.includes(:product).map { |item| [item.product, item.quantity] })
+    end
+
+    # Lo que se cotiza es el paquete, no la orden: de dónde sale, a dónde va y
+    # qué lleva. Así se puede cotizar también un alta que todavía no se confirmó
+    # (TESIS-131), sin crear la orden —y descontar el stock— para averiguar
+    # cuánto cuesta enviarla.
+    #
+    # `lines` son pares `[producto, cantidad]`, y `destination` lleva
+    # `:zip_code` y `:address`.
+    def initialize(origin_warehouse:, destination:, lines:)
       super()
-      @order = order
       @origin = origin_warehouse
+      @destination = destination
+      @lines = lines
     end
 
     def call
@@ -40,15 +56,37 @@ module Shipments
 
     private
 
-    # Sólo las integraciones activas cuyo template sabe cotizar. Un courier puede
-    # tener también una plantilla de despacho: ésa no contesta tarifas y pedírsela
-    # sería llamar al endpoint equivocado (ver Service#quotes_shipping?).
+    # Las integraciones a las que se les piden tarifas: activas, con un template
+    # que sabe cotizar (una plantilla de despacho no contesta tarifas, ver
+    # Service#quotes_shipping?) y con una integración que despache por el mismo
+    # courier (TESIS-131).
+    #
+    # Lo último se filtra acá y no después de cotizar: una opción que no se puede
+    # despachar no es una opción, y pedirle la tarifa sería gastar una llamada al
+    # proveedor —y hacer esperar al operador— por algo que no se va a mostrar.
     def integrations
-      @integrations ||= CompanyIntegration.where(is_active: true)
-                                          .joins(:service)
-                                          .where(services: { type: Service::COURIER })
-                                          .includes(:service)
-                                          .select { |ci| ci.service.quotes_shipping? }
+      @integrations ||= active_couriers.select do |ci|
+        ci.service.quotes_shipping? && dispatchers.key?(ci.service_id)
+      end
+    end
+
+    # La integración que despacha por cada plantilla de cotización, indexada por
+    # el id de esa plantilla. La cotización la contesta una plantilla y la
+    # etiqueta la emite otra; el vínculo lo declara `Service#quote_service`.
+    # `index_by` no pierde a nadie porque una plantilla de cotización es de un
+    # solo despachador: lo valida Service y lo respalda un índice único.
+    def dispatchers
+      @dispatchers ||= active_couriers.select { |ci| ci.service.dispatches_shipment? }
+                                      .select { |ci| ci.service.quote_service_id.present? }
+                                      .index_by { |ci| ci.service.quote_service_id }
+    end
+
+    def active_couriers
+      @active_couriers ||= CompanyIntegration.where(is_active: true)
+                                             .joins(:service)
+                                             .where(services: { type: Service::COURIER })
+                                             .includes(:service)
+                                             .to_a
     end
 
     # El rescate va DENTRO del hilo: `Thread#value` re-levanta la excepción del
@@ -82,12 +120,19 @@ module Shipments
     # Una respuesta sin costo no es una opción que el usuario pueda elegir: se
     # descarta como si el operador no hubiera contestado, en vez de ofrecer una
     # tarifa vacía. `estimated_days` sí puede faltar — es informativo.
+    #
+    # El nombre es el del courier (la plantilla que despacha) y no el de su
+    # plantilla de cotización: el operador elige «Andreani», no
+    # «Andreani - Cotización». `dispatch_integration_id` es lo que se le manda al
+    # despacho para confirmar esta opción.
     def normalize(integration, parsed)
       cost = parsed[COST_KEY]
       return nil if cost.blank?
 
+      dispatcher = dispatchers.fetch(integration.service_id)
       { company_integration_id: integration.id,
-        provider_name: integration.service.service_name,
+        dispatch_integration_id: dispatcher.id,
+        provider_name: dispatcher.service.service_name,
         shipping_cost: BigDecimal(cost.to_s),
         estimated_days: parsed[DAYS_KEY]&.to_i }
     rescue ArgumentError
@@ -100,18 +145,18 @@ module Shipments
       {
         'origin_zip_code' => @origin.zip_code,
         'origin_address' => @origin.address,
-        'destination_zip_code' => @order.customer_zip_code,
-        'destination_address' => @order.customer_address,
+        'destination_zip_code' => @destination[:zip_code],
+        'destination_address' => @destination[:address],
         'total_weight' => total_weight,
-        'total_items' => @order.order_items.sum(:quantity)
+        'total_items' => @lines.sum { |_product, quantity| quantity }
       }
     end
 
-    # Peso del paquete: la suma de peso × cantidad de cada ítem. `products.weight`
+    # Peso del paquete: la suma de peso × cantidad de cada línea. `products.weight`
     # es decimal y arranca en 0, así que un producto sin peso cargado no rompe la
     # cotización — suma cero.
     def total_weight
-      @order.order_items.includes(:product).sum { |item| item.product.weight * item.quantity }
+      @lines.sum { |product, quantity| product.weight * quantity }
     end
   end
 end
