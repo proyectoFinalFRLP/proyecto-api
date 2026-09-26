@@ -13,10 +13,24 @@ RSpec.describe 'Integrations API', type: :request do
                     uri: 'https://api.mercadolibre.com', http_method: 'GET')
   end
 
+  # El listado viaja envuelto en `data`, como todas las colecciones (ADR-015).
+  def listed
+    response.parsed_body['data']
+  end
+
   describe 'GET /api/v1/integrations' do
     it 'returns 401 without a token' do
       get '/api/v1/integrations'
       expect(response).to have_http_status(:unauthorized)
+    end
+
+    # Era el único listado que contestaba un array pelado. Un array en la raíz
+    # no deja lugar para `meta` sin romper a quien lo consume, y obligaba al
+    # front a recordar que éste es la excepción (ADR-015, TESIS-107).
+    it 'wraps the collection in data, like every other listing' do
+      get '/api/v1/integrations', headers: headers
+
+      expect(response.parsed_body.keys).to eq(['data'])
     end
 
     context 'when the company has the service configured' do
@@ -27,7 +41,7 @@ RSpec.describe 'Integrations API', type: :request do
       end
 
       it 'marks the service as configured and active', :aggregate_failures do
-        row = response.parsed_body.find { |r| r['service_id'] == service.id }
+        row = listed.find { |r| r['service_id'] == service.id }
         expect(row['configured']).to be(true)
         expect(row['is_active']).to be(true)
       end
@@ -47,7 +61,7 @@ RSpec.describe 'Integrations API', type: :request do
       let(:other_company) { Company.create!(name: 'Tenant B', tax_id: '30-22222222-2') }
 
       it 'shows the service as not configured for the current tenant', :aggregate_failures do
-        row = response.parsed_body.find { |r| r['service_id'] == service.id }
+        row = listed.find { |r| r['service_id'] == service.id }
         expect(row['configured']).to be(false)
         expect(row['is_active']).to be(false)
       end
