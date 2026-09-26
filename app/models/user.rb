@@ -3,6 +3,10 @@ class User < ApplicationRecord
 
   belongs_to :company
 
+  # `approved` tiene default true: sólo el registro público crea cuentas sin
+  # aprobar (Auth::RegisterUser), que no pueden loguearse hasta que alguien las
+  # apruebe desde el backoffice.
+
   # Include default devise modules. Others available are:
   # :confirmable, :lockable, :timeoutable, :trackable and :omniauthable
   devise :database_authenticatable, :registerable,

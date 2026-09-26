@@ -3,7 +3,11 @@
 module Api
   module V1
     class IntegrationsController < ApplicationController
-      skip_after_action :verify_authorized, :verify_policy_scoped
+      # El listado no pasa por Pundit: lo usa el widget de nodos del panel
+      # aunque la empresa no tenga la feature `integrations`, y sólo muestra las
+      # plantillas globales con el estado de la propia empresa. El alta y la
+      # modificación sí: ver CompanyIntegrationPolicy.
+      skip_after_action :verify_policy_scoped
 
       # Envuelto en `data` como el resto de las colecciones (ADR-015). Era el
       # único listado que devolvía un array pelado, y un array en la raíz no
@@ -19,6 +23,7 @@ module Api
       end
 
       def update
+        authorize CompanyIntegration
         integration = Integrations::UpsertIntegration.new(
           company: current_company,
           service_id: params[:service_id],
