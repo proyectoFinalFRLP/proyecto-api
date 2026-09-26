@@ -41,23 +41,27 @@ module ShopifyDevTasks
     end
   end
 
-  # Vincula el producto y publica su stock en el acto (sin esperar al worker),
-  # para ver el resultado en el admin de la tienda.
+  # Vincula el producto (si no lo estaba) y publica su stock en el acto, sólo
+  # en Shopify y sin esperar al worker, para ver el resultado en la tienda.
   def link(slug, sku, variant_id)
     company = company(slug)
     Current.set(company_id: company.id) do
       product = Product.find_by!(sku: sku)
-      result = Catalog::LinkExternalProduct.new(
-        product: product, external_product_id: variant_id,
-        company_integration: company.company_integrations.find_by!(service: shopify)
-      ).call
-      Catalog::OutboundSync.new(product: product).call
+      integration = company.company_integrations.find_by!(service: shopify)
+      mapping = product.product_mappings.find_by(company_integration: integration) ||
+                link_product(product, integration, variant_id)
+      Catalog::OutboundSync.new(product: product, company_integration: integration).call
 
-      mapping = result.mapping
       puts "#{sku} vinculado a la variante #{mapping.external_product_id} " \
-           "(#{mapping.external_refs}). Stock publicado: #{product.total_stock}"
-      result.warnings.each { |warning| puts "Aviso: #{warning}" }
+           "(#{mapping.external_refs}). Stock publicado en Shopify: #{product.total_stock}"
     end
+  end
+
+  def link_product(product, integration, variant_id)
+    result = Catalog::LinkExternalProduct.new(product: product, company_integration: integration,
+                                              external_product_id: variant_id).call
+    result.warnings.each { |warning| puts "Aviso: #{warning}" }
+    result.mapping
   end
 
   def shopify = Service.find_by!(service_name: 'Shopify')

@@ -36,9 +36,10 @@ RSpec.describe Catalog::LinkExternalProduct, type: :poro do
       expect(link(external_product_id: 'MLA-1').mapping.external_product_id).to eq('MLA-1')
     end
 
-    it 'pushes the stock of the product to its channels' do
+    it 'pushes the stock of the product only to the channel it was linked to' do
       expect { link(external_product_id: 'MLA-1') }
-        .to have_enqueued_job(Catalog::SyncStockToChannelsJob).with(product.id, company.id)
+        .to have_enqueued_job(Catalog::SyncStockToChannelsJob)
+        .with(product.id, company.id, integration.id)
     end
 
     it 'requires the external id, because it cannot search by SKU' do

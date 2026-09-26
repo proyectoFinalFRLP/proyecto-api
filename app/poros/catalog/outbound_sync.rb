@@ -8,9 +8,12 @@ module Catalog
   # Corre siempre dentro de un job: las APIs externas son lentas y pueden estar
   # caídas, así que nunca debe colgarse del request del usuario.
   class OutboundSync < ApplicationPoro
-    def initialize(product:)
+    # `company_integration` acota la propagación a un solo canal: al vincular un
+    # producto hay que alinear ese canal, no volver a publicar en todos.
+    def initialize(product:, company_integration: nil)
       super()
       @product = product
+      @integration = company_integration
     end
 
     def call
@@ -28,11 +31,15 @@ module Catalog
     # credenciales revocadas y no debe recibir tráfico) y que saben publicar
     # stock (Service#stock_template).
     def mappings
-      @mappings ||= @product.product_mappings
-                            .joins(:company_integration)
-                            .where(company_integrations: { is_active: true })
-                            .includes(company_integration: :service)
-                            .select { |mapping| stock_template(mapping) }
+      @mappings ||= scoped_mappings.joins(:company_integration)
+                                   .where(company_integrations: { is_active: true })
+                                   .includes(company_integration: :service)
+                                   .select { |mapping| stock_template(mapping) }
+    end
+
+    def scoped_mappings
+      mappings = @product.product_mappings
+      @integration ? mappings.where(company_integration: @integration) : mappings
     end
 
     def stock_template(mapping)

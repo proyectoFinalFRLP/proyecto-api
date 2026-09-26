@@ -39,7 +39,7 @@ module Catalog
         external_product_id: found.fetch('external_product_id', @external_product_id).to_s,
         external_refs: found.except(*DESCRIPTIVE_KEYS)
       )
-      SyncStockToChannelsJob.perform_later(@product.id, @product.company_id)
+      SyncStockToChannelsJob.perform_later(@product.id, @product.company_id, @integration.id)
       Result.new(mapping, warnings(found))
     end
 

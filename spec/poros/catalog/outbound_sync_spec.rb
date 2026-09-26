@@ -207,4 +207,20 @@ RSpec.describe Catalog::OutboundSync, type: :poro do
       end).to have_been_made.once
     end
   end
+
+  context 'when scoped to one integration' do
+    subject(:sync) { described_class.new(product: product, company_integration: shop.company_integration) }
+
+    let(:shop) { publish_on('Shopify', 'shop.test', 'SH-1') }
+
+    before do
+      publish_on('Mercado Libre', 'api.ml.test', 'MLA-1')
+      stub_channel('shop.test', 'SH-1')
+    end
+
+    it 'publishes only on that channel' do
+      sync.call
+      expect(a_request(:put, /api\.ml\.test/)).not_to have_been_made
+    end
+  end
 end
