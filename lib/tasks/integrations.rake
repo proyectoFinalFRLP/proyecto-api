@@ -10,6 +10,8 @@
 #
 #   bin/rails "integrations:shopify:connect[norte]"
 #   bin/rails "integrations:shopify:test[norte]"
+#   bin/rails "integrations:shopify:link[norte,NOR-001]"          (busca por SKU)
+#   bin/rails "integrations:shopify:link[norte,NOR-001,4567890]"  (por id de variante)
 module ShopifyDevTasks
   module_function
 
@@ -36,6 +38,25 @@ module ShopifyDevTasks
 
       puts "ok: #{result[:ok]} — #{result[:message]}"
       puts "settings: #{integration.reload.settings}"
+    end
+  end
+
+  # Vincula el producto y publica su stock en el acto (sin esperar al worker),
+  # para ver el resultado en el admin de la tienda.
+  def link(slug, sku, variant_id)
+    company = company(slug)
+    Current.set(company_id: company.id) do
+      product = Product.find_by!(sku: sku)
+      result = Catalog::LinkExternalProduct.new(
+        product: product, external_product_id: variant_id,
+        company_integration: company.company_integrations.find_by!(service: shopify)
+      ).call
+      Catalog::OutboundSync.new(product: product).call
+
+      mapping = result.mapping
+      puts "#{sku} vinculado a la variante #{mapping.external_product_id} " \
+           "(#{mapping.external_refs}). Stock publicado: #{product.total_stock}"
+      result.warnings.each { |warning| puts "Aviso: #{warning}" }
     end
   end
 
@@ -66,6 +87,11 @@ namespace :integrations do
     desc 'Conecta la empresa [slug] con su tienda de prueba de Shopify (solo desarrollo)'
     task :connect, [:slug] => :environment do |_task, args|
       ShopifyDevTasks.connect(args.fetch(:slug, 'norte'))
+    end
+
+    desc 'Vincula el producto [sku] de la empresa [slug] con Shopify y publica su stock'
+    task :link, %i[slug sku variant_id] => :environment do |_task, args|
+      ShopifyDevTasks.link(args.fetch(:slug, 'norte'), args.fetch(:sku), args[:variant_id])
     end
 
     desc 'Prueba la conexión de Shopify de la empresa [slug]'

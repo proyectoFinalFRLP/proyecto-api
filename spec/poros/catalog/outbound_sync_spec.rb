@@ -164,4 +164,47 @@ RSpec.describe Catalog::OutboundSync, type: :poro do
       expect(a_request(:put, 'https://api.tn.test/items/TN-2')).to have_been_made.once
     end
   end
+
+  # TESIS-138: sólo recibe stock una plantilla que sabe publicarlo.
+  context 'when the channel template does not publish stock' do
+    before do
+      integration = CompanyIntegration.create!(
+        company: company, credentials: { 'access_token' => 'TOKEN' },
+        service: Service.create!(service_name: 'ML Orders', type: 'ecommerce', http_method: 'GET',
+                                 uri: 'https://api.ml.test/orders')
+      )
+      ProductMapping.create!(product: product, company_integration: integration,
+                             external_product_id: 'MLA-1')
+    end
+
+    it 'does not send it anything' do
+      sync.call
+      expect(a_request(:any, //)).not_to have_been_made
+    end
+  end
+
+  context 'when the channel publishes stock with a child template and external refs' do
+    before do
+      parent = Service.create!(service_name: 'Shop', type: 'ecommerce', http_method: 'POST',
+                               uri: 'https://shop.test/orders')
+      Service.create!(service_name: 'Shop - Stock', type: 'ecommerce', http_method: 'POST',
+                      uri: 'https://shop.test/inventory', parent_service: parent,
+                      operation: 'stock',
+                      request_mapper: { 'item' => 'inventory_item_id', 'qty' => 'available_quantity',
+                                        'key' => 'idempotency_key' })
+      integration = CompanyIntegration.create!(company: company, service: parent,
+                                               credentials: { 'access_token' => 'TOKEN' })
+      ProductMapping.create!(product: product, company_integration: integration,
+                             external_product_id: '111', external_refs: { 'inventory_item_id' => 'INV-9' })
+      stub_request(:post, 'https://shop.test/inventory').to_return(status: 200, body: '{}')
+    end
+
+    it 'sends the refs of the mapping and a fresh idempotency key to the stock template' do
+      sync.call
+      expect(a_request(:post, 'https://shop.test/inventory').with do |request|
+        body = JSON.parse(request.body)
+        body['item'] == 'INV-9' && body['qty'] == 10 && body['key'].to_s.match?(/\A\h{8}-/)
+      end).to have_been_made.once
+    end
+  end
 end

@@ -94,7 +94,8 @@ module Integrations
     # GraphQL manda el documento tal cual y los valores dinámicos siempre como
     # variables, nunca interpolados en el documento.
     def request_body
-      mapped = BuildExternalPayload.new(service: @service, payload: @payload).call
+      mapped = BuildExternalPayload.new(service: @service, payload: @payload,
+                                        settings: @integration.settings).call
       return mapped.to_json unless @service.graphql?
 
       { query: @service.body_template, variables: mapped }.to_json

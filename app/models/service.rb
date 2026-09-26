@@ -27,6 +27,9 @@ class Service < ApplicationRecord
   CONNECTION_FIELDS = %w[auth_strategy auth_config credential_fields setting_fields
                          request_format body_template error_path operation].freeze
 
+  # La clave interna con la que el sync saliente manda la cantidad a publicar.
+  STOCK_KEY = 'available_quantity'
+
   # Vocabulario de una plantilla de consulta de tracking (ver #answers_tracking?).
   TRACKING_STATUS_KEY = 'external_status'
   TRACKING_URI_PARAM = ':tracking_number'
@@ -92,6 +95,17 @@ class Service < ApplicationRecord
   # integración, o nil si el proveedor no la declara.
   def template_for(operation)
     operation_services.find_by(operation: operation.to_s)
+  end
+
+  # La plantilla que publica el stock de esta integración: la propia si mapea
+  # la cantidad (Tiendanube, 'Mercado Libre - Stock', Shopify), o su hija
+  # `stock`. Si no hay ninguna, el sync saliente no le manda nada: antes le
+  # mandaba el stock a cualquier plantilla con productos vinculados, aunque
+  # fuera la de órdenes y no supiera qué hacer con él.
+  def stock_template
+    return self if request_mapper.value?(STOCK_KEY)
+
+    template_for(:stock)
   end
 
   # Las claves de configuración que la plantilla le pide a la empresa.

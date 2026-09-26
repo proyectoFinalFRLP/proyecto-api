@@ -240,6 +240,43 @@ RSpec.describe 'Product Mappings API', type: :request do
       expect(response).to have_http_status(:unprocessable_content)
     end
 
+    # TESIS-138: la respuesta del alta avisa, sin bloquear, lo que conviene
+    # revisar (por ejemplo, un SKU distinto en el canal).
+    it 'returns the warnings of the link, empty when there are none' do
+      post mappings_url(product.id), params: valid_params, headers: headers, as: :json
+
+      expect(response.parsed_body['warnings']).to eq([])
+    end
+
+    it 'pushes the stock of the product to the channel it was linked to' do
+      expect { post mappings_url(product.id), params: valid_params, headers: headers, as: :json }
+        .to have_enqueued_job(Catalog::SyncStockToChannelsJob)
+    end
+
+    context 'when the channel can look the variant up' do
+      before do
+        Service.create!(service_name: 'Mercado Libre - Variante', type: 'ecommerce',
+                        uri: 'https://api.meli.com/items/:external_id', http_method: 'GET',
+                        parent_service: meli_integration.service, operation: 'product_lookup',
+                        response_mapper: { 'id' => 'external_product_id' })
+      end
+
+      it 'refuses an external id the channel does not have', :aggregate_failures do
+        stub_request(:get, 'https://api.meli.com/items/MLA-123').to_return(status: 200, body: '{}')
+        post mappings_url(product.id), params: valid_params, headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to eq('MLA-123 does not exist in Mercado Libre')
+      end
+
+      it 'answers 502 when the channel does not respond' do
+        stub_request(:get, 'https://api.meli.com/items/MLA-123').to_return(status: 503)
+        post mappings_url(product.id), params: valid_params, headers: headers, as: :json
+
+        expect(response).to have_http_status(:bad_gateway)
+      end
+    end
+
     it 'returns 422 when external_product_id is missing' do
       post_mapping(company_integration_id: meli_integration.id)
 

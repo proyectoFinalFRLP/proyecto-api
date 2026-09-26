@@ -24,14 +24,21 @@ module Catalog
 
     private
 
-    # Sólo los canales activos: una integración dada de baja puede tener
-    # credenciales revocadas y no debe recibir tráfico.
+    # Sólo los canales activos (una integración dada de baja puede tener
+    # credenciales revocadas y no debe recibir tráfico) y que saben publicar
+    # stock (Service#stock_template).
     def mappings
       @mappings ||= @product.product_mappings
                             .joins(:company_integration)
                             .where(company_integrations: { is_active: true })
                             .includes(company_integration: :service)
-                            .to_a
+                            .select { |mapping| stock_template(mapping) }
+    end
+
+    def stock_template(mapping)
+      @stock_templates ||= {}
+      service = mapping.company_integration.service
+      @stock_templates.fetch(service.id) { @stock_templates[service.id] = service.stock_template }
     end
 
     # Devuelve nil si el envío salió bien y el error si falló, para que el
@@ -39,12 +46,25 @@ module Catalog
     def push_to(mapping)
       Integrations::HttpAdapter.new(
         company_integration: mapping.company_integration,
-        payload: { external_id: mapping.external_product_id, available_quantity: total_stock },
+        service: stock_template(mapping),
+        payload: stock_payload(mapping),
         uri_params: { external_id: mapping.external_product_id }
       ).call
       nil
     rescue Integrations::AdapterExecutionError => e
       e
+    end
+
+    # Los identificadores extra del vínculo (en Shopify, `inventory_item_id`) van
+    # en el payload para que el request_mapper los use. La clave de
+    # idempotencia es por intento: fijar una cantidad absoluta es idempotente
+    # por naturaleza, y hay canales que la exigen igual (Shopify, desde 2026-04).
+    def stock_payload(mapping)
+      mapping.external_refs.merge(
+        'external_id' => mapping.external_product_id,
+        Service::STOCK_KEY => total_stock,
+        'idempotency_key' => SecureRandom.uuid
+      )
     end
 
     # El total se calcula al ejecutar, no al encolar: si el stock volvió a

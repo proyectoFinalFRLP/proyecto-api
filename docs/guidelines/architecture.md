@@ -448,6 +448,18 @@ estaba.
 > la respuesta del courier se pierde después de que él generó la etiqueta, el
 > envío queda `pending` y un reintento genera una segunda etiqueta.
 
+> **Tercer caso: vincular un producto con su publicación (TESIS-138).**
+> `POST /api/v1/products/:product_id/mappings` le pregunta al canal, dentro del
+> request, si la publicación existe (plantilla hija `product_lookup`) o la busca
+> por SKU (`product_search`), con el mismo timeout de 4 s de la cotización. Es el
+> caso que la nota de arriba anticipaba, y se toma igual por el mismo argumento
+> de producto: el usuario está esperando saber si el vínculo es válido, y un id
+> equivocado le publicaría el stock a otra publicación. Lo que lo distingue de
+> una sincronización de fondo es que es **una sola lectura, sin efectos en el
+> proveedor**: el push de stock que sigue al vínculo sí va a un job
+> (`Catalog::SyncStockToChannelsJob`). Si aparece un cuarto caso, la regla de
+> «encolar y notificar» deja de ser opcional.
+
 Lo que acota el riesgo de sostener un hilo de Puma:
 
 - **Timeout propio y más corto.** El adaptador acepta los timeouts por parámetro;

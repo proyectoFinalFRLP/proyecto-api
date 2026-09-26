@@ -291,12 +291,32 @@ services = [
   #
   # La versión de la API vive en la URI: se actualiza desde el backoffice sin
   # deploy. Shopify mantiene cada versión unos 12 meses.
+  #
+  # La madre publica el stock (la usa el sync saliente, TESIS-35): fija la
+  # cantidad `available` del inventory item en la ubicación de la cuenta. Es un
+  # valor absoluto, así que `changeFromQuantity: null` (sin compare-and-set: el
+  # OMS es la fuente de verdad). Desde 2026-04 Shopify exige la clave de
+  # idempotencia, que el sync genera por intento.
   {
     service_name: 'Shopify',
     type: 'ecommerce',
     uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
     http_method: 'POST',
     request_format: 'graphql',
+    body_template: <<~GRAPHQL.squish,
+      mutation SetStock($inventoryItemId: ID!, $locationId: ID!, $quantity: Int!,
+                        $idempotencyKey: String!) {
+        inventorySetQuantities(input: {
+          name: "available", reason: "correction",
+          referenceDocumentUri: "logistics://onestock/stock-sync",
+          quantities: [{ inventoryItemId: $inventoryItemId, locationId: $locationId,
+                         quantity: $quantity, changeFromQuantity: null }]
+        }) @idempotent(key: $idempotencyKey) {
+          userErrors { code field message }
+        }
+      }
+    GRAPHQL
+    error_path: 'data.inventorySetQuantities.userErrors',
     auth_strategy: 'oauth_client_credentials',
     auth_config: {
       'token_url' => 'https://:shop_domain/admin/oauth/access_token',
@@ -312,7 +332,12 @@ services = [
         'format' => '\A[a-z0-9][a-z0-9-]*\.myshopify\.com\z' },
       { 'key' => 'location_id', 'label' => 'Ubicación de stock', 'required' => false }
     ],
-    request_mapper: {},
+    request_mapper: {
+      'inventoryItemId' => 'inventory_item_id',
+      'locationId' => 'settings.location_id',
+      'quantity' => 'available_quantity',
+      'idempotencyKey' => 'idempotency_key'
+    },
     response_mapper: {},
     request_value_mapper: {},
     response_value_mapper: {}
@@ -333,6 +358,52 @@ services = [
     response_mapper: {
       'data.shop.name' => 'account_name',
       'data.locations.nodes.0.id' => 'location_id'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  # Vincular por id de variante: confirma que existe y trae su inventory item,
+  # que es con lo que Shopify publica el stock. `node` en vez de una consulta
+  # por variante: es la forma estable de pedir cualquier objeto por su GID.
+  {
+    service_name: 'Shopify - Variante',
+    parent_service_name: 'Shopify',
+    operation: 'product_lookup',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: 'query Variant($id: ID!) { node(id: $id) { ... on ProductVariant { ' \
+                   'legacyResourceId sku inventoryItem { id } product { title } } } }',
+    request_mapper: { 'id' => 'gid://shopify/ProductVariant/{{external_id}}' },
+    response_mapper: {
+      'data.node.legacyResourceId' => 'external_product_id',
+      'data.node.sku' => 'external_sku',
+      'data.node.product.title' => 'external_title',
+      'data.node.inventoryItem.id' => 'inventory_item_id'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  # Vincular por SKU: busca la variante con el SKU del producto. Pide dos
+  # resultados para detectar un SKU repetido en la tienda (`ambiguous_match`).
+  {
+    service_name: 'Shopify - Buscar por SKU',
+    parent_service_name: 'Shopify',
+    operation: 'product_search',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: 'query BySku($query: String!) { productVariants(first: 2, query: $query) { ' \
+                   'nodes { legacyResourceId sku inventoryItem { id } product { title } } } }',
+    request_mapper: { 'query' => 'sku:{{sku}}' },
+    response_mapper: {
+      'data.productVariants.nodes.0.legacyResourceId' => 'external_product_id',
+      'data.productVariants.nodes.0.sku' => 'external_sku',
+      'data.productVariants.nodes.0.product.title' => 'external_title',
+      'data.productVariants.nodes.0.inventoryItem.id' => 'inventory_item_id',
+      'data.productVariants.nodes.1.legacyResourceId' => 'ambiguous_match'
     },
     request_value_mapper: {},
     response_value_mapper: {}

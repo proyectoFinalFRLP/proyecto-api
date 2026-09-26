@@ -406,4 +406,25 @@ RSpec.describe Service, type: :model do
       expect(described_class.connectable).to contain_exactly(service)
     end
   end
+
+  describe '#stock_template' do
+    before { service.save! }
+
+    it 'is the template itself when it maps the quantity' do
+      service.update!(request_mapper: { 'stock' => 'available_quantity' })
+      expect(service.stock_template).to eq(service)
+    end
+
+    it 'is its stock child otherwise' do
+      stock = described_class.create!(service_name: 'ML - Stock', type: 'ecommerce',
+                                      uri: 'https://api.ml.com/items/:external_id',
+                                      http_method: 'PUT', parent_service: service,
+                                      operation: 'stock')
+      expect(service.stock_template).to eq(stock)
+    end
+
+    it 'is nil when the provider cannot publish stock' do
+      expect(service.stock_template).to be_nil
+    end
+  end
 end
