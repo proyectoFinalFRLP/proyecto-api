@@ -9,11 +9,17 @@ module Api
       # modificación sí: ver CompanyIntegrationPolicy.
       skip_after_action :verify_policy_scoped
 
+      # Envuelto en `data` como el resto de las colecciones (ADR-015). Era el
+      # único listado que devolvía un array pelado, y un array en la raíz no
+      # deja lugar para agregarle `meta` el día que pagine sin romper a quien
+      # lo consume.
       def index
         integrations = current_company.company_integrations.index_by(&:service_id)
-        render json: IntegrationStatusSerializer.render(
-          Service.order(:id), integrations_by_service_id: integrations
-        )
+        render json: {
+          data: IntegrationStatusSerializer.render_as_hash(
+            Service.order(:id), integrations_by_service_id: integrations
+          )
+        }
       end
 
       def update
