@@ -31,9 +31,17 @@ module ProyectoApi
 
     # Middlewares mínimos para el backoffice de /admin (Avo necesita sesión,
     # cookies y flash). La API JWT sigue siendo stateless: no usa sesión.
-    config.middleware.use ActionDispatch::Cookies
-    config.middleware.use ActionDispatch::Session::CookieStore, key: '_proyecto_api_session'
-    config.middleware.use ActionDispatch::Flash
+    #
+    # Van antes de Warden::Manager, como en una app Rails completa. Con `use`
+    # quedaban después, porque Devise registra Warden al cargarse. Cuando Warden
+    # corta un request con `throw :warden` (el vencimiento de la sesión, por
+    # ejemplo), el throw se salteaba el commit de la sesión: el cierre por
+    # inactividad no llegaba a la cookie y el navegador entraba en un loop de
+    # redirecciones (TESIS-129).
+    config.middleware.insert_before Warden::Manager, ActionDispatch::Cookies
+    config.middleware.insert_before Warden::Manager, ActionDispatch::Session::CookieStore,
+                                    key: '_proyecto_api_session'
+    config.middleware.insert_before Warden::Manager, ActionDispatch::Flash
     config.middleware.use Rack::MethodOverride
   end
 end
