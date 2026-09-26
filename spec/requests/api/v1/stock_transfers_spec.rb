@@ -124,6 +124,34 @@ RSpec.describe 'Stock transfers API', type: :request do
     end
   end
 
+  # Los dos filtros del listado, con una forma que el endpoint no espera: 400 y
+  # no un `IN` silencioso ni un 500 (TESIS-124).
+  describe 'GET /api/v1/stock-transfers with a malformed filter' do
+    it 'returns 400 for a status sent as a list' do
+      get '/api/v1/stock-transfers', params: { status: ['in_transit'] }, headers: headers
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'returns 400 for a product id sent as a list' do
+      get '/api/v1/stock-transfers', params: { product_id: [1, 2] }, headers: headers
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'returns 400 for a status sent as a hash' do
+      get '/api/v1/stock-transfers', params: { status: { foo: 'bar' } }, headers: headers
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'says which parameter is wrong' do
+      get '/api/v1/stock-transfers', params: { product_id: [1] }, headers: headers
+
+      expect(response.parsed_body['error']).to include('product_id')
+    end
+  end
+
   describe 'POST /api/v1/stock-transfers/:id/receive' do
     it 'settles the transfer into the destination', :aggregate_failures do
       transfer = dispatch_one

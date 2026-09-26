@@ -68,6 +68,39 @@ RSpec.describe 'Failed events API', type: :request do
       expect(response.parsed_body['data'].pluck('id')).to contain_exactly(dead.id)
     end
 
+    # Un filtro con forma de Array o de Hash es un error de contrato del
+    # cliente, no del servidor: `where` lo traduciría a un `IN` —200 filtrando
+    # por otra cosa— o levantaría TypeError → 500 (TESIS-124).
+    context 'when a filter is not a single value' do
+      it 'returns 400 for an event type sent as a list' do
+        get '/api/v1/failed-events', params: { event_type: ['integrations.http_request'] },
+                                     headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'says which parameter is wrong' do
+        get '/api/v1/failed-events', params: { event_type: ['x'] }, headers: headers
+
+        expect(response.parsed_body['error']).to include('event_type')
+      end
+
+      it 'returns 400 for a status sent as a hash instead of ignoring it' do
+        get '/api/v1/failed-events', params: { status: { foo: 'dead' } }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'does not answer 200 with the wrong rows' do
+        create_event(company, event_type: 'orders.ingestion')
+
+        get '/api/v1/failed-events', params: { event_type: ['integrations.http_request'] },
+                                     headers: headers
+
+        expect(response.parsed_body).not_to have_key('data')
+      end
+    end
+
     it 'ignores an unknown status filter' do
       get '/api/v1/failed-events', params: { status: 'exploded' }, headers: headers
 

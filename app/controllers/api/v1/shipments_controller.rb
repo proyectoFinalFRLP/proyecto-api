@@ -79,10 +79,19 @@ module Api
       # Un status desconocido no se filtra ni se rechaza: `where` lo busca igual
       # y devuelve la lista vacía, que es la respuesta honesta para un filtro que
       # no matchea nada (status es un string plano, no un enum: no rompe).
+      #
+      # Desconocido no es lo mismo que mal formado, y por eso los dos filtros
+      # pasan por `scalar_param`. `?status[foo]=bar` reventaba con un TypeError;
+      # `?order_id[]=1` era peor porque NO reventaba: `where` recibía el Array y
+      # lo traducía a un `IN`, así que la query filtraba por varias órdenes a la
+      # vez —una capacidad que nadie declaró ni documentó— y el 200 lo tapaba.
       def filtered_shipments
+        status = scalar_param(:status)
+        order_id = scalar_param(:order_id)
+
         shipments = policy_scope(Shipment)
-        shipments = shipments.where(status: params[:status]) if params[:status].present?
-        shipments = shipments.where(order_id: params[:order_id]) if params[:order_id].present?
+        shipments = shipments.where(status: status) if status.present?
+        shipments = shipments.where(order_id: order_id) if order_id.present?
         shipments
       end
 
