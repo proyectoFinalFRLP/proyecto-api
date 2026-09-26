@@ -188,6 +188,87 @@ RSpec.describe 'Integrations API', type: :request do
     end
   end
 
+  # Plantillas de operación (TESIS-138): una hija se ejecuta con la cuenta de
+  # su madre, así que no se lista ni se conecta por separado.
+  describe 'operation templates' do
+    let!(:child) do
+      Service.create!(service_name: 'Mercado Libre - Conexión', type: 'ecommerce',
+                      uri: 'https://api.mercadolibre.com/users/me', http_method: 'GET',
+                      parent_service: service, operation: 'connection_test')
+    end
+
+    it 'does not list them as connectable services' do
+      get '/api/v1/integrations', headers: headers
+
+      expect(listed.pluck('service_id')).to contain_exactly(service.id)
+    end
+
+    it 'refuses to connect one directly' do
+      put "/api/v1/integrations/#{child.id}", params: payload, headers: headers, as: :json
+
+      expect(response).to have_http_status(:not_found)
+    end
+  end
+
+  describe 'settings' do
+    it 'stores the non-secret configuration of the account in plain settings' do
+      put "/api/v1/integrations/#{service.id}",
+          params: payload.merge(settings: { shop_domain: 'demo.myshopify.com' }),
+          headers: headers, as: :json
+
+      expect(CompanyIntegration.last.settings).to eq('shop_domain' => 'demo.myshopify.com')
+    end
+
+    it 'keeps the stored settings when the request does not send them' do
+      CompanyIntegration.create!(company: company, service: service,
+                                 credentials: { 'access_token' => 'OLD' },
+                                 settings: { 'shop_domain' => 'demo.myshopify.com' })
+      put "/api/v1/integrations/#{service.id}", params: payload, headers: headers, as: :json
+
+      expect(CompanyIntegration.last.settings).to eq('shop_domain' => 'demo.myshopify.com')
+    end
+  end
+
+  describe 'POST /api/v1/integrations/:service_id/test' do
+    it 'returns 404 when the company has not configured the service' do
+      post "/api/v1/integrations/#{service.id}/test", headers: headers
+
+      expect(response).to have_http_status(:not_found)
+    end
+
+    context 'when the company configured the service' do
+      before do
+        CompanyIntegration.create!(company: company, service: service,
+                                   credentials: { 'access_token' => 'TOKEN-A' })
+      end
+
+      # Que el proveedor no conteste o rechace la cuenta es el resultado de la
+      # prueba, no un error del request.
+      it 'answers 200 with the result of the test', :aggregate_failures do
+        post "/api/v1/integrations/#{service.id}/test", headers: headers
+
+        expect(response).to have_http_status(:ok)
+        expect(response.parsed_body)
+          .to eq('ok' => false, 'message' => 'Mercado Libre does not declare a connection test')
+      end
+
+      it 'refuses to test without the integrations feature' do
+        company.update!(features: { 'integrations' => false })
+        post "/api/v1/integrations/#{service.id}/test", headers: headers
+
+        expect(response).to have_http_status(:forbidden)
+      end
+    end
+
+    it 'does not test the integration of another company' do
+      CompanyIntegration.create!(company: Company.create!(name: 'Tenant B', tax_id: '30-22222222-2'),
+                                 service: service, credentials: { 'access_token' => 'TOKEN-B' })
+      post "/api/v1/integrations/#{service.id}/test", headers: headers
+
+      expect(response).to have_http_status(:not_found)
+    end
+  end
+
   def payload
     { credentials: { access_token: 'SECRET-TOKEN' } }
   end

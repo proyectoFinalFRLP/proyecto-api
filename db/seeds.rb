@@ -282,10 +282,67 @@ services = [
       'EN DISTRIBUCION' => 'in_transit',
       'ENTREGADO' => 'delivered'
     }
+  },
+  # Shopify (TESIS-138): la madre es la integración que la empresa conecta.
+  # Cada empresa carga el client_id y el client_secret de SU propia app del
+  # Dev Dashboard (opción B: la app y la tienda están en la organización de la
+  # empresa, que es lo que exige el grant client_credentials) y el dominio de
+  # su tienda. El token lo obtiene y renueva el sistema.
+  #
+  # La versión de la API vive en la URI: se actualiza desde el backoffice sin
+  # deploy. Shopify mantiene cada versión unos 12 meses.
+  {
+    service_name: 'Shopify',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    auth_strategy: 'oauth_client_credentials',
+    auth_config: {
+      'token_url' => 'https://:shop_domain/admin/oauth/access_token',
+      'token_header' => 'X-Shopify-Access-Token',
+      'token_prefix' => ''
+    },
+    credential_fields: [
+      { 'key' => 'client_id', 'label' => 'Client ID', 'required' => true },
+      { 'key' => 'client_secret', 'label' => 'Client secret', 'required' => true }
+    ],
+    setting_fields: [
+      { 'key' => 'shop_domain', 'label' => 'Dominio de la tienda', 'required' => true,
+        'format' => '\A[a-z0-9][a-z0-9-]*\.myshopify\.com\z' },
+      { 'key' => 'location_id', 'label' => 'Ubicación de stock', 'required' => false }
+    ],
+    request_mapper: {},
+    response_mapper: {},
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  # «Probar conexión» de Shopify: plantilla hija, se ejecuta con la cuenta de la
+  # madre. Trae el nombre de la tienda y la primera ubicación, que completa el
+  # setting `location_id` si la empresa no lo cargó.
+  {
+    service_name: 'Shopify - Conexión',
+    parent_service_name: 'Shopify',
+    operation: 'connection_test',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: '{ shop { name } locations(first: 5) { nodes { id name } } }',
+    request_mapper: {},
+    response_mapper: {
+      'data.shop.name' => 'account_name',
+      'data.locations.nodes.0.id' => 'location_id'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
   }
 ]
 
 services.each do |attrs|
+  # El vínculo con la madre se resuelve después del loop: la madre recién existe
+  # cuando terminó de crearse.
+  attrs = attrs.except(:parent_service_name)
   service = Service.find_or_create_by!(service_name: attrs[:service_name]) do |s|
     s.assign_attributes(attrs)
   end
@@ -297,7 +354,16 @@ services.each do |attrs|
   # la plantilla (uri, http_method, type) por si se editó a mano desde el
   # backoffice, y sin tocar otras plantillas: cada vuelta sólo actualiza su
   # propio service_name.
-  service.update!(attrs.slice(*Service::MAPPER_FIELDS.map(&:to_sym)))
+  # La configuración de conexión (auth, transporte, campos declarados) se
+  # reaplica con el mismo criterio: si no, una base sembrada antes de TESIS-138
+  # se quedaba con plantillas que no saben autenticarse.
+  service.update!(attrs.slice(*(Service::MAPPER_FIELDS + Service::CONNECTION_FIELDS).map(&:to_sym)))
+end
+
+# Plantillas de operación: cada hija apunta a su madre (TESIS-138).
+services.select { |attrs| attrs[:parent_service_name] }.each do |attrs|
+  parent = Service.find_by!(service_name: attrs[:parent_service_name])
+  Service.find_by!(service_name: attrs[:service_name]).update!(parent_service: parent)
 end
 
 # Correo Argentino no empuja el tracking: se le pregunta con su plantilla de

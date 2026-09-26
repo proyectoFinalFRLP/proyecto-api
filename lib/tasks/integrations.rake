@@ -1,0 +1,76 @@
+# frozen_string_literal: true
+
+# Tareas de desarrollo para conectar una empresa de los seeds con una tienda de
+# prueba de Shopify sin pegar el client_secret en la consola ni en un request.
+#
+# Lee del entorno, o de `.env` si no están seteadas (Rails no carga `.env`):
+#   SHOPIFY_<SLUG>_SHOP_DOMAIN    ej. onestock-norte.myshopify.com
+#   SHOPIFY_<SLUG>_CLIENT_ID
+#   SHOPIFY_<SLUG>_CLIENT_SECRET
+#
+#   bin/rails "integrations:shopify:connect[norte]"
+#   bin/rails "integrations:shopify:test[norte]"
+module ShopifyDevTasks
+  module_function
+
+  def connect(slug)
+    abort 'Solo para desarrollo' unless Rails.env.development?
+
+    company = company(slug)
+    integration = Integrations::UpsertIntegration.new(
+      company: company, service_id: shopify.id,
+      credentials: { 'client_id' => setting(slug, 'CLIENT_ID'),
+                     'client_secret' => setting(slug, 'CLIENT_SECRET') },
+      settings: { 'shop_domain' => setting(slug, 'SHOP_DOMAIN') }
+    ).call
+
+    puts "#{company.name} conectada a #{integration.settings['shop_domain']} " \
+         "(integración ##{integration.id}). Credenciales guardadas cifradas."
+  end
+
+  def test(slug)
+    company = company(slug)
+    Current.set(company_id: company.id) do
+      integration = company.company_integrations.find_by!(service: shopify)
+      result = Integrations::TestConnection.new(company_integration: integration).call
+
+      puts "ok: #{result[:ok]} — #{result[:message]}"
+      puts "settings: #{integration.reload.settings}"
+    end
+  end
+
+  def shopify = Service.find_by!(service_name: 'Shopify')
+
+  def company(slug)
+    Company.find_by(slug: slug) || abort("No existe la empresa con slug #{slug}")
+  end
+
+  def setting(slug, name)
+    key = "SHOPIFY_#{slug.upcase}_#{name}"
+    ENV.fetch(key) { dotenv[key] }.presence || abort("Falta #{key} en el entorno o en .env")
+  end
+
+  def dotenv
+    path = Rails.root.join('.env')
+    return {} unless path.exist?
+
+    path.each_line.with_object({}) do |line, values|
+      key, value = line.strip.split('=', 2)
+      values[key] = value if key.present? && value && !key.start_with?('#')
+    end
+  end
+end
+
+namespace :integrations do
+  namespace :shopify do
+    desc 'Conecta la empresa [slug] con su tienda de prueba de Shopify (solo desarrollo)'
+    task :connect, [:slug] => :environment do |_task, args|
+      ShopifyDevTasks.connect(args.fetch(:slug, 'norte'))
+    end
+
+    desc 'Prueba la conexión de Shopify de la empresa [slug]'
+    task :test, [:slug] => :environment do |_task, args|
+      ShopifyDevTasks.test(args.fetch(:slug, 'norte'))
+    end
+  end
+end

@@ -24,7 +24,7 @@ module Api
       # nodos, no de a páginas.
       def index
         integrations = current_company.company_integrations.index_by(&:service_id)
-        services, meta = paginate(Service.order(:id), per_page: WHOLE_LIST_PER_PAGE)
+        services, meta = paginate(Service.connectable.order(:id), per_page: WHOLE_LIST_PER_PAGE)
 
         render json: {
           data: IntegrationStatusSerializer.render_as_hash(
@@ -40,9 +40,20 @@ module Api
           company: current_company,
           service_id: params[:service_id],
           credentials: credentials_params,
+          settings: settings_params,
           is_active: params.fetch(:is_active, true)
         ).call
         render json: CompanyIntegrationSerializer.render(integration), status: :ok
+      end
+
+      # «Probar conexión». Siempre 200: que el proveedor rechace la cuenta es el
+      # resultado de la prueba, no un error del request (`ok: false`).
+      def test
+        authorize CompanyIntegration
+        integration = current_company.company_integrations
+                                     .find_by!(service_id: params.expect(:service_id))
+        render json: Integrations::TestConnection.new(company_integration: integration).call,
+               status: :ok
       end
 
       private
@@ -54,6 +65,11 @@ module Api
         end
 
         raw.to_unsafe_h
+      end
+
+      def settings_params
+        raw = params[:settings]
+        raw.is_a?(ActionController::Parameters) ? raw.to_unsafe_h : nil
       end
     end
   end

@@ -8,4 +8,7 @@ class CompanyIntegrationPolicy < ApplicationPolicy
   def update?
     user.present? && user.company.feature_enabled?(:integrations)
   end
+
+  # Probar la conexión es parte de configurarla: mismo permiso que el alta.
+  def test? = update?
 end

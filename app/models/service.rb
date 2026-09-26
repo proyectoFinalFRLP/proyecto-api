@@ -9,6 +9,24 @@ class Service < ApplicationRecord
   MAPPER_FIELDS = %w[request_mapper response_mapper request_value_mapper
                      response_value_mapper].freeze
 
+  # Cómo se autentica la plantilla (ver Integrations::AuthHeaders). `bearer` es
+  # el comportamiento de siempre: `access_token` como Bearer y el resto de las
+  # credenciales como headers literales.
+  BEARER = 'bearer'
+  OAUTH_CLIENT_CREDENTIALS = 'oauth_client_credentials'
+  AUTH_STRATEGIES = [BEARER, OAUTH_CLIENT_CREDENTIALS].freeze
+
+  # Cómo viaja el body. GraphQL manda `{ query: body_template, variables }`,
+  # donde las variables son el resultado del request_mapper.
+  JSON_FORMAT = 'json'
+  GRAPHQL_FORMAT = 'graphql'
+  REQUEST_FORMATS = [JSON_FORMAT, GRAPHQL_FORMAT].freeze
+
+  # Lo que define cómo se conecta una plantilla, además de sus mappers. Los
+  # seeds lo reaplican sobre las plantillas que ya existen.
+  CONNECTION_FIELDS = %w[auth_strategy auth_config credential_fields setting_fields
+                         request_format body_template error_path operation].freeze
+
   # Vocabulario de una plantilla de consulta de tracking (ver #answers_tracking?).
   TRACKING_STATUS_KEY = 'external_status'
   TRACKING_URI_PARAM = ':tracking_number'
@@ -33,11 +51,28 @@ class Service < ApplicationRecord
   has_many :quoted_services, class_name: 'Service', foreign_key: :quote_service_id,
                              inverse_of: :quote_service, dependent: :nullify
 
+  # Plantillas de operación: otra llamada al mismo proveedor con la misma
+  # cuenta (probar la conexión, buscar una variante, registrar un webhook). Una
+  # hija no es conectable: se ejecuta con la integración de su madre, igual que
+  # la plantilla de seguimiento de un courier (ADR-014).
+  belongs_to :parent_service, class_name: 'Service', optional: true,
+                              inverse_of: :operation_services
+  has_many :operation_services, class_name: 'Service', foreign_key: :parent_service_id,
+                                inverse_of: :parent_service, dependent: :destroy
+
+  # Sólo las madres se conectan: el listado de integraciones y el alta las usan.
+  scope :connectable, -> { where(parent_service_id: nil) }
+
   validates :service_name, presence: true, uniqueness: true
   validates :uri, presence: true
   validates :http_method, presence: true
   validates :type, presence: true, inclusion: { in: TYPES }
+  validates :auth_strategy, inclusion: { in: AUTH_STRATEGIES }
+  validates :request_format, inclusion: { in: REQUEST_FORMATS }
+  validates :operation, presence: true, uniqueness: { scope: :parent_service_id },
+                        if: :parent_service_id
   validate :mappers_are_valid_json
+  validate :field_specs_are_lists
   validate :tracking_service_answers_tracking
   validate :quote_service_quotes_shipping
 
@@ -48,6 +83,21 @@ class Service < ApplicationRecord
   def ecommerce? = type == ECOMMERCE
 
   def courier? = type == COURIER
+
+  def graphql? = request_format == GRAPHQL_FORMAT
+
+  def oauth_client_credentials? = auth_strategy == OAUTH_CLIENT_CREDENTIALS
+
+  # La plantilla hija que sabe hacer `operation` con la cuenta de esta
+  # integración, o nil si el proveedor no la declara.
+  def template_for(operation)
+    operation_services.find_by(operation: operation.to_s)
+  end
+
+  # Las claves de configuración que la plantilla le pide a la empresa.
+  def setting_keys
+    setting_fields.filter_map { |field| field['key'] }
+  end
 
   # Una plantilla de courier puede servir para cotizar o para despachar: son dos
   # endpoints distintos del mismo proveedor y, por convención del proyecto, dos
@@ -139,6 +189,17 @@ class Service < ApplicationRecord
 
   def mappers_are_valid_json
     mapper_errors.each { |field, message| errors.add(field, message) }
+  end
+
+  # Cada campo declarado es un objeto con al menos su `key`: es lo que el
+  # formulario de conexión usa para armar cada input.
+  def field_specs_are_lists
+    %i[credential_fields setting_fields].each do |attribute|
+      specs = public_send(attribute)
+      next if specs.is_a?(Array) && specs.all? { |spec| spec.is_a?(Hash) && spec['key'].present? }
+
+      errors.add(attribute, 'debe ser una lista de campos con su key')
+    end
   end
 
   # Sólo un courier se consulta por tracking, y sólo con una plantilla que sepa

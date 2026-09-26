@@ -10,10 +10,6 @@ module Integrations
     # Segundos para abrir la conexión y para esperar la respuesta.
     TIMEOUTS = { open: 10, read: 10 }.freeze
 
-    # Charset de nombre de header válido (RFC 9110 token). Net::HTTPHeader no
-    # valida la clave: un \r\n en el nombre parte la línea e inyecta headers.
-    HEADER_NAME = /\A[A-Za-z0-9!#$%&'*+\-.^_`|~]+\z/
-
     HTTP_METHODS = {
       'GET' => Net::HTTP::Get,
       'POST' => Net::HTTP::Post,
@@ -56,11 +52,16 @@ module Integrations
     # mappers. `call` aplica el response_value_mapper a todo lo que extrae, y hay
     # quien necesita el dato crudo: el seguimiento conserva el estado externo
     # textual además del traducido (ver Shipments::TranslateTrackingPayload).
+    #
+    # También es donde se detectan los errores que llegan con HTTP 200
+    # (Integrations::DetectResponseErrors): así los ven los dos caminos.
     def fetch
-      response = execute(build_request)
+      response = execute_with_token_renewal
       raise_http_error(response) unless response.is_a?(Net::HTTPSuccess)
 
-      parse_json(response.body)
+      parse_json(response.body).tap do |body|
+        DetectResponseErrors.new(service: @service, body: body, payload: @payload).call
+      end
     rescue *NETWORK_ERRORS => e
       raise AdapterExecutionError.new(
         "#{@service.service_name} request failed: #{e.class}: #{e.message}", payload: @payload
@@ -69,14 +70,34 @@ module Integrations
 
     private
 
-    def build_request
+    # Un 401 con un token que el sistema creía vigente (lo revocaron, o el
+    # proveedor lo invalidó antes de tiempo) se reintenta una sola vez con un
+    # token nuevo. Sólo tiene sentido con las estrategias que obtienen el token
+    # solas: con `bearer` el token es el que cargó la empresa.
+    def execute_with_token_renewal
+      response = execute(build_request)
+      return response unless response.is_a?(Net::HTTPUnauthorized) && renewable_token?
+
+      execute(build_request(force_refresh: true))
+    end
+
+    def renewable_token? = @integration.service.oauth_client_credentials?
+
+    def build_request(force_refresh: false)
       uri = URI(interpolated_uri)
       request = request_class.new(uri)
-      headers.each { |key, value| request[key] = value }
-      unless BODYLESS_METHODS.include?(@service.http_method)
-        request.body = BuildExternalPayload.new(service: @service, payload: @payload).call.to_json
-      end
+      headers(force_refresh).each { |key, value| request[key] = value }
+      request.body = request_body unless BODYLESS_METHODS.include?(@service.http_method)
       [uri, request]
+    end
+
+    # GraphQL manda el documento tal cual y los valores dinámicos siempre como
+    # variables, nunca interpolados en el documento.
+    def request_body
+      mapped = BuildExternalPayload.new(service: @service, payload: @payload).call
+      return mapped.to_json unless @service.graphql?
+
+      { query: @service.body_template, variables: mapped }.to_json
     end
 
     def request_class
@@ -112,33 +133,17 @@ module Integrations
       )
     end
 
-    # Convención de credenciales: access_token viaja como Bearer; cualquier otra
-    # clave del hash se envía como header literal (ej. X-Api-Key).
-    def headers
-      base = { 'Content-Type' => 'application/json', 'Accept' => 'application/json' }
-      (@integration.credentials || {}).each_with_object(base) do |(key, value), result|
-        validate_header_name!(key)
-
-        if key == 'access_token'
-          result['Authorization'] = "Bearer #{value}"
-        else
-          result[key] = value.to_s
-        end
-      end
-    end
-
-    def validate_header_name!(key)
-      return if key.to_s.match?(HEADER_NAME)
-
-      raise AdapterExecutionError.new(
-        "#{@service.service_name} has an invalid credential key", payload: @payload
+    def headers(force_refresh)
+      { 'Content-Type' => 'application/json', 'Accept' => 'application/json' }.merge(
+        AuthHeaders.new(company_integration: @integration, force_refresh: force_refresh).call
       )
     end
 
+    # Los settings de la cuenta completan la URI (`https://:shop_domain/...`);
+    # los uri_params del caso de uso tienen prioridad sobre ellos.
     def interpolated_uri
-      @uri_params.reduce(@service.uri) do |uri, (key, value)|
-        uri.gsub(":#{key}", value.to_s)
-      end
+      values = (@integration.settings || {}).merge(@uri_params.transform_keys(&:to_s))
+      InterpolateUri.new(template: @service.uri, values: values).call
     end
   end
 end

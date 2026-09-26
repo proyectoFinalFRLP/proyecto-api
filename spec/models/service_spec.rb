@@ -345,4 +345,65 @@ RSpec.describe Service, type: :model do
       expect(service.request_mapper).to eq('a' => 'b')
     end
   end
+
+  describe 'connection config (TESIS-138)' do
+    it 'authenticates with bearer and speaks JSON by default', :aggregate_failures do
+      expect(service.auth_strategy).to eq('bearer')
+      expect(service.request_format).to eq('json')
+    end
+
+    it 'rejects an unknown auth strategy' do
+      service.auth_strategy = 'magic'
+      expect(service).not_to be_valid
+    end
+
+    it 'rejects an unknown request format' do
+      service.request_format = 'soap'
+      expect(service).not_to be_valid
+    end
+
+    it 'requires every declared field to have a key' do
+      service.setting_fields = [{ 'label' => 'Dominio' }]
+      expect(service).not_to be_valid
+    end
+
+    it 'lists the setting keys it asks the company for' do
+      service.setting_fields = [{ 'key' => 'shop_domain' }, { 'key' => 'location_id' }]
+      expect(service.setting_keys).to eq(%w[shop_domain location_id])
+    end
+  end
+
+  describe 'operation templates' do
+    before { service.save! }
+
+    def child(attributes = {})
+      described_class.new({ service_name: 'ML - Conexión', type: 'ecommerce',
+                            uri: 'https://api.ml.com/users/me', http_method: 'GET',
+                            parent_service: service, operation: 'connection_test' }
+                            .merge(attributes))
+    end
+
+    it 'finds the child that performs an operation' do
+      test_template = child.tap(&:save!)
+      expect(service.template_for(:connection_test)).to eq(test_template)
+    end
+
+    it 'returns nil when the provider does not declare the operation' do
+      expect(service.template_for(:connection_test)).to be_nil
+    end
+
+    it 'requires a child to say which operation it performs' do
+      expect(child(operation: nil)).not_to be_valid
+    end
+
+    it 'allows a single child per operation' do
+      child.save!
+      expect(child(service_name: 'ML - Conexión 2')).not_to be_valid
+    end
+
+    it 'keeps children out of the connectable services' do
+      child.save!
+      expect(described_class.connectable).to contain_exactly(service)
+    end
+  end
 end

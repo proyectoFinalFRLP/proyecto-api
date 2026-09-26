@@ -19,7 +19,9 @@ Rails.application.routes.draw do
       # del token.
       get 'me', to: 'me#show'
 
-      resources :integrations, only: %i[index update], param: :service_id
+      resources :integrations, only: %i[index update], param: :service_id do
+        post :test, on: :member
+      end
       resources :warehouses, only: %i[index show create update destroy]
       resources :products, only: %i[index show create update destroy] do
         # Vocabulario de categorías: ruta de colección, no depende de un producto.
