@@ -131,6 +131,19 @@ El sistema implementa **row-level multi-tenancy**: todas las empresas comparten 
 
 #### 1. Migración
 
+> **Regla obligatoria — timestamp completo y real.** Toda migración nueva se genera con
+> `bin/rails generate migration NombreDeLaMigracion`, que usa la fecha y hora actuales
+> (`YYYYMMDDHHMMSS`, con segundos). **Nunca** escribas el timestamp a mano ni uses valores
+> redondeados como `...120000` o `...000000`: dos personas (o agentes) trabajando en ramas
+> distintas eligen el mismo número, Rails falla con `DuplicateMigrationVersionError` o, peor,
+> una migración queda marcada como corrida sin haberse aplicado.
+>
+> Si creás el archivo sin el generador, tomá el timestamp de `date -u +%Y%m%d%H%M%S`.
+> Antes de pushear, verificá que no haya versiones duplicadas contra `master`:
+> `ls db/migrate | cut -c1-14 | sort | uniq -d` (tiene que salir vacío).
+> No renombres migraciones que ya están en `master`: cambiarles la versión hace que se
+> vuelvan a correr en las bases donde ya se aplicaron.
+
 ```ruby
 # db/migrate/YYYYMMDDHHMMSS_create_products.rb
 class CreateProducts < ActiveRecord::Migration[8.1]
