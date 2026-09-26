@@ -206,6 +206,28 @@ RSpec.describe Shipments::PollTrackingStatus, type: :poro do
       expect(poll([shipment.id, other.id]).size).to eq(2)
     end
 
+    # La consulta masiva pregunta por varios envíos de una vez, así que cuando
+    # se cae se cae para todos. El camino de un envío por request ya estaba
+    # probado contra el timeout; este no, y es el que decide si el barrido
+    # sigue o se levanta una excepción con la ronda entera adentro (TESIS-93).
+    context 'when the batch query fails' do
+      before { stub_request(:get, batch_url).to_timeout }
+
+      it 'returns nothing instead of raising' do
+        expect(poll([shipment.id, other.id])).to be_empty
+      end
+
+      it 'registers no movement' do
+        expect { poll([shipment.id, other.id]) }.not_to change(ShipmentEvent, :count)
+      end
+
+      it 'leaves the shipments as they were' do
+        poll([shipment.id, other.id])
+
+        expect(shipment.reload.status).to eq('ready_to_ship')
+      end
+    end
+
     # Los números los mandamos nosotros: un elemento que no es de ninguno es la
     # pista de una plantilla mal configurada, y tiene que quedar en el log.
     it 'logs the element that matches no shipment of the query' do

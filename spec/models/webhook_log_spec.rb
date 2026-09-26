@@ -40,6 +40,17 @@ RSpec.describe WebhookLog, type: :model do
   # Sin esta validación, un Current heredado haría que assign_current_company
   # pisara el company_id explícito y el log terminara en el tenant equivocado
   # en silencio. Acá falla fuerte en vez de escribir mal.
+  # El guard de la validación cruzada: sin integración no hay con qué comparar,
+  # y quien tiene que hablar es la presencia de la asociación. Nadie lo
+  # ejercitaba (TESIS-93).
+  it 'does not blame the integration when there is none', :aggregate_failures do
+    log = described_class.new(company: company)
+
+    log.valid?
+
+    expect(log.errors[:company_integration]).not_to include('must belong to the same company')
+  end
+
   it 'refuses to write under a leaked tenant instead of doing it silently' do
     integration
     Current.company_id = Company.create!(name: 'Intruso', tax_id: '30-88888888-8').id

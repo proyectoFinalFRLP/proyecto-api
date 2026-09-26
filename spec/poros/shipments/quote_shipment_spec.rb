@@ -105,6 +105,56 @@ RSpec.describe Shipments::QuoteShipment, type: :poro do
     end
   end
 
+  # Los días son opcionales: hay couriers que cotizan el precio y no prometen
+  # plazo. La opción tiene que llegar igual, con el plazo vacío, en vez de
+  # descartarse o de viajar con un cero que el front mostraría como "0 días"
+  # (TESIS-93).
+  context 'when a courier quotes a price but no delivery time' do
+    before do
+      integrate(quoting_service('Fast', 'https://fast.test/rates'))
+      stub_request(:post, 'https://fast.test/rates')
+        .to_return(status: 200, body: { precio: 2500.0 }.to_json)
+    end
+
+    it 'keeps the option' do
+      expect(quotes.length).to eq(1)
+    end
+
+    it 'leaves the estimate empty instead of inventing a zero' do
+      expect(quotes.first[:estimated_days]).to be_nil
+    end
+
+    it 'still carries the price' do
+      expect(quotes.first[:shipping_cost]).to eq(BigDecimal('2500.0'))
+    end
+  end
+
+  # Un costo que no es un número: el courier contestó 'gratis', o un texto de
+  # error en el campo del precio. La opción se descarta en vez de tumbar la
+  # cotización entera, que es lo mismo que se hace cuando no manda precio.
+  context 'when a courier answers a price that is not a number' do
+    before do
+      integrate(quoting_service('Fast', 'https://fast.test/rates'))
+      integrate(quoting_service('Cheap', 'https://cheap.test/rates'))
+      stub_request(:post, 'https://fast.test/rates')
+        .to_return(status: 200, body: { precio: 'gratis', dias: 1 }.to_json)
+      stub_request(:post, 'https://cheap.test/rates')
+        .to_return(status: 200, body: { precio: 1800.0, dias: 5 }.to_json)
+    end
+
+    it 'drops that option' do
+      expect(quotes.pluck(:provider_name)).to eq(['Cheap'])
+    end
+
+    it 'still returns the courier that answered a number' do
+      expect(quotes.length).to eq(1)
+    end
+
+    it 'does not raise' do
+      expect { quotes }.not_to raise_error
+    end
+  end
+
   context 'with a courier template that only knows how to dispatch' do
     before do
       dispatch = Service.create!(service_name: 'Andreani', type: 'courier', http_method: 'POST',

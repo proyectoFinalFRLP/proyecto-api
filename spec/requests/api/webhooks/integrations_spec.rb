@@ -96,6 +96,53 @@ RSpec.describe 'Webhooks gateway', type: :request do
       end
     end
 
+    # Las otras dos formas que puede tomar un body que no es un objeto. Un
+    # proveedor que hace ping con el cuerpo vacío, y uno que manda un JSON
+    # válido que no es ni objeto ni lista. Ninguna se probaba, y las dos tienen
+    # que terminar en un log guardado: el evento no se pierde (TESIS-93).
+    context 'when the body is empty' do
+      def post_empty_body
+        post "/api/webhooks/integrations/#{integration.id}",
+             params: '', headers: { 'CONTENT_TYPE' => 'application/json' }
+      end
+
+      it 'accepts it' do
+        post_empty_body
+        expect(response).to have_http_status(:accepted)
+      end
+
+      it 'files the event with an empty payload instead of failing' do
+        post_empty_body
+        expect(WebhookLog.unscoped.last.payload).to eq({})
+      end
+    end
+
+    context 'when the body is valid JSON but not an object' do
+      def post_scalar_body
+        post "/api/webhooks/integrations/#{integration.id}",
+             params: '"solo-un-string"', headers: { 'CONTENT_TYPE' => 'application/json' }
+      end
+
+      it 'accepts it' do
+        post_scalar_body
+        expect(response).to have_http_status(:accepted)
+      end
+
+      it 'keeps it raw, the same as an unparseable body' do
+        post_scalar_body
+        expect(WebhookLog.unscoped.last.payload).to eq('raw' => '"solo-un-string"')
+      end
+    end
+
+    context 'when the body is a JSON array' do
+      it 'stores the list as it came' do
+        post "/api/webhooks/integrations/#{integration.id}",
+             params: '[{"id":1}]', headers: { 'CONTENT_TYPE' => 'application/json' }
+
+        expect(WebhookLog.unscoped.last.payload).to eq([{ 'id' => 1 }])
+      end
+    end
+
     context 'when the integration does not exist' do
       it 'returns 404' do
         post_webhook(999_999)
