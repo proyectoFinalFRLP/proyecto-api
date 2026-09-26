@@ -11,4 +11,7 @@ class CompanyIntegrationPolicy < ApplicationPolicy
 
   # Probar la conexión es parte de configurarla: mismo permiso que el alta.
   def test? = update?
+
+  # Desconectar también es configurarla.
+  def destroy? = update?
 end

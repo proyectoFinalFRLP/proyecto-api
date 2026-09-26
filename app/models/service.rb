@@ -108,6 +108,18 @@ class Service < ApplicationRecord
     template_for(:stock)
   end
 
+  # Si la plantilla dice qué datos le pide a la empresa. Las que no declaran
+  # nada conservan el alta de siempre (ver Integrations::UpsertIntegration).
+  def declares_fields?
+    credential_fields.any? || setting_fields.any?
+  end
+
+  # Si tiene una hija para `operation`. Usa la asociación cargada: el listado
+  # de integraciones la precarga para no hacer una consulta por plantilla.
+  def declares_operation?(operation)
+    operation_services.any? { |child| child.operation == operation.to_s }
+  end
+
   # Las claves de configuración que la plantilla le pide a la empresa.
   def setting_keys
     setting_fields.filter_map { |field| field['key'] }

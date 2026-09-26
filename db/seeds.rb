@@ -431,6 +431,13 @@ services.each do |attrs|
   service.update!(attrs.slice(*(Service::MAPPER_FIELDS + Service::CONNECTION_FIELDS).map(&:to_sym)))
 end
 
+# Las plantillas de siempre se autentican con un token fijo (`bearer`): se
+# declara ese campo para que el formulario de conexión del front sepa pedirlo.
+Service.connectable.where(auth_strategy: 'bearer', credential_fields: []).find_each do |service|
+  service.update!(credential_fields: [{ 'key' => 'access_token', 'label' => 'Access token',
+                                        'required' => true }])
+end
+
 # Plantillas de operación: cada hija apunta a su madre (TESIS-138).
 services.select { |attrs| attrs[:parent_service_name] }.each do |attrs|
   parent = Service.find_by!(service_name: attrs[:parent_service_name])

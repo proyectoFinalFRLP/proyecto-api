@@ -19,7 +19,7 @@ Rails.application.routes.draw do
       # del token.
       get 'me', to: 'me#show'
 
-      resources :integrations, only: %i[index update], param: :service_id do
+      resources :integrations, only: %i[index update destroy], param: :service_id do
         post :test, on: :member
       end
       resources :warehouses, only: %i[index show create update destroy]
