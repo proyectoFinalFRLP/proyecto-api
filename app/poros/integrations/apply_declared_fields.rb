@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
 module Integrations
-  # Valida y combina lo que la empresa carga en una conexión contra lo que
+  # Valida y combina los datos de la cuenta de una empresa contra lo que
   # declara la plantilla (`credential_fields`, `setting_fields`). Es la única
   # fuente de verdad del formulario: agregar un campo a la plantilla lo hace
-  # aparecer en el front y validarse acá, sin tocar código.
+  # aparecer en el backoffice (Avo::Actions::ConfigureConnection) y validarse
+  # acá, sin tocar código.
   #
   # - Un secreto que llega vacío no se cambia: el formulario nunca los precarga
-  #   (el back no los devuelve), así que «vacío» quiere decir «dejalo como está».
+  #   (nadie los devuelve), así que «vacío» quiere decir «dejalo como está».
   # - Un setting que llega vacío se borra: ése sí se precarga y vaciarlo es
   #   deliberado.
   # - Si cambia una credencial, el token cacheado se descarta: se obtuvo con la

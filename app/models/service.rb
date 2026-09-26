@@ -63,7 +63,7 @@ class Service < ApplicationRecord
   has_many :operation_services, class_name: 'Service', foreign_key: :parent_service_id,
                                 inverse_of: :parent_service, dependent: :destroy
 
-  # Sólo las madres se conectan: el listado de integraciones y el alta las usan.
+  # Sólo las madres se conectan (ver #connectable?).
   scope :connectable, -> { where(parent_service_id: nil) }
 
   validates :service_name, presence: true, uniqueness: true
@@ -114,11 +114,19 @@ class Service < ApplicationRecord
     credential_fields.any? || setting_fields.any?
   end
 
-  # Si tiene una hija para `operation`. Usa la asociación cargada: el listado
-  # de integraciones la precarga para no hacer una consulta por plantilla.
+  # Si tiene una hija para `operation`.
   def declares_operation?(operation)
     operation_services.any? { |child| child.operation == operation.to_s }
   end
+
+  # Si «probar conexión» tiene algo que verificar: una hija que la prueba o, sin
+  # ella, obtener el token (Integrations::TestConnection).
+  def connection_testable?
+    declares_operation?(Integrations::TestConnection::OPERATION) || oauth_client_credentials?
+  end
+
+  # Una hija se ejecuta con la cuenta de su madre: no se conecta sola.
+  def connectable? = parent_service_id.nil?
 
   # Las claves de configuración que la plantilla le pide a la empresa.
   def setting_keys

@@ -5,13 +5,14 @@ module Api
     class IntegrationsController < ApplicationController
       include Paginatable
 
+      # Sólo lectura. Las credenciales las carga el equipo de OneStock desde el
+      # backoffice (ADR-018): la empresa ve el estado de sus integraciones, no
+      # las configura.
+      #
       # El listado no pasa por Pundit: lo usa el widget de nodos del panel
       # aunque la empresa no tenga la feature `integrations`, y sólo muestra las
-      # plantillas globales con el estado de la propia empresa. El alta y la
-      # modificación sí: ver CompanyIntegrationPolicy.
+      # plantillas globales con el estado de la propia empresa.
       skip_after_action :verify_policy_scoped
-
-      rescue_from Integrations::InvalidIntegrationError, with: :render_invalid_fields
 
       # Envuelto en `data` como el resto de las colecciones (ADR-015): era el
       # único listado que devolvía un array pelado, y un array en la raíz no
@@ -26,7 +27,7 @@ module Api
       # nodos, no de a páginas.
       def index
         integrations = current_company.company_integrations.index_by(&:service_id)
-        services, meta = paginate(Service.connectable.includes(:operation_services).order(:id),
+        services, meta = paginate(Service.connectable.order(:id),
                                   per_page: WHOLE_LIST_PER_PAGE)
 
         render json: {
@@ -35,64 +36,6 @@ module Api
           ),
           meta: meta
         }
-      end
-
-      def update
-        authorize CompanyIntegration
-        integration = Integrations::UpsertIntegration.new(
-          company: current_company,
-          service_id: params[:service_id],
-          credentials: credentials_params,
-          settings: settings_params,
-          is_active: params[:is_active]
-        ).call
-        render json: CompanyIntegrationSerializer.render(integration), status: :ok
-      end
-
-      # Desconectar: deja de operar y borra los secretos, conservando la
-      # configuración y los productos vinculados (Integrations::DisconnectIntegration).
-      def destroy
-        authorize CompanyIntegration
-        Integrations::DisconnectIntegration.new(company_integration: current_integration).call
-        head :no_content
-      end
-
-      # «Probar conexión». Siempre 200: que el proveedor rechace la cuenta es el
-      # resultado de la prueba, no un error del request (`ok: false`).
-      def test
-        authorize CompanyIntegration
-        result = Integrations::TestConnection.new(company_integration: current_integration).call
-        render json: result, status: :ok
-      end
-
-      private
-
-      def current_integration
-        current_company.company_integrations.find_by!(service_id: params.expect(:service_id))
-      end
-
-      # Opcional: sin credenciales se conservan las que había. Si vienen, tienen
-      # que ser un objeto (un string o un array reventarían dentro del cifrado).
-      def credentials_params
-        return nil unless params.key?(:credentials)
-
-        raw = params[:credentials]
-        unless raw.is_a?(ActionController::Parameters)
-          raise ActionController::ParameterMissing, :credentials
-        end
-
-        raw.to_unsafe_h
-      end
-
-      def settings_params
-        raw = params[:settings]
-        raw.is_a?(ActionController::Parameters) ? raw.to_unsafe_h : nil
-      end
-
-      # `error` siempre está (ADR-015); `fields` dice qué campo falló y por qué.
-      def render_invalid_fields(exception)
-        render json: { error: exception.message, fields: exception.fields },
-               status: :unprocessable_content
       end
     end
   end

@@ -2,9 +2,9 @@
 
 module Integrations
   # Los datos de una conexión no cumplen lo que declara la plantilla. `fields`
-  # dice qué campo falló y por qué, con un código que el front traduce
-  # (`required`, `invalid_format`, `unknown`): viaja junto a `error` en el 422,
-  # como `current_version` en el 409 del locking (ADR-015).
+  # dice qué campo falló y por qué (`required`, `invalid_format`, `unknown`),
+  # con la clave `credentials.<campo>` o `settings.<campo>`: el backoffice lo
+  # muestra con el nombre de cada campo (Avo::Actions::ConfigureConnection).
   class InvalidIntegrationError < StandardError
     MESSAGE = 'Invalid integration data'
 

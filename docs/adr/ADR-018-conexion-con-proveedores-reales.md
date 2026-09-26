@@ -13,7 +13,7 @@ El criterio de aceptación del proyecto (E4b V2 §2.6) pide que al menos una pla
 - `CompanyIntegration` mezclaba en un solo campo cifrado los secretos y la configuración de la cuenta (el dominio de una tienda no es un secreto, y la plantilla necesita interpolarlo en la URI).
 - Un proveedor real necesita varias llamadas con la misma cuenta (probar la conexión, buscar una publicación, publicar el stock). Hasta ahora eso obligaba a una integración por plantilla, con el token duplicado y los vínculos de productos repartidos (la consecuencia aceptada de ADR-010).
 - El sync saliente (TESIS-35) publicaba el stock en **cualquier** plantilla con productos vinculados, aunque no supiera qué hacer con él.
-- No había forma de conectar un proveedor sin Postman o el backoffice.
+- La API de la empresa aceptaba un `credentials` entero, sin validar nada, y el backoffice no permitía cargarlas (TESIS-129 lo dejó en sólo lectura para no mostrar secretos).
 
 El primer proveedor es **Shopify**, contra una tienda de prueba (*dev store*) del Partner Program. El equipo decidió integrarse sólo contra entornos de prueba, nunca contra producción. Este ADR registra las decisiones que la conexión real obligó a tomar. Los webhooks entrantes seguros (firma, token opaco, dedupe) van en un ADR aparte, junto con la ingesta de ventas.
 
@@ -23,7 +23,7 @@ El primer proveedor es **Shopify**, contra una tienda de prueba (*dev store*) de
 
 `company_integrations.settings` (jsonb, **sin cifrar**) guarda la configuración no secreta de la cuenta de la empresa: el dominio de la tienda, la ubicación de stock, el CUIT. `credentials` (cifrado, como hasta ahora) queda sólo para secretos y para el token que se obtiene con ellos.
 
-La separación no es cosmética. La plantilla interpola los settings en su URI (`https://:shop_domain/admin/api/2026-07/graphql.json`) y en el `request_mapper` (`settings.location_id`), y el front los muestra y los precarga en el formulario. Los secretos nunca salen de la API: el listado sólo dice qué claves están cargadas (`credentials_set`).
+La separación no es cosmética. La plantilla interpola los settings en su URI (`https://:shop_domain/admin/api/2026-07/graphql.json`) y en el `request_mapper` (`settings.location_id`), y el backoffice los muestra y los precarga en el formulario de conexión. Los secretos no se muestran en ningún lado: ni la API ni el backoffice los devuelven.
 
 ### Cada empresa conecta su propia app del proveedor
 
@@ -32,9 +32,23 @@ El sistema es multi-tenant, y la forma de autenticarse lo condiciona. Shopify of
 - El grant **client credentials**, que sólo funciona si la app y la tienda pertenecen a la misma organización de Shopify.
 - El **authorization code** de una app pública, que exige un flujo de instalación y la aprobación de Shopify para distribuirla.
 
-Se eligió que **cada empresa cree su propia app** en el Dev Dashboard de su organización y cargue en OneStock el `client_id`, el `client_secret` y el dominio de su tienda. Así, client credentials funciona para cualquier cliente, y no sólo para tiendas de la organización del equipo. Desde el 1/1/2026 Shopify tampoco permite crear apps desde el admin de la tienda: el Dev Dashboard es el camino oficial para la integración propia de una tienda.
+Se eligió que **cada empresa cree su propia app** en el Dev Dashboard de su organización y le pase al equipo de OneStock el `client_id`, el `client_secret` y el dominio de su tienda. Así, client credentials funciona para cualquier cliente, y no sólo para tiendas de la organización del equipo. Desde el 1/1/2026 Shopify tampoco permite crear apps desde el admin de la tienda: el Dev Dashboard es el camino oficial para la integración propia de una tienda.
 
 En consecuencia, **las credenciales de Shopify son del tenant** y viven cifradas en su integración. No hay credenciales de nivel app (Rails credentials) en uso: el mecanismo queda para un proveedor con una app única de OneStock (Mercado Libre, en pausa).
+
+### Las credenciales las carga el equipo de OneStock, desde el backoffice
+
+La empresa no carga ni ve sus credenciales. El administrador de la plataforma crea la integración en el backoffice (empresa y plantilla) y carga los datos de la cuenta con la acción **«Configure connection»** (`Avo::Actions::ConfigureConnection`), que muestra un campo por cada dato que declara la plantilla. **«Test connection»** (`Avo::Actions::TestConnection`) la prueba.
+
+La API de la empresa queda de **sólo lectura** (`GET /api/v1/integrations`): dice qué proveedores tiene conectados, si están activos y con qué cuenta (`account_name`). No hay alta, desconexión ni prueba: si quedaran los endpoints, un usuario podría cargar credenciales con Postman aunque el front no lo ofrezca.
+
+Motivos:
+
+- Conectar un proveedor es parte del alta de un cliente, que ya hace el equipo (la empresa, sus usuarios, las plantillas). La empresa no necesita ver una pantalla con campos técnicos (client secret, dominio `.myshopify.com`, ubicación de stock) que sólo usa una vez.
+- Con dos empresas de demo, el equipo está de los dos lados: nadie le tiene que mandar un secreto a nadie.
+- Menos superficie: una sola puerta para escribir secretos, detrás del login del backoffice (ADR-017).
+
+Una integración nueva **nace inactiva** en el backoffice: activa y sin cuenta, la empresa la vería como conectada. El administrador la activa después de configurarla y probarla.
 
 ### La plantilla declara cómo se autentica
 
@@ -59,24 +73,16 @@ Sólo se implementaron las dos estrategias que usa la demo. `oauth_refresh` (con
 
 ### La plantilla declara qué datos pide
 
-`services.credential_fields` y `services.setting_fields`: una lista de `{ key, label, required, format? }`. Es **la única fuente de verdad** del formulario de conexión del front y de la validación del alta (`Integrations::ApplyDeclaredFields`). Agregar un campo a la plantilla desde el backoffice lo hace aparecer en el formulario sin tocar código.
+`services.credential_fields` y `services.setting_fields`: una lista de `{ key, label, required, format? }`. Es **la única fuente de verdad** del formulario de «Configure connection» y de su validación (`Integrations::ApplyDeclaredFields`). Agregar un campo a la plantilla lo hace aparecer en el formulario sin tocar código.
 
-Reglas del alta (`PUT /api/v1/integrations/:service_id`):
+Reglas:
 
-- Un campo no declarado, uno requerido faltante o un valor que no cumple su `format` responden **422**.
-- Un secreto que llega vacío **no se cambia**: el formulario nunca los precarga, así que «vacío» quiere decir «dejalo como está».
+- Un campo requerido faltante o un valor que no cumple su `format` no se guardan, y el backoffice dice qué campo falló y por qué (`Shop domain: invalid_format`).
+- Los secretos se escriben en campos de password y **nunca se precargan**, así que un secreto vacío quiere decir «dejá el que está».
 - Un setting que llega vacío **se borra**: ése sí se precarga, y vaciarlo es deliberado.
-- Sin `is_active`, se conserva el que tenía: editar la configuración no reactiva una integración pausada.
-- Las plantillas que no declaran campos conservan el contrato de siempre (`credentials` reemplaza entero lo que había).
-
-El 422 respeta ADR-015: `error` siempre está, y `fields` viaja **junto** a él como dato para recuperarse, igual que `current_version` en el 409 del locking. Cada campo lleva un código, no un texto (`required`, `invalid_format`, `unknown`), y el front lo traduce:
-
-```json
-{ "error": "Invalid integration data",
-  "fields": { "settings.shop_domain": ["invalid_format"], "credentials.client_secret": ["required"] } }
-```
-
-Desconectar (`DELETE /api/v1/integrations/:service_id`) desactiva la integración y **borra sus secretos**, pero conserva los settings y los productos vinculados, para reconectar la misma cuenta sin volver a mapear.
+- Si cambia una credencial, se descarta el token cacheado.
+- Configurar no activa ni desactiva: el estado se cambia en el formulario de la integración.
+- Después de guardar, la conexión se prueba sola si la plantilla sabe hacerlo. En Shopify eso completa la ubicación de stock.
 
 ### Plantillas de operación
 
@@ -121,9 +127,13 @@ La consulta corre dentro del request, con el timeout de 4 s de la cotización. E
 
 ## Alternativas consideradas
 
+### Que cada empresa cargue sus credenciales desde el front
+
+Se implementó primero: una pantalla de Integraciones con el formulario armado desde la plantilla, `PUT`/`DELETE`/`test` en la API de la empresa y errores 422 por campo. Se descartó antes de mergear, por los motivos de la decisión: conectar un proveedor es parte del alta del cliente, y el usuario de la empresa no tiene por qué manejar datos técnicos que usa una sola vez. Es el camino natural si algún día cada empresa se da de alta sola.
+
 ### Todo en `credentials`
 
-Era lo que había. Se descartó porque obliga a descifrar para mostrar un dominio, impide que la plantilla lo interpole sin tratarlo como secreto y mezcla lo que el front puede precargar con lo que no debe volver nunca.
+Era lo que había. Se descartó porque obliga a descifrar para mostrar un dominio, impide que la plantilla lo interpole sin tratarlo como secreto y mezcla lo que el formulario puede precargar con lo que no debe volver nunca.
 
 ### Una app única de OneStock con authorization code (modelo de app pública)
 
@@ -146,9 +156,12 @@ Respeta la regla de «llamadas externas en un job», pero el usuario se entera d
 - ✅ Shopify funciona contra una tienda de prueba real sin código específico: conexión, prueba, vínculo por id o por SKU y publicación del stock
 - ✅ Cualquier empresa puede conectar su propia tienda: el diseño es multi-tenant de punta a punta, y nada del proveedor queda atado a la organización del equipo
 - ✅ Las integraciones que ya existían (Mercado Libre, Tiendanube, Andreani, Correo) siguen igual: `bearer` es el default y las plantillas sin campos declarados conservan su alta
-- ✅ El formulario de conexión del front se arma solo con lo que declara la plantilla
+- ✅ El formulario de conexión del backoffice se arma solo con lo que declara la plantilla
+- ✅ Una sola puerta para escribir secretos, detrás del login del backoffice
 - ✅ Ningún secreto sale de la API, y un error del proveedor no lo filtra
 - ⚠️ La empresa tiene que crear su app en el Dev Dashboard de Shopify: es más fricción que un botón «Conectar»
+- ⚠️ Con un cliente real, la empresa tendría que hacerle llegar su client secret al equipo por algún canal. Con las dos empresas de demo no pasa, porque el equipo está de los dos lados
+- ⚠️ La empresa depende del equipo para conectar, cambiar o desconectar una cuenta
 - ⚠️ Una sola cuenta por proveedor y por empresa (índice único `company_id + service_id`)
 - ⚠️ Nada impide todavía conectar la misma tienda a dos empresas: cada venta entraría en las dos. Hace falta una regla de unicidad sobre el setting que identifica la cuenta, antes de habilitar las ventas entrantes
 - ⚠️ El token se renueva con la fila bloqueada durante el pedido HTTP (hasta 10 s)
@@ -158,6 +171,6 @@ Respeta la regla de «llamadas externas en un job», pero el usuario se entera d
 
 - [ADR-010](ADR-010-ingesta-de-ordenes-de-webhooks.md): la integración por plantilla que las plantillas de operación resuelven
 - [ADR-014](ADR-014-pull-tracking-de-couriers.md): una plantilla que se ejecuta con la cuenta de otra
-- [ADR-015](ADR-015-convencion-de-respuesta-de-la-api.md): la forma del error, que `fields` acompaña
+- [ADR-017](ADR-017-backoffice.md): el backoffice, su login y cómo muestra las credenciales
 - `docs/guidelines/architecture.md` §7.4: las llamadas sincrónicas a proveedores
 - Shopify: [client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant), [`inventorySetQuantities`](https://shopify.dev/docs/api/admin-graphql/latest/mutations/inventorySetQuantities)

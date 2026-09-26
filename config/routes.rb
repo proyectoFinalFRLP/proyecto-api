@@ -19,9 +19,9 @@ Rails.application.routes.draw do
       # del token.
       get 'me', to: 'me#show'
 
-      resources :integrations, only: %i[index update destroy], param: :service_id do
-        post :test, on: :member
-      end
+      # Sólo lectura: las credenciales las carga el equipo de OneStock desde el
+      # backoffice (ADR-018).
+      resources :integrations, only: :index
       resources :warehouses, only: %i[index show create update destroy]
       resources :products, only: %i[index show create update destroy] do
         # Vocabulario de categorías: ruta de colección, no depende de un producto.
