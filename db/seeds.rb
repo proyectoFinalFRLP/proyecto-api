@@ -466,7 +466,6 @@ ml_integration =
   if first_company && ml_service
     CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
       ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
-      ci.is_active = true
     end
   end
 
@@ -551,7 +550,6 @@ if norte_company
       company: norte_company, service: ml_stock_service
     ) do |ci|
       ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
-      ci.is_active = true
     end
 
     # Una base que corrió estas seeds antes de este cambio tiene el mapping
@@ -586,7 +584,6 @@ if norte_company
       company: norte_company, service: tn_service
     ) do |ci|
       ci.credentials = { 'access_token' => 'DEMO-TOKEN-TN' }
-      ci.is_active = true
     end
 
     ProductMapping.find_or_create_by!(
@@ -603,6 +600,21 @@ if norte_company
       pm.external_price = 705_000.00
     end
   end
+end
+
+# Las conexiones de Mercado Libre y Tiendanube de Norte son de ejemplo: el token
+# es inventado y nunca hablaron con el proveedor. Se conservan porque las órdenes,
+# los vínculos y los eventos de ejemplo salen de ellas, pero inactivas: activas,
+# la pantalla de integraciones las mostraba como conectadas y cada cambio de
+# stock intentaba publicar en ellas y fallaba. Se recorre en vez de crearlas
+# inactivas para corregir también una base que ya había corrido las seeds
+# (find_or_create_by! no toca una fila que existe).
+demo_channel_tokens = %w[DEMO-TOKEN-ML DEMO-TOKEN-TN]
+CompanyIntegration.unscoped.where(is_active: true).find_each do |integration|
+  credentials = integration.credentials
+  next unless credentials.is_a?(Hash) && demo_channel_tokens.include?(credentials['access_token'])
+
+  integration.update!(is_active: false)
 end
 
 if sur_company
