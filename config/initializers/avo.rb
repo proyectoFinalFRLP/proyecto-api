@@ -27,6 +27,9 @@ Avo.configure do |config|
   end
 
   ## == Authorization ==
+  # Sin authorization_client: el administrador de la plataforma ve y edita los
+  # datos de todas las empresas. Es a propósito (ADR-017), y por eso el login y
+  # la sesión del backoffice tienen sus propias defensas (TESIS-129).
   # config.is_admin_method = :is_admin
   # config.is_developer_method = :is_developer
   # config.authorization_methods = {
@@ -192,4 +195,10 @@ Avo.configure do |config|
   # config.profile_menu = -> {
   #   link "Profile", path: "/avo/profile", icon: "tabler/outline/user-circle"
   # }
+end
+
+# Corre antes del eager load, así los controllers de Avo que se cargan después
+# heredan el before_action.
+Rails.configuration.to_prepare do
+  Avo::ApplicationController.include Admin::UncacheablePages
 end

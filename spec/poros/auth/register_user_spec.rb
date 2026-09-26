@@ -9,11 +9,45 @@ RSpec.describe Auth::RegisterUser, type: :poro do
     described_class.new(params: params, company: into).call
   end
 
-  it 'creates a user under the given company', :aggregate_failures do
+  it 'creates the account under the given company', :aggregate_failures do
     user = register
 
     expect(user).to be_persisted
     expect(user.company).to eq(company)
+  end
+
+  # Registrarse es pedir acceso: la cuenta no entra hasta que la aprueben.
+  it 'creates the account pending approval' do
+    expect(register.approved).to be(false)
+  end
+
+  context 'when the email already has an account' do
+    before { User.create!(email: 'a@test.com', password: 'password123', company: otra) }
+
+    it 'creates nothing and returns nil', :aggregate_failures do
+      result = nil
+
+      expect { result = register }.not_to change(User, :count)
+      expect(result).to be_nil
+    end
+
+    # El error de formato se informa igual que con un email libre, y sin
+    # mencionar que el email ya existe.
+    it 'still raises on invalid params, without saying the email is taken' do
+      expect { register({ password: '123' }) }
+        .to raise_error(ActiveRecord::RecordInvalid,
+                        'Validation failed: Password is too short (minimum is 6 characters)')
+    end
+  end
+
+  # Dos registros simultáneos del mismo email pasan los dos la validación y el
+  # segundo choca contra el índice único: es un email que ya tenía cuenta.
+  it 'treats a duplicate caught by the unique index as an existing email' do
+    allow(User).to receive(:new).and_wrap_original do |original, *args|
+      original.call(*args).tap { |user| allow(user).to receive(:save!).and_raise(ActiveRecord::RecordNotUnique) }
+    end
+
+    expect(register).to be_nil
   end
 
   # El company_id del body ya no llega hasta acá (el controller no lo permitea),

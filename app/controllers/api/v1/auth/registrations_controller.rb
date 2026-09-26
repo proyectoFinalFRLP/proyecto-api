@@ -5,7 +5,10 @@ module Api
     module Auth
       class RegistrationsController < ApplicationController
         include TenantFromSlug
+        include AttemptLimit
 
+        rate_limit to: MAX_ATTEMPTS, within: WINDOW, only: :create,
+                   with: :render_too_many_attempts
         skip_before_action :authenticate_user!
         skip_after_action :verify_authorized, :verify_policy_scoped
 
@@ -13,8 +16,8 @@ module Api
           company = tenant_company
           return render_unknown_tenant if company.nil?
 
-          user = ::Auth::RegisterUser.new(params: user_params, company: company).call
-          render json: UserSerializer.render(user), status: :created
+          ::Auth::RegisterUser.new(params: user_params, company: company).call
+          render_request_received
         rescue ActiveRecord::RecordInvalid => e
           # `error` en singular y con un string, como el resto de la API
           # (ADR-015). Los mensajes se unen en una oración: el consumidor de un
@@ -24,6 +27,14 @@ module Api
         end
 
         private
+
+        # 202 y el mismo cuerpo, se haya creado la solicitud o no porque el email
+        # ya tenía cuenta: ver Auth::RegisterUser. Tampoco devuelve la cuenta
+        # (antes devolvía su id y su company_id): una solicitud pendiente no es
+        # todavía nada que el que llama pueda usar.
+        def render_request_received
+          render json: { status: 'pending_approval' }, status: :accepted
+        end
 
         # `company_id` ya no se permitea: el tenant sale del slug del request.
         # Mandarlo en el body no hace nada — no es un error, simplemente se

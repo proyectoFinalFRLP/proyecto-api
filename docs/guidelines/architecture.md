@@ -223,6 +223,24 @@ Shipments::PollTrackingStatus
   - Fallo del courier → Rails.logger y sigue (sin DLQ: el próximo ciclo es el reintento)
 ```
 
+### 4.4 Flujo de un request del backoffice (`/admin`)
+
+El backoffice de Avo tampoco sigue el flujo de arriba: no hay JWT, sino una sesión por cookie del scope Devise `admin_user`, y no hay tenant, porque el administrador de la plataforma ve todas las empresas a propósito. Sin tenant, la seguridad descansa en el login y en la sesión: límite de intentos, vencimiento por inactividad y logout que invalida la cookie (ver [ADR-017](../adr/ADR-017-backoffice.md)).
+
+```
+Request (cookie _proyecto_api_session)
+  ↓
+ActionDispatch::Cookies / Session::CookieStore / Flash   (antes de Warden::Manager)
+  ↓
+Avo::ApplicationController                               (no hereda del ApplicationController de la API)
+  - authenticate_with: admin_user_signed_in? o redirect a /admin/sign_in
+  - :timeoutable: 30 min sin actividad → vuelve al login
+  - Admin::UncacheablePages: Cache-Control: no-store
+  - authorization_client = nil: sin Pundit ni CompanyScoped (Current.company_id es nil)
+  ↓
+Recurso de Avo (app/avo/resources/) → HTML
+```
+
 ---
 
 ## 5. Multi-tenancy en detalle

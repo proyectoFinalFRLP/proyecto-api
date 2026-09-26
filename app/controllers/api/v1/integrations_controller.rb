@@ -5,13 +5,17 @@ module Api
     class IntegrationsController < ApplicationController
       include Paginatable
 
-      skip_after_action :verify_authorized, :verify_policy_scoped
+      # El listado no pasa por Pundit: lo usa el widget de nodos del panel
+      # aunque la empresa no tenga la feature `integrations`, y sólo muestra las
+      # plantillas globales con el estado de la propia empresa. El alta y la
+      # modificación sí: ver CompanyIntegrationPolicy.
+      skip_after_action :verify_policy_scoped
 
-      # Envuelto en `data` como el resto de las colecciones (ADR-015). Era el
+      # Envuelto en `data` como el resto de las colecciones (ADR-015): era el
       # único listado que devolvía un array pelado, y un array en la raíz no
-      # deja lugar para agregarle `meta` el día que pagine sin romper a quien
-      # lo consume.
-      # Pagina como todo listado (TESIS-108), aunque hoy `services` tenga pocas
+      # deja lugar para agregarle `meta`.
+      #
+      # Y pagina como todo listado (TESIS-108), aunque hoy `services` tenga pocas
       # filas: es una tabla global que sólo crece cuando el administrador carga
       # una plantilla nueva. Dejarla afuera sería una excepción que habría que
       # justificar, y la regla vale más que el ahorro.
@@ -31,6 +35,7 @@ module Api
       end
 
       def update
+        authorize CompanyIntegration
         integration = Integrations::UpsertIntegration.new(
           company: current_company,
           service_id: params[:service_id],
