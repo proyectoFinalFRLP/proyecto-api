@@ -38,6 +38,8 @@ cualquier error                → { "error": "..." }
 
 `error` es una sola clave y un solo string, y **siempre está**. Puede venir acompañado de datos para recuperarse: el 409 del locking optimista agrega `current_version`, que es lo que el frontend necesita para reintentar. Lo que no se admite es otra clave en su lugar —`errors` en plural, un array, un objeto por campo—, porque entonces el consumidor tiene que probar dos formas.
 
+_(Actualización, [ADR-018](ADR-018-conexion-con-proveedores-reales.md): el 422 del alta de una integración agrega `fields` —el código de error de cada campo— **junto** a `error`, con el mismo criterio que `current_version`. No lo reemplaza: `error` sigue estando.)_
+
 `meta` es siempre `page`, `per_page` y `total`, contando el scope **ya filtrado**.
 
 **Qué lleva `meta` y qué no.** Desde TESIS-108 pagina todo **listado de registros** —productos, depósitos, órdenes, envíos, transferencias, eventos fallidos, mapeos, integraciones—, así que ahí el consumidor puede leer `total` sin preguntarse cuál lo trae. Van envueltos en `data` **sin** `meta`, en cambio, los que no son listados de registros:
