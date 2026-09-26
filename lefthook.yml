@@ -17,7 +17,10 @@ pre-push:
   parallel: true
   commands:
     rspec:
-      run: bundle exec rspec
+      # COVERAGE_FLOOR: acá se corre la suite entera, así que el piso de
+      # cobertura de spec_helper.rb tiene sentido. En una corrida parcial no se
+      # evalúa (ver el comentario ahí).
+      run: COVERAGE_FLOOR=1 bundle exec rspec
     branch-name:
       run: |
         branch=$(git rev-parse --abbrev-ref HEAD)

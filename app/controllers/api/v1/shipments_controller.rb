@@ -19,30 +19,24 @@ module Api
       # El parámetro que falta es un 400 de contrato, no un 422 de negocio.
       rescue_from ActionController::ParameterMissing, with: :render_bad_request
 
+      include Paginatable
+
       # Cuánto del cuerpo del courier se propaga en el mensaje de error.
       COURIER_ERROR_LIMIT = 300
 
       def index
-        # `scalar_param` y no `params[...]` directo: una query con `?page[]=1`
-        # entrega un Array, y `Array#to_i` no existe — el listado moría con un
-        # 500. Mismo criterio que orders#index y products#index (TESIS-124).
-        page = [scalar_param(:page).to_i, 1].max
-        per_page = (scalar_param(:per_page) || 20).to_i.clamp(1, 100)
-
         # La precarga es load-bearing: ShipmentListSerializer lee el nombre del
         # courier a través de la plantilla del Service, y sin ella son dos
         # queries por fila (company_integrations + services).
-        shipments = filtered_shipments.preload(company_integration: :service)
-                                      .order(created_at: :desc, id: :desc)
-                                      .offset((page - 1) * per_page)
-                                      .limit(per_page)
+        #
+        # El total lo cuenta el concern sobre el scope filtrado, no sobre el
+        # total de la empresa: de acá sale el KPI de envíos activos (TESIS-53).
+        shipments, meta = paginate(
+          filtered_shipments.preload(company_integration: :service)
+                            .order(created_at: :desc, id: :desc)
+        )
 
-        render json: {
-          data: ShipmentListSerializer.render_as_hash(shipments),
-          # El total se cuenta sobre el scope filtrado, no sobre el total de la
-          # empresa: de acá sale el KPI de envíos activos (TESIS-53).
-          meta: { page: page, per_page: per_page, total: filtered_shipments.count }
-        }
+        render json: { data: ShipmentListSerializer.render_as_hash(shipments), meta: meta }
       end
 
       def show

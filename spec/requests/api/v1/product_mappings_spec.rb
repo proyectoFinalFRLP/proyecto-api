@@ -72,12 +72,12 @@ RSpec.describe 'Product Mappings API', type: :request do
 
     # Misma envoltura que GET /api/v1/products (TESIS-33): el front no tiene que
     # tratar dos shapes distintas en endpoints vecinos del mismo árbol.
-    it 'wraps the collection in a data key', :aggregate_failures do
+    it 'wraps the collection in data and meta', :aggregate_failures do
       mapping_for(product, meli_integration, 'MLA-123')
       get mappings_url(product.id), headers: headers
 
       expect(response.parsed_body).to be_a(Hash)
-      expect(response.parsed_body.keys).to eq(['data'])
+      expect(response.parsed_body.keys).to match_array(%w[data meta])
       expect(response.parsed_body['data']).to be_an(Array)
     end
 

@@ -80,6 +80,35 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
     end
   end
 
+  # El verbo HTTP lo elige la plantilla del Service, que sólo valida presencia:
+  # nada impide guardar un verbo que el adaptador no sabe construir. Sin este
+  # ejemplo, el día que alguien agregue 'HEAD' a la plantilla el fallo aparece
+  # como un NoMethodError adentro de un job, en vez del error del adaptador que
+  # el motor de reintentos sabe manejar (TESIS-93).
+  describe 'an http_method the adapter does not know' do
+    before { service.update!(http_method: 'HEAD') }
+
+    it 'raises AdapterExecutionError naming the verb', :aggregate_failures do
+      expect { run_adapter }.to raise_error(Integrations::AdapterExecutionError) do |error|
+        expect(error.message).to include('Andreani', 'HEAD')
+      end
+    end
+
+    it 'does not reach the external API' do
+      request = stub_request(:any, /andreani/)
+
+      suppress(Integrations::AdapterExecutionError) { run_adapter }
+
+      expect(request).not_to have_been_made
+    end
+
+    it 'carries the payload so the failure can be replayed', :aggregate_failures do
+      expect { run_adapter }.to raise_error(Integrations::AdapterExecutionError) do |error|
+        expect(error.payload).to eq({ customer_zip_code: '1900' })
+      end
+    end
+  end
+
   describe 'credential keys used as header names' do
     def adapter_for(credentials)
       integration.update!(credentials: credentials)

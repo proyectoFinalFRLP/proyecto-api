@@ -93,6 +93,37 @@ RSpec.describe 'Stock transfers API', type: :request do
     end
   end
 
+  def dispatch_another_product
+    other = Product.create!(company: company, sku: 'A-002', name: 'Beta')
+    Stock.create!(product: other, warehouse: origin, quantity: 10)
+    Catalog::DispatchTransfer.new(company: company, product: other, origin_warehouse: origin,
+                                  destination_warehouse: destination, quantity: 2).call
+  end
+
+  # El filtro por producto es el que alimenta el "+N Incoming" de la ficha de
+  # catálogo: sin él la ficha mostraría las unidades en vuelo de todos los
+  # productos. Estaba sin ejercitar (TESIS-93).
+  describe 'GET /api/v1/stock-transfers filtered by product' do
+    it 'returns only the transfers of the product asked for', :aggregate_failures do
+      mine = dispatch_one
+      dispatch_another_product
+
+      get '/api/v1/stock-transfers', params: { product_id: product.id }, headers: headers
+
+      expect(response.parsed_body['data'].pluck('id')).to contain_exactly(mine.id)
+      expect(StockTransfer.count).to eq(2)
+    end
+
+    it 'combines the product filter with the status one' do
+      dispatch_one
+
+      get '/api/v1/stock-transfers', params: { product_id: product.id, status: 'received' },
+                                     headers: headers
+
+      expect(response.parsed_body['data']).to be_empty
+    end
+  end
+
   # Los dos filtros del listado, con una forma que el endpoint no espera: 400 y
   # no un `IN` silencioso ni un 500 (TESIS-124).
   describe 'GET /api/v1/stock-transfers with a malformed filter' do
