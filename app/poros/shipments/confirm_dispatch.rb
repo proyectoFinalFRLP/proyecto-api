@@ -43,6 +43,7 @@ module Shipments
     end
 
     def call
+      validate_order!
       validate_integration!
       validate_status!(@shipment)
       validate_cost!
@@ -53,6 +54,32 @@ module Shipments
     end
 
     private
+
+    # Una orden cancelada no entra al circuito logístico, y que su envío ya esté
+    # abierto no lo cambia: emitir la etiqueta de una venta que no sale es pagar
+    # un despacho de más (TESIS-136). Hasta acá la regla vivía sólo en el alta
+    # del envío, así que un envío abierto antes de cancelar la orden se podía
+    # despachar igual por la API.
+    #
+    # La lista de estados es la de `CreateShipment` y no una copia: es la misma
+    # regla de negocio, y cuando exista la transición de estados hay un solo
+    # lugar que tocar.
+    #
+    # Mismo error y mismo 422 que el alta, a propósito. 409 sería el conflicto de
+    # estado del ENVÍO —eso es `AlreadyDispatchedError`— y el frontend lo lee
+    # así: ante un 409 el diálogo de despacho dice que el envío ya se despachó
+    # mientras tanto, que acá sería falso.
+    #
+    # Sólo antes de la llamada al courier, y no otra vez bajo el lock como el
+    # estado del envío: si la orden se cancela mientras el courier contesta, la
+    # etiqueta ya se emitió, y descartar el número de seguimiento perdería el
+    # rastro de un paquete que el courier ya conoce. Se guarda y la cancelación
+    # se resuelve por el canal que corresponda.
+    def validate_order!
+      return unless CreateShipment::NON_SHIPPABLE_STATUSES.include?(order.status)
+
+      raise UnshippableOrderError.new(order: order)
+    end
 
     # Se valida antes de llamar al courier para no gastar una etiqueta —que el
     # proveedor cobra— en un envío que después no vamos a poder guardar.
