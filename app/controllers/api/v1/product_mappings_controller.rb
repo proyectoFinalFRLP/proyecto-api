@@ -3,6 +3,8 @@
 module Api
   module V1
     class ProductMappingsController < ApplicationController
+      include Paginatable
+
       MISSING_INTEGRATION = 'company_integration_id is required'
       ALREADY_LINKED = 'external product already linked to another product in this integration'
 
@@ -12,15 +14,18 @@ module Api
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
 
       def index
-        mappings = policy_scope(ProductMapping)
-                   .where(product_id: @product.id)
-                   .includes(company_integration: :service)
-                   .order(:created_at)
+        scope = policy_scope(ProductMapping)
+                .where(product_id: @product.id)
+                .includes(company_integration: :service)
+                .order(:created_at)
 
-        # Se envuelve en `data` para que el front trate una sola shape en todo
-        # el árbol de /products. No lleva `meta` como el index de productos:
-        # los mappings son tantos como canales de venta y no se paginan.
-        render json: { data: ProductMappingSerializer.render_as_hash(mappings) }
+        # Los mapeos de un producto son tantos como canales de venta tenga la
+        # empresa: se leen enteros, así que van con `WHOLE_LIST_PER_PAGE`. Lo
+        # que cambia respecto de antes es que ahora hay un techo, que es el
+        # punto de TESIS-108: ningún listado devuelve una cantidad ilimitada.
+        mappings, meta = paginate(scope, per_page: WHOLE_LIST_PER_PAGE)
+
+        render json: { data: ProductMappingSerializer.render_as_hash(mappings), meta: meta }
       end
 
       def create

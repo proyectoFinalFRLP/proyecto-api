@@ -103,6 +103,49 @@ RSpec.describe 'Order updates API', type: :request do
     end
   end
 
+  # El `id` de una línea que se conserva decide si la línea se actualiza o si el
+  # pedido se rechaza: con un id que no existe se estaría editando la orden de
+  # otro. `positive_integer` es lo que lo filtra, y sus dos caminos —el string
+  # de dígitos que sí vale, y todo lo demás— no los ejercitaba nadie (TESIS-93).
+  describe 'the id of a line that is kept' do
+    it 'accepts it as a string of digits, like a form would send it' do
+      put_order(items: [{ id: line.id.to_s, quantity: 6 }])
+
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'moves the stock as if the id had come as a number' do
+      put_order(items: [{ id: line.id.to_s, quantity: 6 }])
+
+      expect(stock_left).to eq(18)
+    end
+
+    it 'rejects a string that is not a number', :aggregate_failures do
+      put_order(items: [{ id: 'abc', quantity: 6 }])
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to include('id must be a positive integer')
+    end
+
+    it 'rejects a zero' do
+      put_order(items: [{ id: 0, quantity: 6 }])
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it 'rejects a decimal instead of truncating it' do
+      put_order(items: [{ id: 2.5, quantity: 6 }])
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it 'leaves the stock untouched when the id is rejected' do
+      put_order(items: [{ id: 'abc', quantity: 6 }])
+
+      expect(stock_left).to eq(20)
+    end
+  end
+
   describe 'the version' do
     it 'accepts the ETag the detail returned' do
       get "/api/v1/orders/#{order.id}", headers: headers

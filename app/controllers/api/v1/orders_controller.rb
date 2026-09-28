@@ -4,6 +4,7 @@ module Api
   module V1
     class OrdersController < ApplicationController
       include OptimisticLocking
+      include Paginatable
 
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
       rescue_from Catalog::InsufficientStockError, with: :render_insufficient_stock
@@ -31,28 +32,20 @@ module Api
       ].freeze
 
       def index
-        # `scalar_param` y no `params[...]` directo: una query con `?page[]=1`
-        # entrega un Array y `to_i` sale con NoMethodError → 500. Ver
-        # ApplicationController.
-        page = [scalar_param(:page).to_i, 1].max
-        per_page = (scalar_param(:per_page) || 20).to_i.clamp(1, 100)
-
         # La precarga alimenta dos columnas del serializer: `item_count` sale de
         # order_items y `courier` de la cadena envío → integración → servicio.
         # Sin ella, cada fila de la página dispara sus propias consultas.
-        orders = filtered_orders.preload(:order_items, shipment: { company_integration: :service })
-                                .order(created_at: :desc, id: :desc)
-                                .offset((page - 1) * per_page)
-                                .limit(per_page)
+        #
+        # El `total` del meta lo cuenta el concern sobre el scope YA FILTRADO,
+        # no sobre la tabla de la empresa: de ese número salen los KPIs de
+        # TESIS-53, que los piden con `?status=pending&per_page=1` y leen sólo
+        # el meta. Si contara de más, los KPIs mentirían.
+        orders, meta = paginate(
+          filtered_orders.preload(:order_items, shipment: { company_integration: :service })
+                         .order(created_at: :desc, id: :desc)
+        )
 
-        render json: {
-          data: OrderListSerializer.render_as_hash(orders),
-          # El total se cuenta sobre el scope YA FILTRADO, no sobre la tabla de
-          # la empresa: de este número salen los KPIs de TESIS-53, que los pide
-          # con `?status=pending&per_page=1` y lee sólo el meta. Si contara de
-          # más, los KPIs mentirían.
-          meta: { page: page, per_page: per_page, total: filtered_orders.count }
-        }
+        render json: { data: OrderListSerializer.render_as_hash(orders), meta: meta }
       end
 
       # Vocabulario del select de provincia del alta manual (TESIS-58). Mismo

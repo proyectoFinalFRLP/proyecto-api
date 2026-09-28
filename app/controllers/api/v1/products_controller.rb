@@ -4,6 +4,7 @@ module Api
   module V1
     class ProductsController < ApplicationController
       include OptimisticLocking
+      include Paginatable
 
       before_action :set_product, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
@@ -11,9 +12,6 @@ module Api
       rescue_from Catalog::StaleProductError, with: :render_precondition_failed
 
       def index
-        page = [scalar_param(:page).to_i, 1].max
-        per_page = (scalar_param(:per_page) || 20).to_i.clamp(1, 100)
-
         # La precarga es load-bearing: ProductListSerializer lee el depósito
         # principal de cada fila, y sin ella son dos queries por producto
         # (stocks + warehouse) en vez de dos para toda la página.
@@ -24,17 +22,14 @@ module Api
         # como eager_load, sumaría las columnas de stocks y warehouses a ese
         # SELECT y Postgres rechazaría la consulta por columnas fuera del
         # GROUP BY. preload garantiza las consultas separadas.
-        products = filtered_products.preload(stocks: :warehouse)
-                                    .order(created_at: :desc)
-                                    .offset((page - 1) * per_page)
-                                    .limit(per_page)
+        # `total:` explícito: el scope viene agrupado por products.id, así que
+        # su `.count` devolvería un Hash y no un entero (ver `count_of`).
+        products, meta = paginate(
+          filtered_products.preload(stocks: :warehouse).order(created_at: :desc),
+          total: count_of(filtered_products)
+        )
 
-        total = count_of(filtered_products)
-
-        render json: {
-          data: ProductListSerializer.render_as_hash(products),
-          meta: { page: page, per_page: per_page, total: total }
-        }
+        render json: { data: ProductListSerializer.render_as_hash(products), meta: meta }
       end
 
       def show

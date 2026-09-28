@@ -3,15 +3,27 @@
 module Api
   module V1
     class WarehousesController < ApplicationController
+      include Paginatable
+
       before_action :set_warehouse, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotDestroyed, with: :render_conflict
 
       def index
         # with_stored_units agrega la suma de stocks en la misma consulta: sin
         # el scope, el serializer pediria las unidades deposito por deposito.
-        warehouses = policy_scope(Warehouse).with_stored_units.order(created_at: :desc)
+        #
+        # `WHOLE_LIST_PER_PAGE` y no el default: el front usa este listado para
+        # llenar selects —el picker de origen del alta manual, el de los modales
+        # de producto—, no una tabla con paginador. Con 20 le faltarían depósitos
+        # sin que nada se lo diga; el techo sigue existiendo y `meta.total` le
+        # avisa si alguna vez lo pasa.
+        #
+        # `total:` explícito: with_stored_units agrupa por warehouses.id.
+        scope = policy_scope(Warehouse).with_stored_units.order(created_at: :desc)
+        warehouses, meta = paginate(scope, per_page: WHOLE_LIST_PER_PAGE,
+                                           total: policy_scope(Warehouse).count)
 
-        render json: { data: WarehouseSerializer.render_as_hash(warehouses) }
+        render json: { data: WarehouseSerializer.render_as_hash(warehouses), meta: meta }
       end
 
       def show

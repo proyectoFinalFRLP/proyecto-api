@@ -45,6 +45,40 @@ RSpec.describe StockTransfer, type: :model do
   # `validate: true` en el enum existe para que un estado desconocido invalide
   # el registro en lugar de explotar en el asignador (mismo criterio que
   # WebhookLog y FailedEvent).
+  # Las dos validaciones cruzadas arrancan con un guard: sin depósitos, o sin
+  # empresa, no hay nada que comparar y la que tiene que hablar es la
+  # presencia. Sin estos ejemplos el guard no lo ejercitaba nadie, y quitarlo
+  # —que convierte la falta de un depósito en un error confuso sobre el otro—
+  # no rompía la suite (TESIS-93).
+  context 'when a warehouse is missing' do
+    before { transfer.origin_warehouse = nil }
+
+    it 'is invalid' do
+      expect(transfer).not_to be_valid
+    end
+
+    it 'complains about the missing warehouse and not about the two being equal' do
+      transfer.valid?
+
+      expect(transfer.errors[:destination_warehouse]).to be_empty
+    end
+  end
+
+  context 'when the transfer has no company' do
+    before { transfer.company = nil }
+
+    it 'is invalid' do
+      expect(transfer).not_to be_valid
+    end
+
+    it 'does not blame the product for belonging elsewhere', :aggregate_failures do
+      transfer.valid?
+
+      expect(transfer.errors[:product]).to be_empty
+      expect(transfer.errors[:origin_warehouse]).to be_empty
+    end
+  end
+
   it 'rejects an unknown status without raising on assignment' do
     transfer.status = 'lost'
     expect(transfer).not_to be_valid

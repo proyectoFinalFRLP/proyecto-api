@@ -104,6 +104,24 @@ RSpec.describe Shipments::ScanPullTrackingJob, type: :job do
       .with(other.company_integration_id, [other.id], company_b.id)
   end
 
+  # Una integración con plantilla de seguimiento y sin nada en vuelo: el barrido
+  # la encuentra y tiene que salir sin encolar. Sin este ejemplo, dividir por la
+  # cantidad de grupos con la lista vacía —una división por cero— no la veía
+  # nadie (TESIS-93).
+  it 'enqueues nothing for a courier with no shipment in flight' do
+    integration_for(company_a)
+
+    expect { run }.not_to have_enqueued_job(Shipments::PollTrackingJob)
+  end
+
+  it 'still sweeps the couriers that do have shipments in flight' do
+    integration_for(company_a)
+    other = shipment_for(integration_for(company_b), 'CB-1')
+
+    expect { run }.to have_enqueued_job(Shipments::PollTrackingJob)
+      .with(other.company_integration_id, [other.id], company_b.id)
+  end
+
   it 'ignores couriers without a tracking template' do
     shipment_for(integration_for(company_a, service: courier_service('Andreani')), 'AND-1')
     expect { run }.not_to have_enqueued_job(Shipments::PollTrackingJob)

@@ -104,6 +104,25 @@ RSpec.describe Shipments::TranslateTrackingPayload, type: :poro do
       expect(result[:occurred_at]).to be_nil
     end
 
+    # 'no-es-una-fecha-valida' devuelve nil sin levantar nada, así que el rescue
+    # quedaba sin ejercitar. Estos dos sí lo pisan: una fecha imposible levanta
+    # ArgumentError y un objeto levanta TypeError. Un evento con la fecha rota
+    # tiene que entrar igual —el caso de uso tiene fallback— y no tumbar el job
+    # (TESIS-93).
+    it 'returns nil for an impossible date instead of raising' do
+      payload = { 'evento' => { 'fecha' => '2026-13-45T99:99:99' } }
+      result = described_class.new(service: service, payload: payload).call
+      expect(result[:occurred_at]).to be_nil
+    end
+
+    it 'keeps the rest of the event when the date is broken', :aggregate_failures do
+      payload = { 'evento' => { 'fecha' => '2026-13-45T99:99:99', 'estado' => 'Entregado' } }
+      result = described_class.new(service: service, payload: payload).call
+
+      expect(result[:occurred_at]).to be_nil
+      expect(result).to have_key(:external_status)
+    end
+
     it 'returns nil when occurred_at is absent from the payload' do
       result = described_class.new(service: service, payload: {}).call
       expect(result[:occurred_at]).to be_nil

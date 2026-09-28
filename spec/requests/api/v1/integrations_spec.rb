@@ -13,10 +13,24 @@ RSpec.describe 'Integrations API', type: :request do
                     uri: 'https://api.mercadolibre.com', http_method: 'GET')
   end
 
+  # El listado viaja envuelto en `data`, como todas las colecciones (ADR-015).
+  def listed
+    response.parsed_body['data']
+  end
+
   describe 'GET /api/v1/integrations' do
     it 'returns 401 without a token' do
       get '/api/v1/integrations'
       expect(response).to have_http_status(:unauthorized)
+    end
+
+    # Era el único listado que contestaba un array pelado. Un array en la raíz
+    # no deja lugar para `meta` sin romper a quien lo consume, y obligaba al
+    # front a recordar que éste es la excepción (ADR-015, TESIS-107).
+    it 'wraps the collection in data and meta, like every other listing' do
+      get '/api/v1/integrations', headers: headers
+
+      expect(response.parsed_body.keys).to match_array(%w[data meta])
     end
 
     context 'when the company has the service configured' do
@@ -27,7 +41,7 @@ RSpec.describe 'Integrations API', type: :request do
       end
 
       it 'marks the service as configured and active', :aggregate_failures do
-        row = response.parsed_body.find { |r| r['service_id'] == service.id }
+        row = listed.find { |r| r['service_id'] == service.id }
         expect(row['configured']).to be(true)
         expect(row['is_active']).to be(true)
       end
@@ -47,7 +61,7 @@ RSpec.describe 'Integrations API', type: :request do
       let(:other_company) { Company.create!(name: 'Tenant B', tax_id: '30-22222222-2') }
 
       it 'shows the service as not configured for the current tenant', :aggregate_failures do
-        row = response.parsed_body.find { |r| r['service_id'] == service.id }
+        row = listed.find { |r| r['service_id'] == service.id }
         expect(row['configured']).to be(false)
         expect(row['is_active']).to be(false)
       end
@@ -79,6 +93,33 @@ RSpec.describe 'Integrations API', type: :request do
         "SELECT credentials FROM company_integrations WHERE service_id = #{service.id}"
       )
       expect(raw).not_to include('SECRET-TOKEN')
+    end
+
+    # `credentials` tiene que ser un objeto. Un string o un array pasan el
+    # `require` —que sólo mira que no venga vacío— y reventarían recién adentro
+    # del cifrado, como 500. El guard los corta antes; nadie lo ejercitaba
+    # (TESIS-93).
+    context 'when credentials is not an object' do
+      it 'rejects a string instead of failing inside the encryption' do
+        put "/api/v1/integrations/#{service.id}",
+            params: { credentials: 'ACCESS-TOKEN' }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'rejects an array' do
+        put "/api/v1/integrations/#{service.id}",
+            params: { credentials: ['ACCESS-TOKEN'] }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'stores nothing' do
+        expect do
+          put "/api/v1/integrations/#{service.id}",
+              params: { credentials: 'ACCESS-TOKEN' }, headers: headers, as: :json
+        end.not_to change(CompanyIntegration, :count)
+      end
     end
 
     it 'returns 404 for an unknown service' do

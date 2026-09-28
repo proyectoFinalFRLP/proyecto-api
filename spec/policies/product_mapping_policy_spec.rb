@@ -38,6 +38,18 @@ RSpec.describe ProductMappingPolicy, type: :policy do
     expect(policy).to be_destroy
   end
 
+  # `record.product` puede venir en nil: CompanyScoped filtra también las
+  # asociaciones, así que un mapping de otro tenant llega sin producto. El `&.`
+  # es lo que evita el NoMethodError, y su rama nil no la ejercitaba nadie
+  # (TESIS-93).
+  context 'when the mapped product is out of the scope of the tenant' do
+    before { allow(mapping).to receive(:product).and_return(nil) }
+
+    it 'denies destroying it instead of raising' do
+      expect(policy).not_to be_destroy
+    end
+  end
+
   context 'when the mapped product belongs to another company' do
     let(:mapping) { mapping_for(foreign_product, 'Shopify') }
 

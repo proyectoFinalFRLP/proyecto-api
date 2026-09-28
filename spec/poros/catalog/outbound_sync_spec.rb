@@ -122,6 +122,25 @@ RSpec.describe Catalog::OutboundSync, type: :poro do
       expect { sync.call }.to raise_error(Integrations::AdapterExecutionError, /status 500/)
     end
 
+    # Un timeout no trae status HTTP: el mensaje tiene que nombrar el canal sin
+    # inventar un código. Sólo estaba probado el fallo con respuesta (TESIS-93).
+    it 'names a channel that failed without answering, and no status', :aggregate_failures do
+      stub_request(:put, 'https://api.ml.test/items/MLA-1').to_timeout
+
+      expect { sync.call }.to raise_error(Integrations::AdapterExecutionError) do |error|
+        expect(error.message).to include('Mercado Libre')
+        expect(error.message).not_to include('status')
+      end
+    end
+
+    it 'still propagates to the healthy channel when the other times out' do
+      stub_request(:put, 'https://api.ml.test/items/MLA-1').to_timeout
+
+      suppress(Integrations::AdapterExecutionError) { sync.call }
+
+      expect(a_request(:put, 'https://api.tn.test/items/TN-2')).to have_been_made.once
+    end
+
     it 'aggregates every failing channel when they all fail' do
       stub_channel('api.tn.test', 'TN-2', status: 503)
       expect { sync.call }.to raise_error(Integrations::AdapterExecutionError, /2 of 2 channels/)
