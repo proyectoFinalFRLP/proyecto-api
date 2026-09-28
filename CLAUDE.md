@@ -251,8 +251,11 @@ module Api
         authorize @product
       end
 
+      # expect y no require + permit: require devuelve lo que haya bajo la
+      # clave, y permit sobre un String levanta NoMethodError -> 500. expect
+      # responde 400 a cualquier cosa que no sea un objeto (TESIS-133).
       def product_params
-        params.require(:product).permit(:sku, :name, :stock)
+        params.expect(product: %i[sku name stock])
       end
     end
   end

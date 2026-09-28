@@ -197,6 +197,26 @@ RSpec.describe 'Product Mappings API', type: :request do
       expect(response).to have_http_status(:not_found)
     end
 
+    # Mismo contrato que POST /products: un envoltorio que no es un objeto es
+    # 400 y no el 500 que daba `permit` sobre un String (TESIS-133).
+    it 'returns 400 when product_mapping is not an object', :aggregate_failures do
+      expect do
+        post mappings_url(product.id), params: { product_mapping: 'MLA-123' },
+                                       headers: headers, as: :json
+      end.not_to change(ProductMapping, :count)
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'returns 400 when product_mapping is a list', :aggregate_failures do
+      expect do
+        post mappings_url(product.id), params: { product_mapping: [valid_params[:product_mapping]] },
+                                       headers: headers, as: :json
+      end.not_to change(ProductMapping, :count)
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
     it 'returns 409 when the external id is already linked in that integration', :aggregate_failures do
       link_external_id_to_another_product('MLA-123')
 

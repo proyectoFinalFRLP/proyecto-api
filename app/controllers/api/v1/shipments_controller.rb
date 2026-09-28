@@ -17,8 +17,6 @@ module Api
       rescue_from Shipments::DispatchResponseError, with: :render_bad_gateway
       rescue_from Shipments::InvalidShippingCostError, with: :render_bad_request
       rescue_from Integrations::AdapterExecutionError, with: :render_courier_failure
-      # El parámetro que falta es un 400 de contrato, no un 422 de negocio.
-      rescue_from ActionController::ParameterMissing, with: :render_bad_request
 
       include Paginatable
 

@@ -265,5 +265,22 @@ RSpec.describe 'Order updates API', type: :request do
 
       expect(response).to have_http_status(:bad_request)
     end
+
+    # `expect` corta por la forma del envoltorio antes de tocar la orden
+    # (TESIS-133); antes de eso, `permit` sobre un String era un 500.
+    it 'returns 400 and changes nothing when order is not an object', :aggregate_failures do
+      put "/api/v1/orders/#{order.id}", params: { order: 'Otro' }, headers: headers, as: :json
+
+      expect(response).to have_http_status(:bad_request)
+      expect(order.reload.customer_name).to eq('Juan Pérez')
+    end
+
+    it 'returns 400 and changes nothing when order is a list', :aggregate_failures do
+      put "/api/v1/orders/#{order.id}", params: { order: [{ customer_name: 'Otro' }] },
+                                        headers: headers, as: :json
+
+      expect(response).to have_http_status(:bad_request)
+      expect(order.reload.customer_name).to eq('Juan Pérez')
+    end
   end
 end
