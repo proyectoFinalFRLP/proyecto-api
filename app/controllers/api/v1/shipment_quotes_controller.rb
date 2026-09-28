@@ -8,7 +8,7 @@ module Api
         order = Order.find(params.expect(:order_id))
         authorize order, :quote?
 
-        quotes = Shipments::QuoteShipment.new(
+        quotes = Shipments::QuoteShipment.for_order(
           order: order, origin_warehouse: origin_warehouse
         ).call
 

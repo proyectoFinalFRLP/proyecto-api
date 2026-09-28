@@ -35,6 +35,10 @@ Rails.application.routes.draw do
         end
       end
 
+      # Cotización de un alta que todavía no existe (TESIS-131): cuelga de la
+      # raíz y no de una orden, porque lo que se cotiza es el borrador.
+      resources :quotes, only: %i[create], controller: 'draft_quotes'
+
       resources :orders, only: %i[index show create update] do
         resources :quotes, only: %i[create], controller: 'shipment_quotes'
 

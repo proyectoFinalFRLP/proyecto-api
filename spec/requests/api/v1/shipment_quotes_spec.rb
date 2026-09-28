@@ -19,12 +19,22 @@ RSpec.describe 'Shipment quotes API', type: :request do
     { 'Authorization' => "Bearer #{response.parsed_body['token']}" }
   end
 
+  # Un courier con sus dos plantillas: la que cotiza y la que despacha, vinculada
+  # a la primera (TESIS-131). Sin la de despacho la opción no se ofrecería.
   def courier(name, uri)
-    service = Service.create!(service_name: name, type: 'courier', http_method: 'POST', uri: uri,
-                              request_mapper: { 'cp' => 'destination_zip_code' },
-                              response_mapper: { 'precio' => 'shipping_cost',
-                                                 'dias' => 'estimated_days' },
-                              request_value_mapper: {}, response_value_mapper: {})
+    quote = Service.create!(service_name: "#{name} - Cotización", type: 'courier',
+                            http_method: 'POST', uri: uri,
+                            request_mapper: { 'cp' => 'destination_zip_code' },
+                            response_mapper: { 'precio' => 'shipping_cost',
+                                               'dias' => 'estimated_days' },
+                            request_value_mapper: {}, response_value_mapper: {})
+    integrate(Service.create!(service_name: name, type: 'courier', http_method: 'POST',
+                              uri: "#{uri}/ordenes", quote_service: quote,
+                              response_mapper: { 'numero' => 'tracking_number' }))
+    integrate(quote)
+  end
+
+  def integrate(service)
     CompanyIntegration.create!(company: company, service: service,
                                credentials: { 'access_token' => 'T' }, is_active: true)
   end
@@ -57,6 +67,12 @@ RSpec.describe 'Shipment quotes API', type: :request do
       expect(option['provider_name']).to eq('Fast')
       expect(option['shipping_cost'].to_f).to eq(2500.0)
       expect(option['estimated_days']).to eq(3)
+    end
+
+    it 'says which integration dispatches the option' do
+      dispatcher = CompanyIntegration.joins(:service).find_by!(services: { service_name: 'Fast' })
+
+      expect(response.parsed_body['data'].first['dispatch_integration_id']).to eq(dispatcher.id)
     end
   end
 

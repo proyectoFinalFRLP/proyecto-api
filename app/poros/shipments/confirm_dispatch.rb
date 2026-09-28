@@ -31,16 +31,21 @@ module Shipments
     # es NOT NULL y es lo que la pantalla muestra como lo que pasó (TESIS-60).
     INITIAL_EXTERNAL_STATUS = 'Etiqueta generada'
 
-    def initialize(shipment:, company_integration:, origin_warehouse:)
+    # `shipping_cost` es el de la opción que el operador confirmó al cotizar
+    # (TESIS-131). Es opcional: un despacho que no lo trae deja el costo como
+    # estaba.
+    def initialize(shipment:, company_integration:, origin_warehouse:, shipping_cost: nil)
       super()
       @shipment = shipment
       @integration = company_integration
       @origin = origin_warehouse
+      @shipping_cost = shipping_cost
     end
 
     def call
       validate_integration!
       validate_status!(@shipment)
+      validate_cost!
 
       parsed = request_label
       persist(parsed)
@@ -60,6 +65,23 @@ module Shipments
       return if shipment.status == DISPATCHABLE_STATUS && shipment.tracking_number.blank?
 
       raise AlreadyDispatchedError.new(shipment: shipment)
+    end
+
+    # El costo se prueba contra la regla del modelo —la misma que aplica el
+    # `update!` de `persist`— y no contra una copia: si la columna cambia, la
+    # validación la sigue. Sin esto, un costo que el modelo rechaza (fuera de
+    # rango, NaN, infinito) pasaba, se pedía la etiqueta y el `update!` fallaba
+    # después: el envío seguía en `pending` y un reintento emitía otra etiqueta.
+    #
+    # Se valida un envío nuevo con sólo el costo para no tocar `@shipment` antes
+    # de la llamada externa; del resultado se lee únicamente `shipping_cost`.
+    def validate_cost!
+      return if @shipping_cost.nil?
+
+      probe = Shipment.new(shipping_cost: @shipping_cost)
+      probe.validate
+      reasons = probe.errors.messages_for(:shipping_cost)
+      raise InvalidShippingCostError, reasons if reasons.any?
     end
 
     def validate_integration!
@@ -140,9 +162,16 @@ module Shipments
         @shipment.update!(company_integration: @integration,
                           tracking_number: tracking_number!(parsed),
                           shipping_label_url: parsed[LABEL_KEY],
-                          status: DISPATCHED_STATUS)
+                          status: DISPATCHED_STATUS,
+                          **confirmed_cost)
         register_event
       end
+    end
+
+    # El costo se escribe sólo si vino: sin él, el despacho no tiene por qué
+    # borrar uno que ya estuviera cargado.
+    def confirmed_cost
+      @shipping_cost.nil? ? {} : { shipping_cost: @shipping_cost }
     end
 
     # Sin número de seguimiento el despacho no sirve para nada: no se puede

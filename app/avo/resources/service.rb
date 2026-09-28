@@ -16,6 +16,10 @@ module Avo
         # consulta periódica pregunta por sus envíos (TESIS-49).
         field :tracking_service, as: :belongs_to, use_resource: Avo::Resources::Service,
                                  name: 'Tracking template', only_on: %i[show forms]
+        # En la plantilla que despacha: la que le pide tarifas al mismo
+        # proveedor. Sin ella, el courier no se ofrece al cotizar (TESIS-131).
+        field :quote_service, as: :belongs_to, use_resource: Avo::Resources::Service,
+                              name: 'Quote template', only_on: %i[show forms]
 
         mapper_fields
       end
