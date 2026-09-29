@@ -3,6 +3,22 @@ require 'active_support/core_ext/integer/time'
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
 
+  # Sin estas variables la API no arranca en producción (TESIS-130, ADR-018).
+  # Sin ellas, el JWT se firmaría con secret_key_base, el Host no se validaría y
+  # CORS no dejaría pasar al front: las dos primeras dejan la puerta abierta sin
+  # que nada falle a la vista, y la tercera rompe el front sin decir por qué.
+  # Que el contenedor no levante es mejor que cualquiera de las tres.
+  # SECRET_KEY_BASE_DUMMY marca el `assets:precompile` del Dockerfile, que
+  # arranca la app en el build, cuando todavía no hay secretos del entorno.
+  unless ENV['SECRET_KEY_BASE_DUMMY']
+    missing = %w[DEVISE_JWT_SECRET_KEY CORS_ALLOWED_ORIGINS RAILS_ALLOWED_HOSTS].select do |name|
+      ENV[name].blank?
+    end
+    if missing.any?
+      raise "Missing environment variables for production: #{missing.join(', ')} (see ADR-018)"
+    end
+  end
+
   # Code is not reloaded between requests.
   config.enable_reloading = false
 
@@ -21,11 +37,12 @@ Rails.application.configure do
   # Store uploaded files on the local file system (see config/storage.yml for options).
   config.active_storage.service = :local
 
-  # Assume all access to the app is happening through a SSL-terminating reverse proxy.
-  # config.assume_ssl = true
-
-  # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  # config.force_ssl = true
+  # El TLS termina en el proxy (Caddy), que también redirige HTTP a HTTPS: a Rails
+  # le llega HTTP plano. assume_ssl hace que tome esos requests como HTTPS, y
+  # force_ssl suma Strict-Transport-Security y marca las cookies como Secure,
+  # entre ellas la de la sesión del backoffice (TESIS-130, ADR-018).
+  config.assume_ssl = true
+  config.force_ssl = true
 
   # Skip http-to-https redirect for the default health check endpoint.
   # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
@@ -81,15 +98,15 @@ Rails.application.configure do
   #   "example.com",     # Allow requests from example.com
   #   /.*\.example\.com/ # Allow requests from subdomains like `www.example.com`
   # ]
-  #
-  # Skip DNS rebinding protection for the default health check endpoint.
-  # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
 
   # Despliegue en contenedor detrás de un proxy TLS (Caddy + DuckDNS): el Host
-  # que ve Rails es el subdominio público, y sin listarlo acá la protección
-  # contra DNS rebinding responde 403. Se configura por entorno
-  # (RAILS_ALLOWED_HOSTS, separado por comas); sin la variable se mantiene el
-  # comportamiento por defecto.
-  allowed_hosts = ENV.fetch('RAILS_ALLOWED_HOSTS', '').split(',').map(&:strip).reject(&:empty?)
-  config.hosts.concat(allowed_hosts) if allowed_hosts.any?
+  # que ve Rails es el subdominio público de la API. Los hosts salen de
+  # RAILS_ALLOWED_HOSTS, separados por comas, y la variable es obligatoria
+  # (ver arriba): sin lista, Rails no valida el Host en producción. Con ella, un
+  # request con otro Host recibe 403 (TESIS-120, TESIS-130).
+  config.hosts.concat(ENV.fetch('RAILS_ALLOWED_HOSTS', '').split(',').map(&:strip).reject(&:empty?))
+
+  # El health check de /up llega con el Host que use quien lo haga (la IP del
+  # contenedor, localhost), no con el público: validarlo lo daría por caído.
+  config.host_authorization = { exclude: ->(request) { request.path == '/up' } }
 end
