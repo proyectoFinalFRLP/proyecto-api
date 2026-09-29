@@ -40,7 +40,7 @@ La consecuencia es que la seguridad del backoffice descansa entera en el login y
 - **El logout invalida la cookie, no sólo la borra del navegador.** El cookie store no guarda nada del lado del servidor, así que una cookie copiada antes del logout seguía abriendo el panel. Devise valida la cookie comparando `authenticatable_salt`. `AdminUser` le suma una columna `session_token`, y el logout la rota (`AdminUser#expire_sessions!`). El efecto es que el logout cierra **todas** las sesiones de esa cuenta, también la de «Recordarme» y la de otro navegador. Cambiar la password también las cierra, como antes.
 - **`Cache-Control: no-store`** en todas las páginas de Avo (`Admin::UncacheablePages`). Con el default de Rails (`private, must-revalidate`), después del logout el botón «atrás» podía mostrar una página del panel desde la cache del navegador. El concern se incluye en `Avo::ApplicationController` desde el initializer, que es la forma que documenta Avo para sumar comportamiento a todos sus controllers sin copiar el suyo.
 - **Orden de los middlewares.** Cookies, sesión y flash van antes de `Warden::Manager`. Con `config.middleware.use` quedaban después, porque Devise registra Warden al cargarse. Cuando Warden corta un request con `throw :warden`, el throw se salteaba el commit de la sesión. No tuvo consecuencias visibles hasta que se agregó el timeout: el cierre por inactividad no llegaba a la cookie y el navegador entraba en un loop de redirecciones.
-- **Cookie:** `HttpOnly` y `SameSite=Lax`, los defaults de Rails. ⚠️ `Secure` depende de servir la app por HTTPS (`config.assume_ssl` / `config.force_ssl`), y eso corresponde a la card de seguridad transversal y despliegue.
+- **Cookie:** `HttpOnly` y `SameSite=Lax`, los defaults de Rails, y `Secure` en producción: `config.assume_ssl` y `config.force_ssl` se prendieron en TESIS-130 (ver [ADR-018](ADR-018-seguridad-del-despliegue.md)).
 - **CSRF:** Avo y el controller de sesiones de Devise usan `protect_from_forgery with: :exception`, así que un POST sin token responde 422. En test la protección está apagada; `spec/requests/admin/sessions_spec.rb` la prende para verificarlo.
 
 ### Datos sensibles: credenciales de las integraciones
@@ -103,7 +103,7 @@ Un store en la base (gema `activerecord-session_store`) o en la cache (`:cache_s
 - ✅ Las credenciales de las empresas no salen de la base en claro por ningún camino: ni la API ni el backoffice las muestran
 - ✅ El alta de usuarios desde el backoffice funciona, y un usuario no se puede pasar a otra empresa
 - ✅ La búsqueda de los listados funciona
+- ✅ La cookie lleva `Secure` en producción (TESIS-130, ADR-018)
 - ⚠️ El logout cierra todas las sesiones de la cuenta, no sólo la del navegador que sale
 - ⚠️ Con «Recordarme», la sesión dura 2 semanas aunque no haya actividad
 - ⚠️ El límite por IP no frena un ataque distribuido
-- ⚠️ La cookie no lleva `Secure` hasta que la app se sirva por HTTPS
