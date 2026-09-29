@@ -702,6 +702,29 @@ RSpec.describe 'Products API', type: :request do
       post '/api/v1/products', params: { product: product_attrs }, headers: headers, as: :json
       expect(response).to have_http_status(:unprocessable_content)
     end
+
+    # Hallazgo de la QA de TESIS-82, que acá seguía vivo: `require` devolvía el
+    # String tal cual y `permit` reventaba sobre él, con un 500 (TESIS-133).
+    it 'returns 400 when product is not an object', :aggregate_failures do
+      expect do
+        post '/api/v1/products', params: { product: 'Teclado' }, headers: headers, as: :json
+      end.not_to change(Product, :count)
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'returns 400 when product is a list', :aggregate_failures do
+      expect do
+        post '/api/v1/products', params: { product: [product_attrs] }, headers: headers, as: :json
+      end.not_to change(Product, :count)
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'returns 400 when the product key is missing' do
+      post '/api/v1/products', params: {}, headers: headers, as: :json
+      expect(response).to have_http_status(:bad_request)
+    end
   end
 
   describe 'PUT /api/v1/products/:id' do
@@ -730,6 +753,22 @@ RSpec.describe 'Products API', type: :request do
           params: { product: { name: 'Hack' } },
           headers: headers, as: :json
       expect(response).to have_http_status(:not_found)
+    end
+
+    it 'returns 400 and changes nothing when product is not an object', :aggregate_failures do
+      put "/api/v1/products/#{product.id}", params: { product: 'Updated' },
+                                            headers: headers, as: :json
+
+      expect(response).to have_http_status(:bad_request)
+      expect(product.reload.name).to eq('Original')
+    end
+
+    it 'returns 400 and changes nothing when product is a list', :aggregate_failures do
+      put "/api/v1/products/#{product.id}", params: { product: [{ name: 'Updated' }] },
+                                            headers: headers, as: :json
+
+      expect(response).to have_http_status(:bad_request)
+      expect(product.reload.name).to eq('Original')
     end
 
     it 'rejects stocks with a warehouse from another company' do

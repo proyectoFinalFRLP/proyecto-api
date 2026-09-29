@@ -402,11 +402,24 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
-      it 'rejects when order is not an object' do
-        post '/api/v1/orders',
-             params: { order: 'not_an_object' },
-             headers: headers, as: :json
-        expect(response).to have_http_status(:unprocessable_content)
+      # 400 y no 422: la forma del envoltorio es contrato, no negocio. Lo da
+      # `params.expect` desde TESIS-133; antes era un RecordNotSaved a mano.
+      it 'rejects when order is not an object with a 400', :aggregate_failures do
+        expect do
+          post '/api/v1/orders', params: { order: 'not_an_object' },
+                                 headers: headers, as: :json
+        end.not_to change(Order, :count)
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'rejects when order is a list with a 400', :aggregate_failures do
+        expect do
+          post '/api/v1/orders', params: { order: [{ customer_name: 'X' }] },
+                                 headers: headers, as: :json
+        end.not_to change(Order, :count)
+
+        expect(response).to have_http_status(:bad_request)
       end
 
       it 'rejects when items is not an array' do

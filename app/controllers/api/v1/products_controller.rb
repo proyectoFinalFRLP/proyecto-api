@@ -6,6 +6,10 @@ module Api
       include OptimisticLocking
       include Paginatable
 
+      # Qué acepta el body del producto. `stocks` no entra: se arma aparte en
+      # `stock_params`, línea por línea.
+      PRODUCT_FIELDS = %i[sku name description category weight dimensions].freeze
+
       before_action :set_product, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
@@ -110,16 +114,23 @@ module Api
         authorize @product
       end
 
+      # Un company_id en el body se sigue descartando en silencio: `permit` sólo
+      # deja pasar lo que lista.
       def product_params
-        # permit (no expect) es intencional y load-bearing: expect usa
-        # on_unpermitted: :raise, así que un body con company_id daría 400 en
-        # vez de ignorarlo — rompiendo el requisito de la card.
-        # rubocop:disable-next Rails/StrongParametersExpect
-        params.require(:product).permit(:sku, :name, :description, :category, :weight, :dimensions)
+        product_body.permit(*PRODUCT_FIELDS)
       end
 
+      # El envoltorio, validado como objeto por `body_of` (TESIS-133). Antes esto
+      # era `params.require(:product)`, que devolvía el String tal cual y hacía
+      # reventar al `permit` de abajo con un 500.
+      def product_body
+        body_of(:product)
+      end
+
+      # `stocks` queda afuera de `expect`: cada línea necesita sus propios 422
+      # con mensaje, que `expect` no sabe dar.
       def stock_params
-        raw_stocks = params[:product][:stocks]
+        raw_stocks = product_body[:stocks]
         return [] if raw_stocks.nil?
 
         # Si stocks viene presente pero no es un array (ej. un objeto), es un

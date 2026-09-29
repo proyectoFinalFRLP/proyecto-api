@@ -8,16 +8,17 @@ module Api
 
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
       rescue_from Catalog::InsufficientStockError, with: :render_insufficient_stock
-      # ParameterMissing no es 422 de negocio: es un 400 de contrato. Rescatarlo
-      # acá mantiene la forma del body ({error: ...}) consistente con el resto
-      # de la API en vez del default de Rails.
-      rescue_from ActionController::ParameterMissing, with: :render_bad_request
       # Una orden cancelada o con el envío ya despachado: no hay body que haga
       # pasar el mismo PUT, así que es 409 y no 422 (TESIS-126).
       rescue_from Orders::OrderNotEditableError, with: :render_conflict
       rescue_from Orders::StaleOrderError, with: :render_precondition_failed
 
       MAX_ITEMS = 100
+
+      # Los datos del cliente que acepta el body. `items` queda afuera: se arma
+      # aparte, línea por línea, en `items_params`.
+      ORDER_FIELDS = %i[customer_name customer_document customer_address
+                        customer_zip_code customer_city customer_province].freeze
 
       # Campos sobre los que corre el buscador del listado (TESIS-52). Son las
       # formas en que un operador nombra una venta: el id con el que la conoce el
@@ -161,34 +162,36 @@ module Api
         orders.where(condition, pattern: pattern)
       end
 
-      def order_params(*extra_keys)
-        order = params.require(:order)
-        unless order.is_a?(ActionController::Parameters)
-          raise ActiveRecord::RecordNotSaved, 'order must be an object'
-        end
-
-        order.permit(:customer_name, :customer_document,
-                     :customer_address, :customer_zip_code,
-                     :customer_city, :customer_province, *extra_keys)
+      def order_params
+        order_body.permit(*ORDER_FIELDS)
       end
 
       # Lo mismo que el alta más el estado. Qué valores de estado se aceptan lo
       # decide Orders::UpdateOrder (sólo pending y paid).
       def update_params
-        order_params(:status)
+        order_body.permit(*ORDER_FIELDS, :status)
+      end
+
+      # El envoltorio, validado como objeto por `body_of`. La forma es contrato,
+      # así que un `order` String o Array es 400 y no el 422 de negocio que
+      # devolvía el RecordNotSaved que había acá (TESIS-133). Las `items` se leen
+      # de este mismo objeto: cada línea tiene sus propios 422 con mensaje —y el
+      # tope de MAX_ITEMS—, que un filtrado de strong params no sabe dar.
+      def order_body
+        body_of(:order)
       end
 
       # Sin `items` en el body, las líneas no se tocan: un PUT que sólo corrige la
       # dirección no tiene por qué mandar la orden entera. `id` identifica una
       # línea que ya existe; sin él, la línea es nueva.
       def update_items_params
-        return nil unless params[:order].key?(:items)
+        return nil unless order_body.key?(:items)
 
         items_params(:id)
       end
 
       def items_params(*extra_keys)
-        raw = params[:order][:items]
+        raw = order_body[:items]
         raise ActiveRecord::RecordNotSaved, 'items must be an array' unless raw.is_a?(Array)
         if raw.size > MAX_ITEMS
           raise ActiveRecord::RecordNotSaved,
