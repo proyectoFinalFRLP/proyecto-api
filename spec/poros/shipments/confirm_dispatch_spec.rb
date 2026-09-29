@@ -43,7 +43,8 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
   def attempt_dispatch(target = shipment, using: integration)
     dispatch(target, using: using)
   rescue Shipments::AlreadyDispatchedError, Shipments::DispatchResponseError,
-         Shipments::InvalidCourierIntegrationError, Integrations::AdapterExecutionError
+         Shipments::InvalidCourierIntegrationError, Shipments::UnshippableOrderError,
+         Integrations::AdapterExecutionError
     nil
   end
 
@@ -148,6 +149,52 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
       end
 
       expect(stub).not_to have_been_requested
+    end
+  end
+
+  # El alta del envío ya excluye las órdenes canceladas; el despacho no lo hacía,
+  # así que un envío abierto ANTES de cancelar la orden se podía despachar igual
+  # (TESIS-136, de la review de TESIS-134).
+  describe 'when the order was cancelled after the shipment was opened' do
+    before { order.update!(status: 'cancelled') }
+
+    it 'refuses to dispatch it' do
+      expect { dispatch }.to raise_error(Shipments::UnshippableOrderError, /cannot be shipped/)
+    end
+
+    # La etiqueta se paga: el chequeo va antes de la llamada, no después.
+    it 'does not call the courier' do
+      stub = stub_courier
+      attempt_dispatch
+
+      expect(stub).not_to have_been_requested
+    end
+
+    it 'leaves the shipment untouched', :aggregate_failures do
+      stub_courier
+      attempt_dispatch
+
+      expect(shipment.reload.status).to eq('pending')
+      expect(shipment.tracking_number).to be_nil
+    end
+
+    it 'records nothing in the log' do
+      stub_courier
+
+      expect { attempt_dispatch }.not_to change(ShipmentEvent, :count)
+    end
+  end
+
+  # Control negativo del bloque de arriba: lo que se rechaza es el estado
+  # cancelado, no cualquier estado distinto del inicial.
+  describe 'when the order is paid' do
+    before do
+      order.update!(status: 'paid')
+      stub_courier
+    end
+
+    it 'dispatches it as usual' do
+      expect(dispatch.reload.status).to eq('ready_to_ship')
     end
   end
 

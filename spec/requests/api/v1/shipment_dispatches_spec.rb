@@ -211,6 +211,42 @@ RSpec.describe 'Shipment dispatch API', type: :request do
     expect(response).to have_http_status(:bad_gateway)
   end
 
+  # El alta del envío ya rechaza las órdenes canceladas con un 422; el despacho
+  # no lo hacía, así que un envío abierto antes de cancelar la orden se podía
+  # despachar por la API aunque la UI no lo ofreciera (TESIS-136).
+  describe 'when the order was cancelled after the shipment was opened' do
+    before { order.update!(status: 'cancelled') }
+
+    it 'returns 422, the same as opening the shipment of a cancelled order' do
+      stub_courier
+      dispatch_shipment
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it 'explains why it was rejected' do
+      stub_courier
+      dispatch_shipment
+
+      expect(response.parsed_body['error']).to include('cannot be shipped')
+    end
+
+    it 'does not call the courier' do
+      stub = stub_courier
+      dispatch_shipment
+
+      expect(stub).not_to have_been_requested
+    end
+
+    it 'leaves the shipment pending and without tracking', :aggregate_failures do
+      stub_courier
+      dispatch_shipment
+
+      expect(shipment.reload.status).to eq('pending')
+      expect(shipment.tracking_number).to be_nil
+    end
+  end
+
   describe 'request contract' do
     it 'returns 400 without the integration' do
       dispatch_shipment(integration_id: '')
