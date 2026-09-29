@@ -69,6 +69,26 @@ RSpec.describe 'Stock transfers API', type: :request do
       expect(response).to have_http_status(:unprocessable_content)
     end
 
+    # Mismo hallazgo que en warehouses y productos: `permit` sobre un String
+    # era un 500; con `expect` es un 400 de contrato (TESIS-133).
+    it 'returns 400 when stock_transfer is not an object', :aggregate_failures do
+      expect do
+        post '/api/v1/stock-transfers', params: { stock_transfer: 'PROD-1' },
+                                        headers: headers, as: :json
+      end.not_to change(StockTransfer, :count)
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it 'returns 400 when stock_transfer is a list', :aggregate_failures do
+      expect do
+        post '/api/v1/stock-transfers', params: { stock_transfer: [body_for(4)[:stock_transfer]] },
+                                        headers: headers, as: :json
+      end.not_to change(StockTransfer, :count)
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
     it 'returns 404 for a product of another company' do
       params = body_for(1).deep_merge(stock_transfer: { product_id: foreign_product.id })
       post '/api/v1/stock-transfers', params: params, headers: headers, as: :json

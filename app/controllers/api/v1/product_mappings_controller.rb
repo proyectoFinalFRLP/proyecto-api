@@ -74,10 +74,13 @@ module Api
 
       # El body va anidado bajo `product_mapping`, igual que `product` en
       # ProductsController: los dos endpoints del mismo árbol comparten contrato.
+      #
+      # `expect` y no `require` + `permit`: un `product_mapping` que no sea un
+      # objeto responde 400 en vez de reventar con 500 (TESIS-133).
       def mapping_params
-        # rubocop:disable-next Rails/StrongParametersExpect
-        params.require(:product_mapping)
-              .permit(:company_integration_id, :external_product_id, :external_price)
+        params.expect(
+          product_mapping: %i[company_integration_id external_product_id external_price]
+        )
       end
 
       # El índice único (company_integration_id, external_product_id) no tiene
