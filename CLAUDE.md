@@ -254,6 +254,13 @@ module Api
       # expect y no require + permit: require devuelve lo que haya bajo la
       # clave, y permit sobre un String levanta NoMethodError -> 500. expect
       # responde 400 a cualquier cosa que no sea un objeto (TESIS-133).
+      #
+      # Ojo con el ProductsController real, que NO usa expect: cuando el body
+      # trae una parte que se recorre a mano —las `stocks` de un producto, las
+      # `items` de una orden—, esa clave no entra en la lista, y expect toma
+      # como faltante un filtrado que queda vacío. Un PUT que sólo manda stocks
+      # terminaba en 400. Ahí el envoltorio se valida con `body_of`
+      # (ApplicationController) y el permit va sobre lo que devuelve.
       def product_params
         params.expect(product: %i[sku name stock])
       end
