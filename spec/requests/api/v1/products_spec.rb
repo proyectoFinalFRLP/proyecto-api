@@ -869,8 +869,8 @@ RSpec.describe 'Products API', type: :request do
         expect(stock.reload.quantity).to eq(5)
       end
 
-      # El lock sólo envuelve la escritura de stocks (ver comentario en
-      # Products::UpdateProduct#write_stocks!): un PATCH que sólo cambia
+      # El lock sólo se toma cuando el request trae stocks (ver comentario en
+      # Products::UpdateProduct#within_stock_lock): un PATCH que sólo cambia
       # `name` no compite por él. Este ejemplo documenta esa decisión de
       # diseño de no envolver todo el update en el advisory lock.
       it 'still returns 200 for an update that does not touch stocks' do

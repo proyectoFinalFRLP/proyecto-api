@@ -14,14 +14,13 @@ module Products
 
     def call
       Product.transaction do
-        verify_version!
-        @product.update!(@params)
-
-        if @stocks_params.present?
-          write_stocks!
-          reload_for_render!
+        within_stock_lock do
+          verify_version!
+          @product.update!(@params)
+          write_stocks! if @stocks_params.present?
         end
 
+        reload_for_render! if @stocks_params.present?
         @product
       end
     end
@@ -54,27 +53,33 @@ module Products
     # bloquear. Además la operación abarca varias filas del mismo producto,
     # así que se serializa por producto y no fila por fila.
     #
-    # Ojo con el alcance: esto ordena las escrituras, no detecta ediciones
-    # concurrentes. Como la cantidad llega absoluta desde el request, dos
-    # operadores que editan el mismo producto siguen pisándose — el último
-    # gana. Detectar eso pide locking optimista (lock_version / If-Match) y
-    # un cambio de contrato; ver ADR-009.
+    # Con stocks en el request, el lock se toma ANTES de verificar la versión y
+    # cubre las dos cosas. Antes sólo envolvía la escritura: el `lock!` de la
+    # versión bloquea la fila de `products`, pero las ventas (`DeductStock`) y
+    # las transferencias no la tocan, sólo toman este advisory lock. Entre el
+    # chequeo y el lock entraba una venta, la versión ya validada no la veía y
+    # la cantidad absoluta del request la borraba sin rastro (hallazgo de la
+    # auditoría de TESIS-89). Bajo el mismo lock, la venta espera o el PUT
+    # responde 409.
     #
-    # El lock envuelve sólo la escritura de stocks y no el update! del
-    # producto: editar el nombre no compite por stock con nadie, y con
-    # wait: false envolver todo el #call devolvería 409 espurios mientras un
-    # job de sincronización toca los stocks en paralelo.
+    # Sin stocks, nada: editar el nombre no compite por stock con nadie, y con
+    # wait: false envolver ese caso devolvería 409 espurios mientras un job de
+    # sincronización toca los stocks en paralelo.
     #
     # wait: false porque esto corre en el ciclo de un request HTTP: conviene
     # devolver 409 enseguida (ApplicationController mapea el
     # Catalog::LockTimeoutError) antes que colgar un thread de Puma esperando.
     # El modo wait: true queda para los jobs de background.
+    def within_stock_lock(&)
+      return yield if @stocks_params.blank?
+
+      Catalog::WithStockLock.new(product_id: @product.id, wait: false).call(&)
+    end
+
+    # Corre ya dentro del advisory lock (ver `within_stock_lock`).
     def write_stocks!
       validate_warehouses_belong_to_company!
-
-      Catalog::WithStockLock.new(product_id: @product.id, wait: false).call do
-        upsert_stocks_for_product!
-      end
+      upsert_stocks_for_product!
     end
 
     def upsert_stocks_for_product!
