@@ -526,11 +526,13 @@ Alternativas: WSL, Docker, o dejar la verificación de workers al CI/deploy (Lin
 ⚠️ **En macOS los workers se caen al arrancar** (`Abort trap: 6`, con un volcado de memoria que menciona `performForkChildInitialize`). Solid Queue arranca sus procesos con `fork`, y macOS aborta el proceso hijo si toca clases de Objective-C que el padre dejó a medio inicializar. Pasa igual con `bin/jobs` y con los workers dentro de Puma. Se evita con esta variable de entorno:
 
 ```bash
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES bin/jobs
-OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES SOLID_QUEUE_IN_PUMA=1 bin/rails server   # todo en un proceso, como en el deploy
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES PGGSSENCMODE=disable bin/jobs
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES PGGSSENCMODE=disable SOLID_QUEUE_IN_PUMA=1 bin/rails server   # todo en un proceso, como en el deploy
 ```
 
-Conviene exportarla en el perfil de la terminal (`~/.zshrc`). En Linux (el deploy) no hace falta.
+`PGGSSENCMODE=disable` evita la segunda forma del mismo problema: el hijo muere con `Segmentation fault` en `pg/connection.rb` (`connect_start`) al abrir su conexión a PostgreSQL, porque libpq intenta negociar cifrado GSS con las librerías de Kerberos del sistema. El supervisor vuelve a forkear y el log se llena de volcados sin que ningún job corra. En desarrollo no se usa GSS, así que apagarlo no cambia nada más.
+
+Conviene exportar las dos en el perfil de la terminal (`~/.zshrc`). En Linux (el deploy) no hacen falta.
 
 ### 8.4 Tareas programadas
 

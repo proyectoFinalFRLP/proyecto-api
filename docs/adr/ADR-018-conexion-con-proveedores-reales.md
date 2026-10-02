@@ -15,7 +15,7 @@ El criterio de aceptación del proyecto (E4b V2 §2.6) pide que al menos una pla
 - El sync saliente (TESIS-35) publicaba el stock en **cualquier** plantilla con productos vinculados, aunque no supiera qué hacer con él.
 - La API de la empresa aceptaba un `credentials` entero, sin validar nada, y el backoffice no permitía cargarlas (TESIS-129 lo dejó en sólo lectura para no mostrar secretos).
 
-El primer proveedor es **Shopify**, contra una tienda de prueba (*dev store*) del Partner Program. El equipo decidió integrarse sólo contra entornos de prueba, nunca contra producción. Este ADR registra las decisiones que la conexión real obligó a tomar. Los webhooks entrantes seguros (firma, token opaco, dedupe) van en un ADR aparte, junto con la ingesta de ventas.
+El primer proveedor es **Shopify**, contra una tienda de prueba (*dev store*) del Partner Program. El equipo decidió integrarse sólo contra entornos de prueba, nunca contra producción. Este ADR registra las decisiones que la conexión real obligó a tomar. Las ventas entrantes (firma, mapeo de la orden y suscripción del webhook) están en [ADR-019](ADR-019-ventas-entrantes-de-shopify.md).
 
 ## Decisión
 
@@ -163,7 +163,7 @@ Respeta la regla de «llamadas externas en un job», pero el usuario se entera d
 - ⚠️ Con un cliente real, la empresa tendría que hacerle llegar su client secret al equipo por algún canal. Con las dos empresas de demo no pasa, porque el equipo está de los dos lados
 - ⚠️ La empresa depende del equipo para conectar, cambiar o desconectar una cuenta
 - ⚠️ Una sola cuenta por proveedor y por empresa (índice único `company_id + service_id`)
-- ⚠️ Nada impide todavía conectar la misma tienda a dos empresas: cada venta entraría en las dos. Hace falta una regla de unicidad sobre el setting que identifica la cuenta, antes de habilitar las ventas entrantes
+- ⚠️ Nada impide todavía conectar la misma tienda a dos empresas: cada venta entraría en las dos. Hace falta una regla de unicidad sobre el setting que identifica la cuenta. _(Actualización, ADR-019: las ventas entrantes ya están habilitadas y la regla sigue pendiente.)_
 - ⚠️ El token se renueva con la fila bloqueada durante el pedido HTTP (hasta 10 s)
 - ⚠️ La versión de la API de Shopify vive en la URI de la plantilla: hay que actualizarla desde el backoffice antes de que venza (unos 12 meses)
 
