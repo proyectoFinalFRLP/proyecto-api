@@ -21,6 +21,7 @@ module Orders
     MISSING_ITEMS = 'the payload does not carry any order item'
     UNREADABLE_ITEMS = 'the template could not read %<count>d of the order items in the payload'
     ORDERS_UNIQUE_INDEX = 'index_orders_on_company_id_and_external_order_id'
+    CANCELLED = 'cancelled'
 
     def initialize(webhook_log:)
       super()
@@ -82,9 +83,24 @@ module Orders
     # transacción, así que el orden no abre ninguna ventana.
     def register_item(order, item, mapping)
       quantity = quantity_of(item)
-      stock = Catalog::DeductStock.new(product: mapping.product, quantity: quantity).call
-      OrderItem.create!(order: order, product: mapping.product, warehouse_id: stock.warehouse_id,
+      OrderItem.create!(order: order, product: mapping.product,
+                        warehouse_id: take_units(order, mapping.product, quantity),
                         quantity: quantity, unit_price: unit_price_of(item, mapping))
+    end
+
+    # Una venta que llega ya cancelada (en Mercado Libre la primera notificación
+    # puede traer un pago rechazado) se registra —queda el rastro de que existió—
+    # pero no se lleva stock: no va a salir. Antes se descontaba igual, y como una
+    # orden cancelada no se edita ni se vuelve a cancelar, esas unidades no
+    # volvían nunca y los canales publicaban de menos.
+    #
+    # Sin descuento no hay depósito que registrar: la línea queda sin él, igual
+    # que las anteriores a TESIS-126, y como la orden ya está cancelada nada va a
+    # intentar devolverle unidades.
+    def take_units(order, product, quantity)
+      return if order.status == CANCELLED
+
+      Catalog::DeductStock.new(product: product, quantity: quantity).call.warehouse_id
     end
 
     # Resuelve el producto interno de cada ítem antes de escribir nada: un ítem
