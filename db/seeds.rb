@@ -8,6 +8,40 @@
 # Multi-tenancy: todos los datos viven bajo una Company (tenant). Ver docs/guidelines/multi-tenancy-rls.md.
 
 # ---------------------------------------------------------------------------
+# TESIS-130 — Contraseñas de las cuentas sembradas
+# ---------------------------------------------------------------------------
+# Las contraseñas de desarrollo están en el repo: en un entorno desplegado le
+# abrirían las cuentas a cualquiera que lo lea. El entrypoint del Dockerfile
+# corre db:prepare, que siembra toda base nueva, así que en producción salen de
+# SEED_USER_PASSWORD (usuarios de las empresas) y SEED_ADMIN_PASSWORD
+# (administrador del backoffice). Sin ellas, o con una del repo, el seed no corre.
+
+repo_passwords = { user: 'password123', admin: 'admin123' }.freeze
+
+seed_passwords =
+  if Rails.env.production?
+    env_passwords = { user: ENV['SEED_USER_PASSWORD'], admin: ENV['SEED_ADMIN_PASSWORD'] }
+    if env_passwords.values.any?(&:blank?) || env_passwords.values.intersect?(repo_passwords.values)
+      raise 'Production seeds need SEED_USER_PASSWORD and SEED_ADMIN_PASSWORD, ' \
+            'and neither can be a password from the repo (see ADR-018)'
+    end
+
+    env_passwords
+  else
+    repo_passwords
+  end
+
+# find_or_create_by! no toca una cuenta que ya existe, y una base sembrada antes
+# de TESIS-130 las tiene con la contraseña del repo. En producción se rotan acá:
+# correr `bin/rails db:seed` con las variables cierra esas cuentas, y las que ya
+# tienen otra contraseña quedan como están.
+rotate_repo_password = lambda do |account, kind|
+  return unless Rails.env.production? && account.valid_password?(repo_passwords[kind])
+
+  account.update!(password: seed_passwords[kind])
+end
+
+# ---------------------------------------------------------------------------
 # TESIS-25 — Core & Tenancy: Companies, Users, Warehouses
 # ---------------------------------------------------------------------------
 
@@ -31,8 +65,8 @@ companies = [
       'tagline' => 'Logística del norte'
     },
     users: [
-      { email: 'admin@norte.com', password: 'password123' },
-      { email: 'operador@norte.com', password: 'password123' }
+      { email: 'admin@norte.com' },
+      { email: 'operador@norte.com' }
     ],
     warehouses: [
       { name: 'Depósito Central', zip_code: '1900', address: 'Av. 7 N° 1234, La Plata' },
@@ -59,8 +93,8 @@ companies = [
       'theme_mode' => 'light'
     },
     users: [
-      { email: 'admin@sur.com', password: 'password123' },
-      { email: 'deposito@sur.com', password: 'password123' }
+      { email: 'admin@sur.com' },
+      { email: 'deposito@sur.com' }
     ],
     warehouses: [
       { name: 'Depósito Sur', zip_code: '8000', address: 'Av. Colón N° 789, Bahía Blanca' }
@@ -81,7 +115,7 @@ companies = [
       'tagline' => 'Empresa dada de baja'
     },
     users: [
-      { email: 'admin@vieja.com', password: 'password123' }
+      { email: 'admin@vieja.com' }
     ],
     warehouses: [
       { name: 'Depósito en Liquidación', zip_code: '5000', address: 'Bv. San Juan N° 100, Córdoba' }
@@ -112,10 +146,11 @@ companies.each do |attrs|
   )
 
   attrs[:users].each do |user_attrs|
-    User.find_or_create_by!(email: user_attrs[:email]) do |u|
-      u.password = user_attrs[:password]
+    user = User.find_or_create_by!(email: user_attrs[:email]) do |u|
+      u.password = seed_passwords[:user]
       u.company = company
     end
+    rotate_repo_password.call(user, :user)
   end
 
   attrs[:warehouses].each do |warehouse_attrs|
@@ -130,9 +165,10 @@ end
 # TESIS-29 — Backoffice: administrador inicial del panel /admin
 # ---------------------------------------------------------------------------
 
-AdminUser.find_or_create_by!(email: 'admin@backoffice.com') do |admin|
-  admin.password = 'admin123'
+backoffice_admin = AdminUser.find_or_create_by!(email: 'admin@backoffice.com') do |admin|
+  admin.password = seed_passwords[:admin]
 end
+rotate_repo_password.call(backoffice_admin, :admin)
 
 # ---------------------------------------------------------------------------
 # TESIS-28 — Integraciones: Services (plantillas globales) + CompanyIntegrations

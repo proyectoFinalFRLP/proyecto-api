@@ -7,3 +7,11 @@ db/schema.rb linguist-generated
 vendor/* linguist-vendored
 config/credentials/*.yml.enc diff=rails_credentials
 config/credentials.yml.enc diff=rails_credentials
+
+# Scripts que se ejecutan en Linux (la imagen de Docker, el server): siempre LF,
+# aunque el checkout sea de Windows con core.autocrlf=true. Con CRLF el shebang
+# busca `ruby\r` o `bash\r` y el script no arranca.
+bin/* text eol=lf
+*.sh text eol=lf
+# kamal.cmd es un batch de Windows y se queda con CRLF.
+bin/*.cmd text eol=crlf

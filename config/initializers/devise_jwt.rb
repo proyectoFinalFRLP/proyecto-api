@@ -16,6 +16,9 @@ Devise.setup do |config|
   end
 
   config.jwt do |jwt|
+    # El fallback a secret_key_base es para desarrollo y test. En producción la
+    # variable es obligatoria (config/environments/production.rb): cada entorno
+    # firma con su propio secreto y un token emitido en otro no sirve (TESIS-130).
     jwt.secret = ENV.fetch('DEVISE_JWT_SECRET_KEY') { Rails.application.secret_key_base }
     jwt.expiration_time = 1.day.to_i
   end
