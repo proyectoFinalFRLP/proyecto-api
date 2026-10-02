@@ -89,6 +89,7 @@ Una venta que entra mal es peor que una venta que no entra: queda escrita, con m
 | `unit_price` en el payload **y** `external_price` en el mapping (los dos) | Corta | Un ítem en 0 es indistinguible de una bonificación legítima: el error queda enterrado en un registro financiero y ya no se puede detectar |
 | Un id externo sin `ProductMapping` | Corta (`UnmappedProductError`) | Es el caso que la DLQ resuelve sola: se crea el mapeo y se reintenta |
 | `status` ausente o desconocido para el OMS | **No corta**: entra como `pending` | El estado es informativo y se corrige después; la venta es el dato que no se puede perder |
+| `status` que llega `cancelled` | **No corta**: se registra cancelada, **sin descontar stock** y con las líneas sin depósito | La venta no va a salir. Descontar dejaba las unidades fuera para siempre, porque una orden cancelada no se edita ni se vuelve a cancelar (TESIS-999016) |
 | Datos del comprador (documento, dirección, CP) | **No corta** | La plantilla los mapea si el canal los manda; su ausencia no mueve ni stock ni dinero |
 
 El precio tiene un respaldo antes de cortar: el `external_price` del `ProductMapping`, o sea el precio publicado en ese canal. Es un precio real de la venta y no uno inventado, y cubre el caso común de un canal que no manda el precio en el webhook. Un `0` que **sí** viene en el payload se respeta: ahí el canal está afirmando que el ítem fue bonificado.
