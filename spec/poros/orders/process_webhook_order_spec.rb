@@ -379,6 +379,51 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
     end
   end
 
+  # La ciudad y la provincia las necesita el courier para cotizar el envío
+  # (TESIS-128). La provincia se valida contra Order::PROVINCES.
+  describe 'the city and the province of the customer' do
+    let(:service_with_location) do
+      create_service(mapper: order_mapper.merge('shipping.address.city' => 'customer_city',
+                                                'shipping.address.state' => 'customer_province'))
+    end
+    let(:integration) { CompanyIntegration.create!(company: company, service: service_with_location) }
+
+    def payload_in(state)
+      order_payload(items: [line('MLA-1', 1, 100)]).tap do |body|
+        body['shipping']['address'].merge!('city' => 'La Plata', 'state' => state)
+      end
+    end
+
+    before { publish('SKU-1', 'MLA-1') }
+
+    it 'keeps the city as the channel wrote it' do
+      expect(described_class.new(webhook_log: create_log(payload_in('Buenos Aires'))).call
+        .customer_city).to eq('La Plata')
+    end
+
+    it 'keeps a province the OMS knows' do
+      expect(described_class.new(webhook_log: create_log(payload_in('Buenos Aires'))).call
+        .customer_province).to eq('Buenos Aires')
+    end
+
+    it 'recognises the province with other capitals and without accents' do
+      expect(described_class.new(webhook_log: create_log(payload_in('santiago Del ESTERO'))).call
+        .customer_province).to eq('Santiago del Estero')
+    end
+
+    it 'matches accents the channel did not write' do
+      expect(described_class.new(webhook_log: create_log(payload_in('Cordoba'))).call
+        .customer_province).to eq('Córdoba')
+    end
+
+    it 'registers the sale without province instead of failing on an unknown one',
+       :aggregate_failures do
+      order = described_class.new(webhook_log: create_log(payload_in('Montevideo'))).call
+      expect(order).to be_persisted
+      expect(order.customer_province).to be_nil
+    end
+  end
+
   context 'when the channel reports a status the OMS does not know' do
     before { publish('SKU-1', 'MLA-1') }
 
