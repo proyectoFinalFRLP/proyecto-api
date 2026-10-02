@@ -24,8 +24,11 @@ require 'rails_helper'
 # `ContratoDeLaApi`).
 module FormaDeCadaRuta
   VOCABULARIOS = %w[products#categories orders#provinces].freeze
+  # `reports#overview` (TESIS-999007) es un recurso calculado: va pelado. Está
+  # anotado acá aunque la ruta llegue en otra rama, para que el orden de merge
+  # no rompa este spec.
   RECURSOS = %w[me#show tenant_config#show warehouses#show products#show orders#show
-                shipments#show].freeze
+                shipments#show reports#overview].freeze
 end
 
 RSpec.describe 'Every listing keeps the response envelope (ADR-015)', type: :request do
