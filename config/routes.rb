@@ -19,6 +19,9 @@ Rails.application.routes.draw do
       # del token.
       get 'me', to: 'me#show'
 
+      # Agregados de la pantalla de Reportes (S14) sobre una ventana de tiempo.
+      get 'reports/overview', to: 'reports#overview'
+
       resources :integrations, only: %i[index update], param: :service_id
       resources :warehouses, only: %i[index show create update destroy]
       resources :products, only: %i[index show create update destroy] do
