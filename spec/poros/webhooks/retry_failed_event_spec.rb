@@ -54,6 +54,35 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
     end
   end
 
+  # Hallazgo de auditoría (TESIS-89): el worker cargó el evento antes de que un
+  # operador lo descartara, y al terminar escribía su resultado encima. El
+  # evento volvía a `pending` y el barrido lo seguía reintentando.
+  context 'when an operator discards the event while the retry runs' do
+    def discard_meanwhile
+      worker = described_class.new(failed_event: event)
+      Webhooks::DiscardFailedEvent.new(failed_event: FailedEvent.find(event.id)).call
+      worker
+    end
+
+    it 'keeps it discarded when the attempt fails', :aggregate_failures do
+      stub_request(:post, url).to_return(status: 503, body: 'unavailable')
+
+      discard_meanwhile.call
+
+      expect(event.reload).to have_attributes(status: 'discarded', next_retry_at: nil)
+    end
+
+    # Ya se procesó: `succeeded` es tan terminal como `discarded` y dice la verdad.
+    it 'records the success when the attempt went through' do
+      stub_request(:post, url).to_return(status: 200, headers: { 'Content-Type' => 'application/json' },
+                                         body: { estado: 'Entregado' }.to_json)
+
+      discard_meanwhile.call
+
+      expect(event.reload.status).to eq('succeeded')
+    end
+  end
+
   context 'when the replay fails and attempts remain' do
     before { stub_request(:post, url).to_return(status: 503, body: 'unavailable') }
 
