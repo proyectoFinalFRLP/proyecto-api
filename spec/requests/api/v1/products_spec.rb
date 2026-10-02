@@ -841,6 +841,48 @@ RSpec.describe 'Products API', type: :request do
     end
   end
 
+  # Hallazgo de auditoría (TESIS-89): las filas de `stocks` se comparaban crudas
+  # contra los ids de la base. Una fila sin depósito hacía reventar el `sort`
+  # (500), y un id en texto daba un 422 falso de «no pertenece a la empresa».
+  describe 'the warehouse of each stock row' do
+    let(:product) { Product.create!(company: company, sku: 'ROW-001', name: 'Filas') }
+    let(:central) do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+    end
+
+    def put_stocks(stocks)
+      put "/api/v1/products/#{product.id}",
+          params: { product: { name: 'Filas', stocks: stocks } }, headers: headers, as: :json
+    end
+
+    it 'answers 422 and names the row that has no warehouse', :aggregate_failures do
+      put_stocks([{ warehouse_id: central.id, quantity: 1 }, { quantity: 3 }])
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to eq('stocks[1]: warehouse_id must be a positive integer')
+    end
+
+    it 'accepts a warehouse id that comes as text', :aggregate_failures do
+      put_stocks([{ warehouse_id: central.id.to_s, quantity: 4 }])
+
+      expect(response).to have_http_status(:ok)
+      expect(Stock.find_by(product: product, warehouse: central).quantity).to eq(4)
+    end
+
+    it 'still refuses a warehouse of another company' do
+      put_stocks([{ warehouse_id: other_warehouse.id, quantity: 1 }])
+
+      expect(response.parsed_body['error']).to eq('One or more warehouses do not belong to this company')
+    end
+
+    it 'refuses the same row on creation too' do
+      post '/api/v1/products', params: { product: { sku: 'ROW-002', name: 'Nuevo', stocks: [{ quantity: 1 }] } },
+                               headers: headers, as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+  end
+
   describe 'PATCH /api/v1/products/:id' do
     let!(:product) do
       Product.create!(company: company, sku: 'PROD-001', name: 'Original')
