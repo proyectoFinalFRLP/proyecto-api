@@ -41,9 +41,12 @@ app/poros/
 │   ├── create_order.rb
 │   ├── confirm_order.rb        # Confirma orden + descuenta stock
 │   └── process_webhook_order.rb # Ingesta orden de un canal externo
-└── shipments/
-    ├── quote_shipment.rb        # Cotización concurrente con múltiples couriers
-    └── confirm_dispatch.rb      # Confirma despacho + obtiene tracking
+├── shipments/
+│   ├── quote_shipment.rb        # Cotización concurrente con múltiples couriers
+│   └── confirm_dispatch.rb      # Confirma despacho + obtiene tracking
+└── reports/
+    ├── window.rb                # Ventana de N días en hora de Argentina + período anterior
+    └── build_overview.rb        # Agregados de S14: ventas, unidades despachadas, couriers
 ```
 
 Un PORO = un caso de uso. El nombre del archivo es el verbo + sustantivo del caso de uso.
@@ -93,6 +96,7 @@ orders    →  catalog        ✅ (confirmar orden descuenta stock)
 shipments →  orders         ✅ (un envío pertenece a una orden)
 webhooks  →  orders         ✅ (los webhooks disparan procesamiento de órdenes)
 webhooks  →  shipments      ✅ (los webhooks de couriers actualizan tracking)
+reports   →  orders, shipments ✅ (sólo lee: agrega ventas y despachos, nunca escribe)
 ```
 
 Los dominios nunca importan hacia arriba en la jerarquía de dependencia. Si dos dominios necesitan lógica compartida que no pertenece a ninguno, esa lógica va en `app/poros/shared/` o en el model directamente.
