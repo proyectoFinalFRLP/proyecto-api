@@ -197,6 +197,38 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
     end
   end
 
+  # Hallazgo de auditoría (TESIS-89): la idempotencia buscaba el id externo en
+  # toda la empresa. La venta de otro canal con el mismo id se tomaba por
+  # duplicada: log `processed`, sin orden, sin stock descontado, sin DLQ.
+  context 'when another channel of the company already used the same external id' do
+    let(:other_channel) { CompanyIntegration.create!(company: company, service: create_service) }
+
+    before do
+      publish('SKU-1', 'MLA-1', stock: 20)
+      ProductMapping.create!(product: Product.find_by(sku: 'SKU-1'), company_integration: other_channel,
+                             external_product_id: 'TN-1')
+      described_class.new(webhook_log: create_log(order_payload(items: [line('MLA-1', 2, 10)]))).call
+    end
+
+    def sale_from_other_channel
+      WebhookLog.create!(company_id: company.id, company_integration: other_channel,
+                         payload: order_payload(items: [line('TN-1', 3, 10)]))
+    end
+
+    it 'registers it as a sale of its own', :aggregate_failures do
+      order = described_class.new(webhook_log: sale_from_other_channel).call
+
+      expect(order.company_integration).to eq(other_channel)
+      expect(Order.where(external_order_id: 'ML-1001').count).to eq(2)
+    end
+
+    it 'takes its units from the stock' do
+      described_class.new(webhook_log: sale_from_other_channel).call
+
+      expect(stock_of('SKU-1')).to eq(15)
+    end
+  end
+
   context 'when the log was already processed' do
     before { log.update!(status: :processed) }
 
