@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_26_171540) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_211235) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -169,6 +169,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_26_171540) do
     t.string "type", null: false
     t.datetime "updated_at", null: false
     t.string "uri", null: false
+    t.jsonb "webhook_config", default: {}, null: false
     t.index ["parent_service_id", "operation"], name: "index_services_on_parent_service_id_and_operation", unique: true, where: "(parent_service_id IS NOT NULL)"
     t.index ["parent_service_id"], name: "index_services_on_parent_service_id"
     t.index ["quote_service_id"], name: "index_services_on_quote_service_id", unique: true

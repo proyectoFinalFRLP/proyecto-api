@@ -33,6 +33,36 @@ RSpec.describe Service, type: :model do
     expect(described_class.new(type: 'ecommerce')).to be_an_instance_of(described_class)
   end
 
+  describe 'webhook_config' do
+    def signed(config)
+      service.webhook_config = config
+      service
+    end
+
+    it 'is valid empty: the provider does not sign' do
+      expect(signed({})).to be_valid
+    end
+
+    it 'is valid with the algorithm, the header and the secret' do
+      expect(signed('signature' => 'hmac_sha256_base64', 'signature_header' => 'X-Sig',
+                    'secret_key' => 'client_secret')).to be_valid
+    end
+
+    it 'is invalid with an algorithm the gateway cannot verify' do
+      expect(signed('signature' => 'rsa', 'signature_header' => 'X-Sig',
+                    'secret_key' => 'client_secret')).not_to be_valid
+    end
+
+    it 'is invalid without the header or the secret' do
+      expect(signed('signature' => 'hmac_sha256_hex')).not_to be_valid
+    end
+
+    it 'tells whether the gateway has to verify the signature', :aggregate_failures do
+      expect(signed({})).not_to be_signs_webhooks
+      expect(signed('signature' => 'hmac_sha256_hex')).to be_signs_webhooks
+    end
+  end
+
   describe '#ecommerce?' do
     it 'is true for an ecommerce service' do
       service.type = 'ecommerce'

@@ -25,7 +25,7 @@ class Service < ApplicationRecord
   # Lo que define cómo se conecta una plantilla, además de sus mappers. Los
   # seeds lo reaplican sobre las plantillas que ya existen.
   CONNECTION_FIELDS = %w[auth_strategy auth_config credential_fields setting_fields
-                         request_format body_template error_path operation].freeze
+                         request_format body_template error_path operation webhook_config].freeze
 
   # La clave interna con la que el sync saliente manda la cantidad a publicar.
   STOCK_KEY = 'available_quantity'
@@ -76,6 +76,11 @@ class Service < ApplicationRecord
                         if: :parent_service_id
   validate :mappers_are_valid_json
   validate :field_specs_are_lists
+  # Una firma declarada a medias haría que el gateway rechace todos los eventos
+  # de la plantilla: mejor que no se pueda guardar.
+  validate do
+    Webhooks::VerifySignature.config_problems(webhook_config).each { errors.add(:webhook_config, it) }
+  end
   validate :tracking_service_answers_tracking
   validate :quote_service_quotes_shipping
 
@@ -90,6 +95,11 @@ class Service < ApplicationRecord
   def graphql? = request_format == GRAPHQL_FORMAT
 
   def oauth_client_credentials? = auth_strategy == OAUTH_CLIENT_CREDENTIALS
+
+  # Si el gateway tiene que verificar la firma de los webhooks de esta plantilla
+  # (`webhook_config`, ver Webhooks::VerifySignature). Sin `signature`, el
+  # proveedor no firma: lo de siempre.
+  def signs_webhooks? = webhook_config.is_a?(Hash) && webhook_config['signature'].present?
 
   # La plantilla hija que sabe hacer `operation` con la cuenta de esta
   # integración, o nil si el proveedor no la declara.
