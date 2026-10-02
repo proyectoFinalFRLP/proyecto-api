@@ -2,6 +2,7 @@
 
 class Product < ApplicationRecord
   include CompanyScoped
+  include AccentInsensitiveSearch
 
   # Vocabulario de categorías del catálogo. Es taxonomía de negocio, no una
   # máquina de estados: por eso vive acá y no como CHECK constraint. Las columnas
@@ -90,14 +91,9 @@ class Product < ApplicationRecord
   scope :by_category, ->(category) { category.present? ? where(category: category) : all }
 
   # Busca por las dos formas en que un operador nombra un producto: el código
-  # con el que lo identifica y el nombre con el que lo conoce.
-  scope :search_catalog, lambda { |term|
-    cleaned = term.to_s.strip
-    next all if cleaned.blank?
-
-    pattern = "%#{sanitize_sql_like(cleaned)}%"
-    where('sku ILIKE :pattern OR name ILIKE :pattern', pattern: pattern)
-  }
+  # con el que lo identifica y el nombre con el que lo conoce. Sin mayúsculas
+  # ni acentos (ver AccentInsensitiveSearch).
+  scope :search_catalog, ->(term) { matching_text(%i[sku name], term) }
 
   # Retorna el stock total consolidado. Si la fila fue cargada con el scope
   # with_total_stock, el alias SQL `total_stock` ya trae el agregado calculado

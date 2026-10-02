@@ -248,6 +248,13 @@ RSpec.describe 'Orders API', type: :request do
         expect(response.parsed_body['data'].size).to eq(1)
       end
 
+      # El caso que el comentario del controller dejaba anotado como card aparte.
+      it 'ignores accents: "perez" finds "Pérez"' do
+        get '/api/v1/orders', params: { search: 'perez' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('customer_name')).to eq(['Ferretería Pérez'])
+      end
+
       it 'counts only the matching rows in meta.total' do
         get '/api/v1/orders', params: { search: 'ferret' }, headers: headers
 

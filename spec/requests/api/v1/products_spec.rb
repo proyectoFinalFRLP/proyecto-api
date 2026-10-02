@@ -183,6 +183,15 @@ RSpec.describe 'Products API', type: :request do
         expect(skus(search: 'CABLE')).to eq(['BAJO'])
       end
 
+      # «presion» encuentra «Sensor de presión»: el operador no tipea acentos.
+      it 'ignores accents in what is typed' do
+        expect(skus(search: 'presion')).to eq(['DISPONIBLE'])
+      end
+
+      it 'ignores accents in what is stored too' do
+        expect(skus(search: 'PRESIÓN')).to eq(['DISPONIBLE'])
+      end
+
       # Un `%` tipeado por el usuario es texto a buscar, no un comodín.
       it 'treats a literal % as text and not as a wildcard' do
         expect(skus(search: '%')).to be_empty
