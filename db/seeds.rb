@@ -338,9 +338,33 @@ services = [
       'quantity' => 'available_quantity',
       'idempotencyKey' => 'idempotency_key'
     },
-    response_mapper: {},
+    # Las ventas llegan por el webhook `orders/create`, que trae la orden
+    # completa: la ingesta (TESIS-43) la traduce con este mapper. El cliente y
+    # la dirección salen de la dirección de envío, que Shopify sólo manda si la
+    # app tiene acceso a los datos protegidos de cliente.
+    response_mapper: {
+      'id' => 'external_order_id',
+      'financial_status' => 'status',
+      'shipping_address.name' => 'customer_name',
+      'shipping_address.address1' => 'customer_address',
+      'shipping_address.zip' => 'customer_zip_code',
+      'shipping_address.city' => 'customer_city',
+      'shipping_address.province' => 'customer_province',
+      'line_items[].variant_id' => 'external_product_id',
+      'line_items[].quantity' => 'quantity',
+      'line_items[].price' => 'unit_price'
+    },
     request_value_mapper: {},
-    response_value_mapper: {}
+    # Estados de pago de Shopify que no se llaman igual en el OMS. `paid` y
+    # `pending` coinciden, y cualquier otro entra como pendiente.
+    response_value_mapper: { 'authorized' => 'pending', 'partially_paid' => 'pending',
+                             'voided' => 'cancelled' },
+    # Shopify firma cada webhook con el client secret de la app que lo
+    # registró: como cada empresa conecta la suya, el secreto es el de su
+    # integración.
+    webhook_config: { 'signature' => 'hmac_sha256_base64',
+                      'signature_header' => 'X-Shopify-Hmac-SHA256',
+                      'secret_key' => 'client_secret' }
   },
   # «Probar conexión» de Shopify: plantilla hija, se ejecuta con la cuenta de la
   # madre. Trae el nombre de la tienda y la primera ubicación, que completa el
@@ -404,6 +428,43 @@ services = [
       'data.productVariants.nodes.0.product.title' => 'external_title',
       'data.productVariants.nodes.0.inventoryItem.id' => 'inventory_item_id',
       'data.productVariants.nodes.1.legacyResourceId' => 'ambiguous_match'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  # Registrar el webhook de ventas (Integrations::RegisterWebhook): primero se
+  # busca si la tienda ya avisa a esta dirección, para no duplicar la
+  # suscripción, y si no se crea. La dirección la arma el sistema.
+  {
+    service_name: 'Shopify - Buscar webhook',
+    parent_service_name: 'Shopify',
+    operation: 'webhook_lookup',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: 'query Webhook($uri: String!) { webhookSubscriptions(first: 1, uri: $uri, ' \
+                   'topics: [ORDERS_CREATE]) { nodes { id } } }',
+    request_mapper: { 'uri' => 'webhook_url' },
+    response_mapper: { 'data.webhookSubscriptions.nodes.0.id' => 'webhook_subscription_id' },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  {
+    service_name: 'Shopify - Webhook',
+    parent_service_name: 'Shopify',
+    operation: 'webhook_subscription',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: 'mutation Subscribe($uri: String!) { webhookSubscriptionCreate(' \
+                   'topic: ORDERS_CREATE, webhookSubscription: { uri: $uri, format: JSON }) { ' \
+                   'webhookSubscription { id } userErrors { field message } } }',
+    error_path: 'data.webhookSubscriptionCreate.userErrors',
+    request_mapper: { 'uri' => 'webhook_url' },
+    response_mapper: {
+      'data.webhookSubscriptionCreate.webhookSubscription.id' => 'webhook_subscription_id'
     },
     request_value_mapper: {},
     response_value_mapper: {}

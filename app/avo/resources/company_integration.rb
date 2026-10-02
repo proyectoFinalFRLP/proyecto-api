@@ -29,6 +29,7 @@ module Avo
       def actions
         action Avo::Actions::ConfigureConnection
         action Avo::Actions::TestConnection
+        action Avo::Actions::RegisterWebhook
       end
 
       def filters

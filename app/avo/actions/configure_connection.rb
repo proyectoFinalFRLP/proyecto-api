@@ -14,6 +14,7 @@ module Avo
     # - La configuración sí se precarga, y vaciarla la borra.
     # - Después de guardar prueba la conexión si la plantilla sabe hacerlo: en
     #   Shopify eso completa la ubicación donde se publica el stock.
+    # - Si la prueba pasa, registra el webhook del proveedor (las ventas).
     class ConfigureConnection < Avo::BaseAction
       CREDENTIAL_PREFIX = 'credentials__'
       SETTING_PREFIX = 'settings__'
@@ -76,9 +77,23 @@ module Avo
         result = ::Integrations::TestConnection.new(company_integration: integration).call
         if result[:ok]
           succeed("Connection saved. #{result[:message]}.")
+          report_webhook(integration)
         else
           warn("Connection saved, but the test failed: #{result[:message]}")
         end
+      end
+
+      # Con la cuenta probada, se suscribe a los eventos del proveedor si la
+      # plantilla sabe hacerlo: así las ventas entran solas desde el primer
+      # momento. Si falla (la URL pública no está configurada, por ejemplo) se
+      # puede reintentar con «Register webhook».
+      def report_webhook(integration)
+        return unless ::Integrations::RegisterWebhook.declared_by?(integration.service)
+
+        result = ::Integrations::RegisterWebhook.new(company_integration: integration).call
+        return succeed(result[:message]) if result[:ok]
+
+        warn("Webhook not registered: #{result[:message]}")
       end
 
       # «Client ID: required; Shop domain: invalid_format», con el nombre que ve

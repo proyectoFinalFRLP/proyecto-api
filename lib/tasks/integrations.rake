@@ -10,6 +10,7 @@
 #
 #   bin/rails "integrations:shopify:connect[norte]"
 #   bin/rails "integrations:shopify:test[norte]"
+#   bin/rails "integrations:shopify:webhook[norte]"   (con PUBLIC_WEBHOOK_BASE_URL)
 #   bin/rails "integrations:shopify:link[norte,NOR-001]"          (busca por SKU)
 #   bin/rails "integrations:shopify:link[norte,NOR-001,4567890]"  (por id de variante)
 module ShopifyDevTasks
@@ -38,6 +39,18 @@ module ShopifyDevTasks
 
       puts "ok: #{result[:ok]} — #{result[:message]}"
       puts "settings: #{integration.reload.settings}"
+    end
+  end
+
+  # Suscribe la tienda a las ventas: la dirección sale de
+  # PUBLIC_WEBHOOK_BASE_URL (en desarrollo, la de un túnel).
+  def webhook(slug)
+    company = company(slug)
+    Current.set(company_id: company.id) do
+      integration = company.company_integrations.find_by!(service: shopify)
+      result = Integrations::RegisterWebhook.new(company_integration: integration).call
+
+      puts "ok: #{result[:ok]} — #{result[:message]}"
     end
   end
 
@@ -96,6 +109,11 @@ namespace :integrations do
     desc 'Vincula el producto [sku] de la empresa [slug] con Shopify y publica su stock'
     task :link, %i[slug sku variant_id] => :environment do |_task, args|
       ShopifyDevTasks.link(args.fetch(:slug, 'norte'), args.fetch(:sku), args[:variant_id])
+    end
+
+    desc 'Registra el webhook de ventas de Shopify de la empresa [slug]'
+    task :webhook, [:slug] => :environment do |_task, args|
+      ShopifyDevTasks.webhook(args.fetch(:slug, 'norte'))
     end
 
     desc 'Prueba la conexión de Shopify de la empresa [slug]'
