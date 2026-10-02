@@ -2,6 +2,7 @@
 
 class Order < ApplicationRecord
   include CompanyScoped
+  include AccentInsensitiveSearch
 
   STATUSES = %w[pending paid cancelled].freeze
 

@@ -137,29 +137,11 @@ module Api
         end
       end
 
-      # ILIKE y no `LIKE`: el operador busca "perez" y encuentra "PEREZ S.A.".
-      #
-      # Ignora mayúsculas, NO ignora acentos: "perez" no encuentra "Pérez S.A.",
-      # porque en Postgres `é` y `e` son caracteres distintos y ILIKE sólo aplica
-      # el plegado de caja. Resolverlo pide la extensión `unaccent`, y hacerlo
-      # acá solo dejaría el buscador de productos —que tiene el mismo ILIKE— con
-      # otro comportamiento. Va como card aparte.
-      #
-      # Sin índice, igual que el buscador del catálogo: un `%term%` no puede usar
-      # un B-tree y necesita un índice GIN con `pg_trgm`. Es la misma extensión y
-      # la misma decisión que unaccent, así que viaja en la misma card en vez de
-      # quedar a medias en este PR.
-      #
-      # El término se escapa con `sanitize_sql_like` para que un `%` o un `_`
-      # tipeados por el usuario se busquen literalmente en vez de comportarse
-      # como comodines.
+      # Sin mayúsculas ni acentos: "perez" encuentra "PEREZ S.A." y "Pérez S.A."
+      # (AccentInsensitiveSearch, el mismo criterio que el buscador del
+      # catálogo).
       def apply_search(orders)
-        term = scalar_param(:search).to_s.strip
-        return orders if term.blank?
-
-        pattern = "%#{Order.sanitize_sql_like(term)}%"
-        condition = SEARCH_FIELDS.map { |field| "#{field} ILIKE :pattern" }.join(' OR ')
-        orders.where(condition, pattern: pattern)
+        orders.matching_text(SEARCH_FIELDS, scalar_param(:search))
       end
 
       def order_params
