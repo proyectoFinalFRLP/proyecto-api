@@ -30,6 +30,22 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
   # `assign_current_company` de CompanyScoped pisa el `company:` explícito cuando
   # `Current.company_id` quedó seteado por un request anterior. Forzarlo a nil es
   # lo que garantiza que el fixture nazca SIEMPRE en la otra empresa.
+  # Las acciones de `/api/v1` cuyo path lleva un id (`:id`, `:order_id`,
+  # `:product_id`, `:service_id`), como `controlador#acción`.
+  def id_routes
+    Rails.application.routes.routes.filter_map do |route|
+      path = route.path.spec.to_s
+      next unless path.start_with?('/api/v1/') && path.match?(/:(\w+_)?id\b/)
+
+      "#{route.defaults[:controller].delete_prefix('api/v1/')}##{route.defaults[:action]}"
+    end.uniq
+  end
+
+  # Rutas con un id que no apunta a un registro de una empresa: el servicio
+  # (`:service_id`) es una plantilla global, y la integración que se crea o
+  # actualiza es siempre la de la empresa de la sesión.
+  def tenantless_id_routes = %w[integrations#update]
+
   def as_intruder(&)
     Current.set(company_id: nil, &)
   end
@@ -88,6 +104,14 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
     end
   end
 
+  # Un mapeo de la otra empresa: su producto vinculado a su canal.
+  def other_mapping
+    @other_mapping ||= as_intruder do
+      ProductMapping.create!(product: other_product, company_integration: other_integration,
+                             external_product_id: 'SUR-EXT-1')
+    end
+  end
+
   # ─────────────────────────────────────────────────────────────────── IDOR
   #
   # Un id existente pero de otra empresa tiene que responder 404, no 403: un 403
@@ -109,9 +133,11 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
         [%i[get put delete], "/api/v1/warehouses/#{deposito}"],
         [%i[get put], "/api/v1/orders/#{orden}"],
         [%i[get], "/api/v1/shipments/#{other_shipment.id}"],
+        [%i[post], "/api/v1/shipments/#{other_shipment.id}/dispatch"],
         [%i[post], "/api/v1/orders/#{orden}/shipment"],
         [%i[post], "/api/v1/orders/#{orden}/quotes"],
-        [%i[get], "/api/v1/products/#{producto}/mappings"],
+        [%i[get post], "/api/v1/products/#{producto}/mappings"],
+        [%i[delete], "/api/v1/products/#{producto}/mappings/#{other_mapping.id}"],
         [%i[post], "/api/v1/failed-events/#{evento}/retry"],
         [%i[post], "/api/v1/failed-events/#{evento}/discard"],
         [%i[post], "/api/v1/stock-transfers/#{transferencia}/receive"],
@@ -138,6 +164,20 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
         expect { Rails.application.routes.recognize_path(ruta, method: verbo) }
           .not_to raise_error, "#{verbo.upcase} #{ruta} no corresponde a ninguna ruta"
       end
+    end
+
+    # Completitud del barrido (TESIS-999032): la lista de arriba está escrita a
+    # mano, y una ruta nueva que reciba un id ajeno no se probaba hasta que
+    # alguien se acordara de sumarla. Le pasó a `POST /shipments/:id/dispatch` y
+    # al alta y la baja de los mapeos. Ahora una ruta con id que no esté en el
+    # barrido hace fallar este ejemplo, nombrándola.
+    it 'sweeps every route of the API that takes an id' do
+      swept = rutas_ajenas.map do |verbo, ruta|
+        recognized = Rails.application.routes.recognize_path(ruta, method: verbo)
+        "#{recognized[:controller].delete_prefix('api/v1/')}##{recognized[:action]}"
+      end
+
+      expect(id_routes - swept - tenantless_id_routes).to be_empty
     end
 
     # La otra mitad de la contraprueba: que el 404 tampoco venga de la sesión ni
