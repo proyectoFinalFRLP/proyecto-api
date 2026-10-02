@@ -50,7 +50,11 @@ module ContratoDeLaApi
     envio: %w[id order_id status tracking_number shipping_label_url shipping_cost courier events
               created_at updated_at],
     evento: %w[id internal_status external_status description occurred_at created_at],
-    meta: %w[page per_page total]
+    meta: %w[page per_page total],
+    reporte: %w[period from to granularity kpis curve carriers],
+    reporte_kpis: %w[orders revenue dispatched_units on_time_delivery_rate active_anomalies],
+    punto_curva: %w[date orders revenue],
+    operador: %w[company_integration_id name dispatched delivered]
   }.freeze
 end
 
@@ -81,6 +85,14 @@ RSpec.describe 'API contract with the frontend', type: :request do
       Stock.create!(product: producto, warehouse: warehouse, quantity: 10)
       producto
     end
+  end
+
+  # Un envío despachado hoy con un courier: lo que el reporte cuenta por operador.
+  def dispatch_with_a_courier
+    sent = Shipment.create!(company: company, order: order, status: 'ready_to_ship',
+                            company_integration: courier_integration(company: company))
+    ShipmentEvent.create!(shipment: sent, internal_status: 'ready_to_ship',
+                          external_status: 'Etiqueta generada', occurred_at: Time.current)
   end
 
   def order
@@ -139,6 +151,23 @@ RSpec.describe 'API contract with the frontend', type: :request do
       get "/api/v1/products/#{product.id}", headers: headers
 
       expect(response.parsed_body.keys).to include('sku')
+    end
+
+    # Un reporte es un recurso calculado, no una colección: viaja pelado.
+    it 'answers the reports overview as a bare resource with the agreed keys', :aggregate_failures do
+      get '/api/v1/reports/overview', headers: headers
+
+      expect(response.parsed_body.keys).to match_array(claves[:reporte])
+      expect(response.parsed_body['kpis'].keys).to match_array(claves[:reporte_kpis])
+      expect(response.parsed_body['curve'].first.keys).to match_array(claves[:punto_curva])
+    end
+
+    it 'answers each carrier of the overview with the agreed keys' do
+      dispatch_with_a_courier
+
+      get '/api/v1/reports/overview', headers: headers
+
+      expect(response.parsed_body['carriers'].first.keys).to match_array(claves[:operador])
     end
 
     # Era el único que devolvía un array pelado. Un array en la raíz no admite
