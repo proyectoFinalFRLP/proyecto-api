@@ -95,6 +95,17 @@ module Api
         render_with_version(with_items(updated))
       end
 
+      # Cancelación: la orden pasa a `cancelled` y sus unidades vuelven a los
+      # depósitos de los que salieron. Acepta `If-Match` como la edición.
+      def cancel
+        order = Order.find(params.expect(:id))
+        authorize order
+
+        cancelled = Orders::CancelOrder.new(order: order, expected_version: expected_version).call
+
+        render_with_version(with_items(cancelled))
+      end
+
       private
 
       def render_with_version(order)

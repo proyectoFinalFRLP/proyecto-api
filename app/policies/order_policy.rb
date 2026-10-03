@@ -34,6 +34,12 @@ class OrderPolicy < ApplicationPolicy
     show?
   end
 
+  # Cancelar (devuelve el stock). Mismo permiso que modificar: qué órdenes se
+  # pueden cancelar es regla de negocio y vive en Orders::CancelOrder.
+  def cancel?
+    show?
+  end
+
   # El aislamiento real ya lo garantiza el default_scope de CompanyScoped (una
   # orden de otra empresa ni siquiera se encuentra: 404). Este Scope es la
   # segunda barrera, y existe para que `policy_scope` del listado no dependa de

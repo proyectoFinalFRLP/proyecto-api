@@ -71,7 +71,7 @@ Todo lo que puede hacer fallar el reemplazo —una línea ajena, un depósito de
 ### Lo que no se modifica
 
 - **El precio de una línea existente**, aunque venga en el request. Es lo que se facturó ([TESIS-114](https://proyectofinalfrlp.atlassian.net/browse/TESIS-114)); para cambiarlo, se borra la línea y se agrega otra.
-- **La cancelación.** El estado sólo va y viene entre `pending` y `paid`. Cancelar devuelve el stock de la orden entera y obliga a decidir qué pasa con su envío: son reglas propias, y merecen su card.
+- **La cancelación.** El estado sólo va y viene entre `pending` y `paid`. Cancelar devuelve el stock de la orden entera y obliga a decidir qué pasa con su envío: son reglas propias, y merecen su card. Esa card es TESIS-999009: `POST /api/v1/orders/:id/cancel` (`Orders::CancelOrder`) devuelve cada línea a su depósito bajo los locks de stock, con `If-Match` y las mismas guardas (409 si ya está cancelada o el envío salió; 422 si una línea no registra su depósito).
 - **Una orden cancelada**, ni **una cuyo envío ya salió** (estado distinto de `pending`, o `pending` con número de seguimiento, mismo criterio que `Shipments::AlreadyDispatchedError`). Cambiar las líneas de algo que ya viaja no es una corrección. Las dos responden 409: no hay body que haga pasar el mismo request.
 
 ### Ediciones concurrentes: el mismo contrato que productos
@@ -89,4 +89,4 @@ El chequeo va detrás del `lock!` y **antes** que las guardas de estado: si otro
 - ✅ El front no lleva un protocolo de operaciones: manda lo que tiene en pantalla
 - ⚠️ Las líneas anteriores a TESIS-126 quedan con `warehouse_id` en `NULL` y no se pueden achicar ni borrar; con el tiempo dejan de existir en órdenes editables, pero no hay forma de repararlas
 - ⚠️ Como en productos, la protección contra ediciones concurrentes es **opt-in**: un cliente que no manda `If-Match` no está protegido
-- ⚠️ La cancelación sigue sin camino: una orden sólo llega a `cancelled` por el canal externo o por el backoffice
+- ✅ La cancelación tiene camino propio desde TESIS-999009 (ver arriba). ⚠️ Una venta que entró por webhook y **después** se cancela en el canal sigue sin devolver stock sola: la ingesta reconoce la venta como duplicada y no la actualiza

@@ -49,6 +49,10 @@ Rails.application.routes.draw do
         # así que no hay id que poner en la URL.
         resource :shipment, only: %i[create]
 
+        # Cancelar devuelve el stock de la orden: no es una edición más del
+        # estado, por eso no viaja en el PUT (Orders::CancelOrder).
+        post :cancel, on: :member
+
         # Vocabulario de provincias del destino (TESIS-128): ruta de colección,
         # no depende de una orden.
         get :provinces, on: :collection
