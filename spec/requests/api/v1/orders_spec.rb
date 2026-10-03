@@ -396,6 +396,21 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
+      # Pasaba la validación (0,5 > 0), la columna integer la guardaba en 0 y
+      # DeductStock reventaba con ArgumentError: 500.
+      it 'rejects a quantity below one unit with 422, not 500', :aggregate_failures do
+        post_order(build_payload(items: [default_item.merge(quantity: 0.5)]))
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('must be an integer')
+      end
+
+      it 'rejects a fractional quantity instead of truncating it', :aggregate_failures do
+        expect { post_order(build_payload(items: [default_item.merge(quantity: 2.7)])) }
+          .not_to change(Order, :count)
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
       it 'rejects when warehouse belongs to another company' do
         other_wh = other_company_warehouse
         post_order(build_payload(items: [default_item.merge(warehouse_id: other_wh.id)]))
