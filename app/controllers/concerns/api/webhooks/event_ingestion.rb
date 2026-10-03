@@ -32,6 +32,11 @@ module Api
         # tiene que dejar de mandar eventos a esa integración.
         rescue_from ActiveRecord::InvalidForeignKey, with: :render_not_found
 
+        # Un evento que no prueba venir del proveedor no se persiste: guardarlo
+        # dejaría a cualquiera que conozca la URL llenando la auditoría de ventas
+        # falsas. 401 y una línea de log sin el payload ni la firma.
+        rescue_from ::Webhooks::InvalidSignatureError, with: :reject_unsigned_event
+
         # El payload se lee del body crudo por dos razones: ParamsWrapper envolvería
         # el JSON bajo la clave del controller, y tocar `params` dispararía el parseo
         # del body en el middleware, que responde 400 ante un JSON malformado antes
@@ -46,6 +51,8 @@ module Api
         # si más adelante alguien setea Current antes de esta acción.
         integration = CompanyIntegration.unscoped
                                         .find(request.path_parameters[:company_integration_id])
+        ::Webhooks::VerifySignature.new(company_integration: integration,
+                                        raw_body: request.raw_post, headers: request.headers).call
 
         # Current queda explícitamente en nil durante el insert: si algún día
         # llegara con valor, el assign_current_company de CompanyScoped pisaría
@@ -70,6 +77,13 @@ module Api
       # Hook de la clase que incluye el concern: el gateway sólo persiste y suelta
       # la conexión; qué worker procesa el evento lo decide cada endpoint.
       def enqueue_processing(_log, _integration) = nil
+
+      def reject_unsigned_event(error)
+        integration_id = request.path_parameters[:company_integration_id]
+        Rails.logger.warn("[webhooks] rejected event for integration #{integration_id}: " \
+                          "#{error.message}")
+        head :unauthorized
+      end
 
       # Un body ilegible no se rechaza: se guarda tal cual para no perder el
       # evento (el reproceso es responsabilidad de la épica de resiliencia).

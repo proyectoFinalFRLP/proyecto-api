@@ -9,6 +9,27 @@ class Service < ApplicationRecord
   MAPPER_FIELDS = %w[request_mapper response_mapper request_value_mapper
                      response_value_mapper].freeze
 
+  # Cómo se autentica la plantilla (ver Integrations::AuthHeaders). `bearer` es
+  # el comportamiento de siempre: `access_token` como Bearer y el resto de las
+  # credenciales como headers literales.
+  BEARER = 'bearer'
+  OAUTH_CLIENT_CREDENTIALS = 'oauth_client_credentials'
+  AUTH_STRATEGIES = [BEARER, OAUTH_CLIENT_CREDENTIALS].freeze
+
+  # Cómo viaja el body. GraphQL manda `{ query: body_template, variables }`,
+  # donde las variables son el resultado del request_mapper.
+  JSON_FORMAT = 'json'
+  GRAPHQL_FORMAT = 'graphql'
+  REQUEST_FORMATS = [JSON_FORMAT, GRAPHQL_FORMAT].freeze
+
+  # Lo que define cómo se conecta una plantilla, además de sus mappers. Los
+  # seeds lo reaplican sobre las plantillas que ya existen.
+  CONNECTION_FIELDS = %w[auth_strategy auth_config credential_fields setting_fields
+                         request_format body_template error_path operation webhook_config].freeze
+
+  # La clave interna con la que el sync saliente manda la cantidad a publicar.
+  STOCK_KEY = 'available_quantity'
+
   # Vocabulario de una plantilla de consulta de tracking (ver #answers_tracking?).
   TRACKING_STATUS_KEY = 'external_status'
   TRACKING_URI_PARAM = ':tracking_number'
@@ -33,11 +54,33 @@ class Service < ApplicationRecord
   has_many :quoted_services, class_name: 'Service', foreign_key: :quote_service_id,
                              inverse_of: :quote_service, dependent: :nullify
 
+  # Plantillas de operación: otra llamada al mismo proveedor con la misma
+  # cuenta (probar la conexión, buscar una variante, registrar un webhook). Una
+  # hija no es conectable: se ejecuta con la integración de su madre, igual que
+  # la plantilla de seguimiento de un courier (ADR-014).
+  belongs_to :parent_service, class_name: 'Service', optional: true,
+                              inverse_of: :operation_services
+  has_many :operation_services, class_name: 'Service', foreign_key: :parent_service_id,
+                                inverse_of: :parent_service, dependent: :destroy
+
+  # Sólo las madres se conectan (ver #connectable?).
+  scope :connectable, -> { where(parent_service_id: nil) }
+
   validates :service_name, presence: true, uniqueness: true
   validates :uri, presence: true
   validates :http_method, presence: true
   validates :type, presence: true, inclusion: { in: TYPES }
+  validates :auth_strategy, inclusion: { in: AUTH_STRATEGIES }
+  validates :request_format, inclusion: { in: REQUEST_FORMATS }
+  validates :operation, presence: true, uniqueness: { scope: :parent_service_id },
+                        if: :parent_service_id
   validate :mappers_are_valid_json
+  validate :field_specs_are_lists
+  # Una firma declarada a medias haría que el gateway rechace todos los eventos
+  # de la plantilla: mejor que no se pueda guardar.
+  validate do
+    Webhooks::VerifySignature.config_problems(webhook_config).each { errors.add(:webhook_config, it) }
+  end
   validate :tracking_service_answers_tracking
   validate :quote_service_quotes_shipping
 
@@ -48,6 +91,57 @@ class Service < ApplicationRecord
   def ecommerce? = type == ECOMMERCE
 
   def courier? = type == COURIER
+
+  def graphql? = request_format == GRAPHQL_FORMAT
+
+  def oauth_client_credentials? = auth_strategy == OAUTH_CLIENT_CREDENTIALS
+
+  # Si el gateway tiene que verificar la firma de los webhooks de esta plantilla
+  # (`webhook_config`, ver Webhooks::VerifySignature). Sin `signature`, el
+  # proveedor no firma: lo de siempre.
+  def signs_webhooks? = webhook_config.is_a?(Hash) && webhook_config['signature'].present?
+
+  # La plantilla hija que sabe hacer `operation` con la cuenta de esta
+  # integración, o nil si el proveedor no la declara.
+  def template_for(operation)
+    operation_services.find_by(operation: operation.to_s)
+  end
+
+  # La plantilla que publica el stock de esta integración: la propia si mapea
+  # la cantidad (Tiendanube, 'Mercado Libre - Stock', Shopify), o su hija
+  # `stock`. Si no hay ninguna, el sync saliente no le manda nada: antes le
+  # mandaba el stock a cualquier plantilla con productos vinculados, aunque
+  # fuera la de órdenes y no supiera qué hacer con él.
+  def stock_template
+    return self if request_mapper.value?(STOCK_KEY)
+
+    template_for(:stock)
+  end
+
+  # Si la plantilla dice qué datos le pide a la empresa. Las que no declaran
+  # nada conservan el alta de siempre (ver Integrations::UpsertIntegration).
+  def declares_fields?
+    credential_fields.any? || setting_fields.any?
+  end
+
+  # Si tiene una hija para `operation`.
+  def declares_operation?(operation)
+    operation_services.any? { |child| child.operation == operation.to_s }
+  end
+
+  # Si «probar conexión» tiene algo que verificar: una hija que la prueba o, sin
+  # ella, obtener el token (Integrations::TestConnection).
+  def connection_testable?
+    declares_operation?(Integrations::TestConnection::OPERATION) || oauth_client_credentials?
+  end
+
+  # Una hija se ejecuta con la cuenta de su madre: no se conecta sola.
+  def connectable? = parent_service_id.nil?
+
+  # Las claves de configuración que la plantilla le pide a la empresa.
+  def setting_keys
+    setting_fields.filter_map { |field| field['key'] }
+  end
 
   # Una plantilla de courier puede servir para cotizar o para despachar: son dos
   # endpoints distintos del mismo proveedor y, por convención del proyecto, dos
@@ -139,6 +233,17 @@ class Service < ApplicationRecord
 
   def mappers_are_valid_json
     mapper_errors.each { |field, message| errors.add(field, message) }
+  end
+
+  # Cada campo declarado es un objeto con al menos su `key`: es lo que el
+  # formulario de conexión usa para armar cada input.
+  def field_specs_are_lists
+    %i[credential_fields setting_fields].each do |attribute|
+      specs = public_send(attribute)
+      next if specs.is_a?(Array) && specs.all? { |spec| spec.is_a?(Hash) && spec['key'].present? }
+
+      errors.add(attribute, 'debe ser una lista de campos con su key')
+    end
   end
 
   # Sólo un courier se consulta por tracking, y sólo con una plantilla que sepa
