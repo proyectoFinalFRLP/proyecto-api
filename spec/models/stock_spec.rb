@@ -12,6 +12,15 @@ RSpec.describe Stock, type: :model do
   let(:product) { Product.create!(company: company, sku: 'SKU-001', name: 'Widget Alpha') }
   let(:warehouse) { Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1') }
 
+  describe '#stock_status' do
+    it 'applies the product rule to the units of this warehouse', :aggregate_failures do
+      expect(described_class.new(quantity: 0).stock_status).to eq('out_of_stock')
+      expect(described_class.new(quantity: Product::LOW_STOCK_THRESHOLD).stock_status).to eq('low')
+      expect(described_class.new(quantity: Product::LOW_STOCK_THRESHOLD + 1).stock_status)
+        .to eq('available')
+    end
+  end
+
   it 'is valid with required attributes' do
     expect(stock).to be_valid
   end
