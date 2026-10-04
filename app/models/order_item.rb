@@ -8,7 +8,11 @@ class OrderItem < ApplicationRecord
   # una modificación que tenga que devolverle unidades no sabe a dónde.
   belongs_to :warehouse, optional: true
 
-  validates :quantity, numericality: { greater_than: 0 }
+  # Entero: la columna es integer y guardaba `0.5` como 0 y `2.7` como 2. El
+  # primero pasaba la validación (0,5 > 0) y reventaba después en DeductStock
+  # con un 500; el segundo se truncaba sin aviso. Se valida antes de escribir,
+  # así el alta y el webhook responden 422 con el motivo.
+  validates :quantity, numericality: { only_integer: true, greater_than: 0 }
   validates :unit_price, numericality: { greater_than_or_equal_to: 0 }
   validate :product_belongs_to_same_company_as_order
   validate :warehouse_belongs_to_same_company_as_order
