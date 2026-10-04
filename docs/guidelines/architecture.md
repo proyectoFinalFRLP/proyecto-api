@@ -145,7 +145,7 @@ POST /api/v1/products      → { "id": 1, "sku": "...", ... }
 cualquier error            → { "error": "..." }
 ```
 
-`meta` cuenta el scope **ya filtrado**, no la tabla entera, y lo lleva todo **listado de registros**: ninguno devuelve una cantidad ilimitada de filas. Los vocabularios fijos (`/orders/provinces`, `/products/categories`) y el resultado de una acción (`/orders/:id/quotes`) viajan en `data` sin `meta`, porque su largo lo decide el código y no los datos de la empresa (ver ADR-015).
+`meta` cuenta el scope **ya filtrado**, no la tabla entera, y lo lleva todo **listado de registros**: ninguno devuelve una cantidad ilimitada de filas. Los vocabularios fijos (`/orders/provinces`, `/products/categories`), los agregados (`/products/counts`, `/activity`) y el resultado de una acción (`/orders/:id/quotes`) viajan en `data` sin `meta`, porque su largo lo decide el código y no los datos de la empresa (ver ADR-015).
 
 El cálculo vive en un solo lugar, el concern `Api::V1::Paginatable`, con el techo (`MAX_PER_PAGE = 100`) y los dos defaults: 20 para una pantalla paginada y 100 para los listados que el consumidor lee enteros —depósitos, mapeos, integraciones— y usa para llenar un select. `page` y `per_page` fuera de rango se acotan en vez de romper.
 

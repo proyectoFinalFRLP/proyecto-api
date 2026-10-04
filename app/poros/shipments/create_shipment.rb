@@ -39,6 +39,7 @@ module Shipments
     private
 
     def validate_status!
+      raise PickupOrderError.new(order: @order) unless @order.requires_shipping?
       return unless NON_SHIPPABLE_STATUSES.include?(@order.status)
 
       raise UnshippableOrderError.new(order: @order)

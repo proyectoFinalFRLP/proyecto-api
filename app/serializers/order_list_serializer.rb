@@ -10,7 +10,8 @@ class OrderListSerializer < ApplicationSerializer
   # vienen desde el principio; la ciudad y la provincia desde TESIS-128, así que
   # las órdenes anteriores y las de webhook las traen en null.
   fields :customer_name, :customer_document, :customer_address, :customer_zip_code,
-         :customer_city, :customer_province, :external_order_id, :status, :created_at, :updated_at
+         :customer_city, :customer_province, :external_order_id, :status, :requires_shipping,
+         :created_at, :updated_at
 
   # La columna Total del listado (TESIS-52). Sale de la columna persistida y no
   # de sumar las líneas: sumarlas por fila sería un SELECT por orden, y además

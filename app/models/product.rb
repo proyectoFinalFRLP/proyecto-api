@@ -24,6 +24,12 @@ class Product < ApplicationRecord
   # Los tres estados de disponibilidad, en el vocabulario de la pantalla.
   STOCK_STATUSES = %w[out_of_stock low available].freeze
 
+  # Un envío en este estado todavía no salió, así que sus unidades siguen
+  # físicamente en el depósito aunque ya estén vendidas. Una orden sin envío
+  # —todavía no se abrió, o es un retiro en el local— está en la misma
+  # situación, y por eso el filtro acepta también el NULL del LEFT JOIN.
+  UNDISPATCHED_SHIPMENT_STATUSES = [nil, 'pending'].freeze
+
   # Unidades en vuelo hacia/desde depósitos, como subconsulta escalar.
   #
   # Subconsulta y no un segundo left_joins: `with_total_stock` ya hace join con
@@ -129,6 +135,40 @@ class Product < ApplicationRecord
     stock_transfers.in_flight.sum(:quantity)
   end
 
+  # Unidades vendidas que todavía no salieron del depósito, por depósito.
+  #
+  # El stock se descuenta al **crear** la orden (`Catalog::DeductStock`) y el
+  # despacho no vuelve a tocar `stocks`, así que estas unidades ya no figuran en
+  # ninguna fila de stock pero siguen estando en el estante hasta que el courier
+  # se las lleva. Son las que el detalle muestra como «Comprometido».
+  #
+  # Las líneas sin depósito (anteriores a TESIS-126) quedan afuera: no se pueden
+  # atribuir a ninguno, y contarlas en el total pero en ningún depósito dejaría
+  # una pantalla cuyas filas no suman el encabezado.
+  def committed_by_warehouse
+    @committed_by_warehouse ||= committed_scope
+                                .group(:warehouse_id, 'warehouses.name')
+                                .order(:warehouse_id)
+                                .sum(:quantity)
+                                .map do |(warehouse_id, name), quantity|
+      { warehouse_id: warehouse_id, name: name, quantity: quantity.to_i }
+    end
+  end
+
+  # Lo comprometido de todo el producto. Suma el desglose en vez de volver a la
+  # base: es el mismo número por definición, y así no puede discrepar con las
+  # filas que muestra la pantalla.
+  def committed_quantity
+    committed_by_warehouse.sum { |row| row[:quantity] }
+  end
+
+  # Lo que hay físicamente: lo que queda libre más lo vendido sin despachar.
+  def on_hand_quantity = total_stock + committed_quantity
+
+  # Lo que se puede prometer es lo que queda libre: lo vendido ya se descontó de
+  # `stocks` al crear la orden, así que no hay que volver a restarlo.
+  def available_to_promise = total_stock
+
   # Depósito donde está el grueso de las unidades. Lo consume la columna
   # "Location Node" del listado, que muestra un nodo y no el desglose.
   #
@@ -143,5 +183,17 @@ class Product < ApplicationRecord
   def primary_stock
     stocks.reject { |stock| stock.quantity.zero? }
           .min_by { |stock| [-stock.quantity, stock.warehouse_id] }
+  end
+
+  private
+
+  # Las líneas que cuentan como comprometidas. El LEFT JOIN con `shipments` es
+  # lo que deja entrar a las órdenes que todavía no tienen envío; un INNER las
+  # dejaría afuera, que es justo el caso más común apenas entra una venta.
+  def committed_scope
+    order_items.joins(:order, :warehouse)
+               .left_outer_joins(order: :shipment)
+               .where.not(orders: { status: Order::CANCELLED })
+               .where(shipments: { status: UNDISPATCHED_SHIPMENT_STATUSES })
   end
 end

@@ -25,6 +25,11 @@ class Warehouse < ApplicationRecord
                                 dependent: :restrict_with_error
 
   validates :name, presence: true
+  # Capacidad declarada del depósito, en unidades. Opcional: un depósito sin
+  # capacidad cargada no es un error, es uno del que nadie declaró el techo
+  # todavía, y la pantalla no dibuja su barra de ocupación. Mayor que cero
+  # porque un depósito de capacidad cero no podría guardar nada.
+  validates :capacity, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
   validates :zip_code, presence: true
   validates :address, presence: true
 

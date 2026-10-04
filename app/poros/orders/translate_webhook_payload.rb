@@ -14,7 +14,7 @@ module Orders
     # flujos (ej. tracking_number en la respuesta de un courier).
     ORDER_KEYS = %w[external_order_id customer_name customer_document
                     customer_address customer_zip_code customer_city
-                    customer_province status].freeze
+                    customer_province status requires_shipping].freeze
     ITEM_KEYS = %w[external_product_id quantity unit_price].freeze
 
     def initialize(service:, payload:)

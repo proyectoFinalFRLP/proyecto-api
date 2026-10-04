@@ -481,4 +481,69 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
       end
     end
   end
+
+  # TESIS-162: el envío pasa a ser opcional, también para las ventas de canal.
+  #
+  # Se pisa `integration` con un `let` —el mismo patrón que usa el bloque de la
+  # provincia— para que `publish` mapee el producto contra la integración cuyo
+  # servicio trae la clave nueva en la plantilla.
+  describe 'whether the sale is shipped or picked up at the store' do
+    subject(:ingest) { described_class.new(webhook_log: create_log(body)).call }
+
+    let(:integration) { CompanyIntegration.create!(company: company, service: pickup_service) }
+    let(:body) { order_payload(items: [line('MLA-1', 1, 100)]) }
+
+    def pickup_service
+      Service.create!(service_name: "Canal #{SecureRandom.hex(4)}", type: 'ecommerce',
+                      http_method: 'GET', uri: 'https://api.canal.test/orders',
+                      response_mapper: order_mapper.merge(
+                        'delivery.requires_shipping' => 'requires_shipping'
+                      ),
+                      response_value_mapper: { 'pagado' => 'paid' })
+    end
+
+    before { publish('SKU-1', 'MLA-1', stock: 20) }
+
+    # El default: asumir envío y que sobre deja una orden lista para despachar
+    # que se ve en la pantalla. Asumir retiro y que falte deja una venta que
+    # había que mandar, sin ninguna señal de que falta hacerlo.
+    context 'when the payload does not carry the flag' do
+      it 'assumes there is a shipment' do
+        expect(ingest.requires_shipping).to be(true)
+      end
+    end
+
+    context 'when the channel reports a pickup' do
+      let(:body) do
+        order_payload(items: [line('MLA-1', 1, 100)])
+          .merge('delivery' => { 'requires_shipping' => false })
+      end
+
+      it 'records it as a pickup' do
+        expect(ingest.requires_shipping).to be(false)
+      end
+    end
+
+    context 'when the channel sends the flag as text' do
+      let(:body) do
+        order_payload(items: [line('MLA-1', 1, 100)])
+          .merge('delivery' => { 'requires_shipping' => 'false' })
+      end
+
+      it 'reads it all the same' do
+        expect(ingest.requires_shipping).to be(false)
+      end
+    end
+
+    # La plantilla mapea la clave pero el canal no la manda en esta venta.
+    context 'when the mapped key is missing from this payload' do
+      let(:body) do
+        order_payload(items: [line('MLA-1', 1, 100)]).merge('delivery' => {})
+      end
+
+      it 'falls back to a shipment' do
+        expect(ingest.requires_shipping).to be(true)
+      end
+    end
+  end
 end

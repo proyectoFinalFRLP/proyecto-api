@@ -8,7 +8,14 @@ module Api
 
       # Qué acepta el body del producto. `stocks` no entra: se arma aparte en
       # `stock_params`, línea por línea.
-      PRODUCT_FIELDS = %i[sku name description category weight dimensions].freeze
+      PRODUCT_FIELDS = %i[sku name description category packaging technical_standard
+                          weight dimensions].freeze
+
+      # Las pestañas del catálogo: cómo se llama cada una en la respuesta y con
+      # qué estado se filtra. «Todos» no filtra, por eso su estado es nil. El
+      # orden es el que muestra la pantalla.
+      CATALOG_TABS = { all: nil, available: 'available', low: 'low',
+                       out_of_stock: 'out_of_stock' }.freeze
 
       before_action :set_product, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
@@ -49,6 +56,17 @@ module Api
         render json: { data: Product::CATEGORIES }
       end
 
+      # Cuántos productos tiene cada pestaña del catálogo, respetando el mismo
+      # buscador y el mismo filtro de categoría que el listado: si no, el número
+      # de la pestaña y las filas que se ven dirían cosas distintas.
+      #
+      # Una consulta por estado y no cuatro requests: es lo que la pantalla
+      # hacía desde el cliente (TESIS-162), y cada una era un round trip.
+      def counts
+        skip_authorization
+        render json: { data: CATALOG_TABS.transform_values { |status| tab_count(status) } }
+      end
+
       def create
         authorize Product
 
@@ -83,6 +101,18 @@ module Api
       # Las tres pestañas del catálogo más el buscador y la categoría. El orden
       # importa: `with_total_stock` arma el GROUP BY y `by_stock_status` cuelga
       # su HAVING de esa agregación.
+      # Cuántas filas matchean cada pestaña. `nil` es «Todos»: el scope sin
+      # filtro de estado.
+      def tab_count(status)
+        count_of(
+          policy_scope(Product)
+            .search_catalog(scalar_param(:search))
+            .by_category(scalar_param(:category))
+            .with_total_stock
+            .by_stock_status(status)
+        )
+      end
+
       def filtered_products
         policy_scope(Product)
           .search_catalog(scalar_param(:search))
