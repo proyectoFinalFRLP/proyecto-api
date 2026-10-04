@@ -396,7 +396,6 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
-
       # TESIS-162: hasta ahora toda orden se asumía despachada y no había forma
       # de registrar una venta que el cliente retira en el local.
       it 'is shipped when the body says nothing about it', :aggregate_failures do

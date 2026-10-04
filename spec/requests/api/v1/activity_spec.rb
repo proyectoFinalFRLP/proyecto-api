@@ -100,7 +100,6 @@ RSpec.describe 'Activity API', type: :request do
                                'event_type' => 'order_ingestion', 'status' => 'pending')
     end
 
-
     # Los tres datos que el feed deja en null cuando no hay: la orden sin total
     # (las anteriores a TESIS-114 no tienen líneas con qué calcularlo), el envío
     # sin courier y el evento fallido sin integración (los de la ingesta por

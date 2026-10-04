@@ -85,7 +85,6 @@ RSpec.describe Product, type: :model do
     end
   end
 
-
   # TESIS-162: el stock se descuenta al CREAR la orden y el despacho no vuelve a
   # tocar `stocks`, así que lo vendido y no despachado sigue en el estante
   # aunque ya no figure en ninguna fila de stock.

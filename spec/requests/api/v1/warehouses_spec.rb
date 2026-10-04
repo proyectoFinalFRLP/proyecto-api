@@ -184,7 +184,6 @@ RSpec.describe 'Warehouses API', type: :request do
       expect(response).to have_http_status(:created)
     end
 
-
     # TESIS-162: la barra de ocupación del detalle de producto compara lo
     # guardado contra un techo que nadie puede derivar de otro dato.
     describe 'the declared capacity' do

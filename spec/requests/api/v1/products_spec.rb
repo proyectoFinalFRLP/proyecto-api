@@ -460,7 +460,6 @@ RSpec.describe 'Products API', type: :request do
     end
   end
 
-
   # TESIS-162: la pantalla pedía un request por pestaña, sólo para leer el total
   # de cada una.
   describe 'GET /api/v1/products/counts' do
@@ -550,7 +549,6 @@ RSpec.describe 'Products API', type: :request do
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body['total_stock']).to eq(7)
     end
-
 
     # TESIS-162: los tres números del detalle dejan de ser «—» y pasan a ser
     # dato. Se exponen desde acá y no se derivan en el cliente: `on_hand` no es
