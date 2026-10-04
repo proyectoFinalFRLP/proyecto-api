@@ -71,6 +71,17 @@ RSpec.describe Stock, type: :model do
     Current.reset
   end
 
+  describe '.holding_units' do
+    let(:other_product) { Product.create!(company: company, sku: 'SKU-002', name: 'Otro') }
+
+    it 'leaves out the rows at zero' do
+      stock.save!
+      described_class.create!(product: other_product, warehouse: warehouse, quantity: 0)
+
+      expect(described_class.holding_units).to contain_exactly(stock)
+    end
+  end
+
   describe 'outbound sync trigger' do
     let(:sync_job) { Catalog::SyncStockToChannelsJob }
 
