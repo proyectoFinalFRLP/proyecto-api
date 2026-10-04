@@ -504,6 +504,142 @@ RSpec.describe 'Products API', type: :request do
     end
   end
 
+  # Lo que la pantalla de detalle necesita para pintar estados sin
+  # reimplementar reglas: antes el front calculaba el badge con sus propios
+  # umbrales y el mismo producto salía «Disponible» en el catálogo y «Crítico»
+  # en el detalle.
+  describe 'GET /api/v1/products/:id availability and units in flight' do
+    # Un método y no un `let` por depósito: el grupo ya hereda tres helpers del
+    # describe de arriba y RSpec/MultipleMemoizedHelpers corta en cinco.
+    def depot(name)
+      Warehouse.find_or_create_by!(company: company, name: name) do |warehouse|
+        warehouse.assign_attributes(zip_code: '1900', address: "Calle #{name}")
+      end
+    end
+
+    def product_with(quantity, sku: 'D-001')
+      Product.create!(company: company, sku: sku, name: sku).tap do |product|
+        Stock.create!(product: product, warehouse: depot('Central'), quantity: quantity)
+      end
+    end
+
+    def detail(product)
+      get "/api/v1/products/#{product.id}", headers: headers
+      response.parsed_body
+    end
+
+    def statuses_in_both_screens(product)
+      status = detail(product)['stock_status']
+      get '/api/v1/products', headers: headers
+      [status, response.parsed_body['data'].find { |row| row['id'] == product.id }['stock_status']]
+    end
+
+    def transfer(product, to:, quantity:, settle: nil)
+      sent = Catalog::DispatchTransfer.new(company: company, product: product,
+                                           origin_warehouse: depot('Central'),
+                                           destination_warehouse: depot(to), quantity: quantity).call
+      settle ? Catalog::SettleTransfer.new(transfer: sent, outcome: settle).call : sent
+    end
+
+    # Una fila de stock más y dos transferencias en vuelo hacia ese depósito.
+    def spread(product, to:)
+      Stock.create!(product: product, warehouse: depot(to), quantity: 5)
+      2.times { transfer(product, to: to, quantity: 1) }
+    end
+
+    def queries_for_detail(product)
+      count_queries(matching: /SELECT/) { detail(product) }
+    end
+
+    it 'answers the same status as the catalog right at the threshold', :aggregate_failures do
+      at_threshold = product_with(Product::LOW_STOCK_THRESHOLD, sku: 'D-LOW')
+      above = product_with(Product::LOW_STOCK_THRESHOLD + 1, sku: 'D-OK')
+
+      expect(statuses_in_both_screens(at_threshold)).to eq(%w[low low])
+      expect(statuses_in_both_screens(above)).to eq(%w[available available])
+    end
+
+    it 'answers out_of_stock for a product with no units' do
+      expect(detail(product_with(0))['stock_status']).to eq('out_of_stock')
+    end
+
+    # Ejemplo de la card con los números de NOR-003 en los seeds: 130 en total
+    # (available), repartidos 100 y 30 (low los dos).
+    it 'computes the status of each warehouse with the same rule', :aggregate_failures do
+      product = product_with(100)
+      Stock.create!(product: product, warehouse: depot('North'), quantity: 30)
+
+      expect(detail(product)['stock_status']).to eq('available')
+      expect(detail(product)['stocks'].pluck('stock_status')).to eq(%w[low low])
+    end
+
+    it 'adds the status to the create answer as well' do
+      post '/api/v1/products', headers: headers,
+                               params: { product: { sku: 'D-NEW', name: 'Nuevo' } }, as: :json
+
+      expect(response.parsed_body['stock_status']).to eq('out_of_stock')
+    end
+
+    it 'adds the status to the update answer as well' do
+      put "/api/v1/products/#{product_with(7).id}",
+          headers: headers, params: { product: { name: 'Renombrado' } }, as: :json
+
+      expect(response.parsed_body['stock_status']).to eq('low')
+    end
+
+    context 'with transfers in several states' do
+      let!(:product) { product_with(50) }
+
+      before do
+        transfer(product, to: 'North', quantity: 4)
+        transfer(product, to: 'North', quantity: 1)
+        transfer(product, to: 'South', quantity: 6)
+        transfer(product, to: 'North', quantity: 2, settle: :received)
+        transfer(product, to: 'South', quantity: 3, settle: :cancelled)
+      end
+
+      it 'counts only the incoming units still in flight, per destination' do
+        expect(detail(product)['in_transit_by_warehouse']).to eq(
+          [{ 'warehouse_id' => depot('North').id, 'name' => 'North', 'quantity' => 5 },
+           { 'warehouse_id' => depot('South').id, 'name' => 'South', 'quantity' => 6 }]
+        )
+      end
+
+      it 'adds up to the in_transit_quantity of the product' do
+        body = detail(product)
+
+        expect(body['in_transit_by_warehouse'].sum { |row| row['quantity'] })
+          .to eq(body['in_transit_quantity'])
+      end
+
+      # South nunca recibió nada (la de South se canceló), así que no tiene
+      # fila en `stocks`: el entrante igual aparece.
+      it 'includes a destination that has no stock row yet', :aggregate_failures do
+        body = detail(product)
+
+        expect(body['stocks'].pluck('warehouse_id')).not_to include(depot('South').id)
+        expect(body['in_transit_by_warehouse'].pluck('name')).to include('South')
+      end
+    end
+
+    it 'answers an empty breakdown when nothing is in flight' do
+      expect(detail(product_with(5))['in_transit_by_warehouse']).to eq([])
+    end
+
+    # Una query agregada para el entrante y ninguna por depósito: antes, cada
+    # fila de stock sumaba `stored_units` de su depósito con una query propia.
+    # Se compara un producto chico contra uno con más depósitos y
+    # transferencias: la cantidad de queries tiene que ser la misma.
+    it 'does not add queries as warehouses and transfers grow' do
+      small = product_with(50, sku: 'D-SMALL')
+      large = product_with(50, sku: 'D-LARGE')
+      %w[North South].each { |name| spread(large, to: name) }
+      detail(small) # el primer request crea el usuario y carga el esquema
+
+      expect(queries_for_detail(large)).to eq(queries_for_detail(small))
+    end
+  end
+
   describe 'optimistic locking with If-Match' do
     let(:warehouse) do
       Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')

@@ -5,11 +5,21 @@ class Stock < ApplicationRecord
   belongs_to :warehouse
 
   validates :quantity, numericality: { greater_than_or_equal_to: 0 }
+
+  # Filas que guardan unidades. Una fila en cero es una asignación sin stock:
+  # el modal de producto la deja así al «quitar» un depósito, porque
+  # `Products::UpdateProduct` hace upsert y nunca borra.
+  scope :holding_units, -> { where('quantity > 0') }
   validates :warehouse_id, uniqueness: { scope: :product_id }
   validate :product_and_warehouse_must_belong_to_same_company
 
   def display_name
     "#{product&.name} @ #{warehouse&.name}"
+  end
+
+  # Disponibilidad de este depósito, con la misma regla que el producto.
+  def stock_status
+    Product.stock_status_for(quantity)
   end
 
   # El disparo del sync saliente vive acá y no en el ABM porque la condición es
