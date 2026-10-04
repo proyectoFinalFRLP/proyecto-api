@@ -10,7 +10,9 @@ module Catalog
   class SyncStockToChannelsJob < ApplicationJob
     queue_as :low
 
-    def perform(product_id, company_id)
+    # `company_integration_id` acota el push a un canal (ver OutboundSync): sin
+    # él se publica en todos, que es lo que pide un cambio de stock.
+    def perform(product_id, company_id, company_integration_id = nil)
       with_tenant(company_id) do
         # El producto puede haberse borrado entre el encolado y la ejecución:
         # sin producto no hay nada que propagar, porque sus mappings se fueron
@@ -18,7 +20,14 @@ module Catalog
         product = Product.find_by(id: product_id)
         return if product.nil?
 
-        OutboundSync.new(product: product).call
+        # La integración pudo borrarse mientras el job esperaba: sin canal no hay
+        # nada que alinear.
+        if company_integration_id
+          integration = CompanyIntegration.find_by(id: company_integration_id)
+          return if integration.nil?
+        end
+
+        OutboundSync.new(product: product, company_integration: integration).call
       end
     end
   end
