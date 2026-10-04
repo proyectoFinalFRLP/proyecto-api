@@ -17,6 +17,11 @@ class Stock < ApplicationRecord
     "#{product&.name} @ #{warehouse&.name}"
   end
 
+  # Disponibilidad de este depósito, con la misma regla que el producto.
+  def stock_status
+    Product.stock_status_for(quantity)
+  end
+
   # El disparo del sync saliente vive acá y no en el ABM porque la condición es
   # "cambió la tabla stocks", no "alguien usó tal endpoint": así queda cubierto
   # todo camino que escriba stock (ABM, descuento por venta, importaciones,
