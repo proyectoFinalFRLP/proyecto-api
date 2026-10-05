@@ -20,7 +20,8 @@ module Orders
     MISSING_ORDER_ID = 'the payload does not carry an external order id'
     MISSING_ITEMS = 'the payload does not carry any order item'
     UNREADABLE_ITEMS = 'the template could not read %<count>d of the order items in the payload'
-    ORDERS_UNIQUE_INDEX = 'index_orders_on_company_id_and_external_order_id'
+    ORDERS_UNIQUE_INDEX = 'index_orders_on_integration_and_external_order_id'
+    CANCELLED = 'cancelled'
 
     def initialize(webhook_log:)
       super()
@@ -44,7 +45,7 @@ module Orders
 
     def ingest
       validate_payload!
-      duplicate = Order.find_by(external_order_id: external_order_id)
+      duplicate = already_registered
       return duplicate if duplicate
 
       items = resolve_items
@@ -58,10 +59,19 @@ module Orders
       # log quedaría en `processed` sin ninguna orden creada.
       raise unless e.message.include?(ORDERS_UNIQUE_INDEX)
 
-      # Dos workers con el mismo evento: el índice único (company_id,
+      # Dos workers con el mismo evento: el índice único (company_integration_id,
       # external_order_id) deja pasar a uno solo. El que perdió la carrera no
       # tiene nada que hacer, la venta ya está registrada.
-      Order.find_by(external_order_id: external_order_id)
+      already_registered
+    end
+
+    # La misma venta es el mismo id **en el mismo canal**. Antes se buscaba por
+    # empresa: si dos canales de una empresa usaban el mismo id (cada uno numera
+    # por su lado), la segunda venta se tomaba por duplicada, el log quedaba
+    # `processed` sin orden, sin stock descontado y sin nada en la DLQ.
+    def already_registered
+      Order.find_by(company_integration_id: @log.company_integration_id,
+                    external_order_id: external_order_id)
     end
 
     def create_order(items)
@@ -82,9 +92,24 @@ module Orders
     # transacción, así que el orden no abre ninguna ventana.
     def register_item(order, item, mapping)
       quantity = quantity_of(item)
-      stock = Catalog::DeductStock.new(product: mapping.product, quantity: quantity).call
-      OrderItem.create!(order: order, product: mapping.product, warehouse_id: stock.warehouse_id,
+      OrderItem.create!(order: order, product: mapping.product,
+                        warehouse_id: take_units(order, mapping.product, quantity),
                         quantity: quantity, unit_price: unit_price_of(item, mapping))
+    end
+
+    # Una venta que llega ya cancelada (en Mercado Libre la primera notificación
+    # puede traer un pago rechazado) se registra —queda el rastro de que existió—
+    # pero no se lleva stock: no va a salir. Antes se descontaba igual, y como una
+    # orden cancelada no se edita ni se vuelve a cancelar, esas unidades no
+    # volvían nunca y los canales publicaban de menos.
+    #
+    # Sin descuento no hay depósito que registrar: la línea queda sin él, igual
+    # que las anteriores a TESIS-126, y como la orden ya está cancelada nada va a
+    # intentar devolverle unidades.
+    def take_units(order, product, quantity)
+      return if order.status == CANCELLED
+
+      Catalog::DeductStock.new(product: product, quantity: quantity).call.warehouse_id
     end
 
     # Resuelve el producto interno de cada ítem antes de escribir nada: un ítem
@@ -125,10 +150,27 @@ module Orders
     def order_attributes
       translated[:order]
         .slice(:external_order_id, :customer_name, :customer_document,
-               :customer_address, :customer_zip_code)
+               :customer_address, :customer_zip_code, :customer_city)
         .merge(company_id: @log.company_id, company_integration: @log.company_integration,
-               status: status)
+               status: status, customer_province: province)
     end
+
+    # La provincia se valida contra Order::PROVINCES, y cada canal la escribe a
+    # su manera: Shopify manda «Santiago Del Estero», otro puede mandar
+    # «Cordoba» sin tilde. Se compara sin mayúsculas ni tildes para no perder
+    # lo que es la misma provincia; un alias de verdad («Capital Federal») lo
+    # traduce el response_value_mapper de la plantilla.
+    #
+    # Si igual no matchea, la venta entra sin provincia en vez de fallar: mismo
+    # criterio que el status, la venta es el dato que no se puede perder.
+    def province
+      value = comparable(translated[:order][:customer_province])
+      return if value.empty?
+
+      Order::PROVINCES.find { |name| comparable(name) == value }
+    end
+
+    def comparable(text) = I18n.transliterate(text.to_s).downcase.squish
 
     # El status externo llega ya traducido por el response_value_mapper de la
     # plantilla ('pagado' => 'paid'). Si no viene, o si el canal usa un estado

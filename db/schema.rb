@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_25_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_045858) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -43,6 +43,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_120000) do
     t.text "credentials", default: "{}", null: false
     t.boolean "is_active", default: true, null: false
     t.bigint "service_id", null: false
+    t.jsonb "settings", default: {}, null: false
     t.datetime "updated_at", null: false
     t.index ["company_id", "service_id"], name: "index_company_integrations_on_company_id_and_service_id", unique: true
     t.index ["company_id"], name: "index_company_integrations_on_company_id"
@@ -110,7 +111,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_120000) do
     t.string "status", default: "pending", null: false
     t.decimal "total_amount", precision: 10, scale: 2
     t.datetime "updated_at", null: false
-    t.index ["company_id", "external_order_id"], name: "index_orders_on_company_id_and_external_order_id", unique: true
+    t.index ["company_integration_id", "external_order_id"], name: "index_orders_on_integration_and_external_order_id", unique: true
     t.index ["company_id"], name: "index_orders_on_company_id"
     t.index ["company_integration_id"], name: "index_orders_on_company_integration_id"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'paid'::character varying, 'cancelled'::character varying]::text[])", name: "orders_status_check"
@@ -122,6 +123,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_120000) do
     t.datetime "created_at", null: false
     t.decimal "external_price", precision: 10, scale: 2
     t.string "external_product_id", null: false
+    t.jsonb "external_refs", default: {}, null: false
     t.bigint "product_id", null: false
     t.datetime "updated_at", null: false
     t.index ["company_integration_id", "external_product_id"], name: "index_product_mappings_on_integration_and_external_id", unique: true
@@ -146,21 +148,35 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_120000) do
   end
 
   create_table "services", force: :cascade do |t|
+    t.jsonb "auth_config", default: {}, null: false
+    t.string "auth_strategy", default: "bearer", null: false
+    t.text "body_template"
     t.datetime "created_at", null: false
+    t.jsonb "credential_fields", default: [], null: false
+    t.string "error_path"
     t.string "http_method", null: false
+    t.string "operation"
+    t.bigint "parent_service_id"
     t.bigint "quote_service_id"
+    t.string "request_format", default: "json", null: false
     t.jsonb "request_mapper", default: {}, null: false
     t.jsonb "request_value_mapper", default: {}, null: false
     t.jsonb "response_mapper", default: {}, null: false
     t.jsonb "response_value_mapper", default: {}, null: false
     t.string "service_name", null: false
+    t.jsonb "setting_fields", default: [], null: false
     t.bigint "tracking_service_id"
     t.string "type", null: false
     t.datetime "updated_at", null: false
     t.string "uri", null: false
+    t.jsonb "webhook_config", default: {}, null: false
+    t.index ["parent_service_id", "operation"], name: "index_services_on_parent_service_id_and_operation", unique: true, where: "(parent_service_id IS NOT NULL)"
+    t.index ["parent_service_id"], name: "index_services_on_parent_service_id"
     t.index ["quote_service_id"], name: "index_services_on_quote_service_id", unique: true
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
     t.index ["tracking_service_id"], name: "index_services_on_tracking_service_id"
+    t.check_constraint "auth_strategy::text = ANY (ARRAY['bearer'::character varying, 'oauth_client_credentials'::character varying]::text[])", name: "services_auth_strategy_check"
+    t.check_constraint "request_format::text = ANY (ARRAY['json'::character varying, 'graphql'::character varying]::text[])", name: "services_request_format_check"
     t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
   end
 
@@ -278,6 +294,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_25_120000) do
   add_foreign_key "product_mappings", "company_integrations", on_delete: :cascade
   add_foreign_key "product_mappings", "products", on_delete: :cascade
   add_foreign_key "products", "companies", on_delete: :cascade
+  add_foreign_key "services", "services", column: "parent_service_id", on_delete: :cascade
   add_foreign_key "services", "services", column: "quote_service_id", on_delete: :nullify
   add_foreign_key "services", "services", column: "tracking_service_id", on_delete: :nullify
   add_foreign_key "shipment_events", "shipments", on_delete: :cascade
