@@ -35,9 +35,11 @@ module ContratoDeLaApi
     empresa: %w[id name],
     producto_fila: %w[id sku name description category weight dimensions total_stock stock_status
                       in_transit_quantity primary_warehouse warehouse_count created_at updated_at],
-    producto: %w[id sku name description category weight dimensions total_stock
-                 in_transit_quantity stocks created_at updated_at],
-    stock: %w[id quantity warehouse_id warehouse created_at updated_at],
+    producto: %w[id sku name description category weight dimensions total_stock stock_status
+                 in_transit_quantity in_transit_by_warehouse stocks created_at updated_at],
+    stock: %w[id quantity warehouse_id warehouse stock_status created_at updated_at],
+    deposito_referencia: %w[id name address zip_code],
+    transito: %w[warehouse_id name quantity],
     deposito: %w[id name address zip_code stored_units],
     orden_fila: %w[id external_order_id customer_name customer_document customer_address
                    customer_zip_code customer_city customer_province status courier total_amount
@@ -93,6 +95,12 @@ RSpec.describe 'API contract with the frontend', type: :request do
                             company_integration: courier_integration(company: company))
     ShipmentEvent.create!(shipment: sent, internal_status: 'ready_to_ship',
                           external_status: 'Etiqueta generada', occurred_at: Time.current)
+  end
+
+  def send_units_to_another_warehouse
+    destino = Warehouse.create!(company: company, name: 'CD Sur', address: 'Av. 3', zip_code: '8000')
+    Catalog::DispatchTransfer.new(company: company, product: product, origin_warehouse: warehouse,
+                                  destination_warehouse: destino, quantity: 2).call
   end
 
   def order
@@ -243,6 +251,23 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
       expect(response.parsed_body.keys).to match_array(claves[:producto])
       expect(response.parsed_body['stocks'].first.keys).to match_array(claves[:stock])
+    end
+
+    # El depósito anidado es una referencia: sin `stored_units`, que sólo
+    # trae el listado de depósitos (ahí sale agregado en la misma query).
+    it 'nests the warehouse of a stock as a reference, without its load' do
+      get "/api/v1/products/#{product.id}", headers: headers
+
+      expect(response.parsed_body['stocks'].first['warehouse'].keys)
+        .to match_array(claves[:deposito_referencia])
+    end
+
+    it 'breaks the incoming units down by destination warehouse' do
+      send_units_to_another_warehouse
+      get "/api/v1/products/#{product.id}", headers: headers
+
+      expect(response.parsed_body['in_transit_by_warehouse'].first.keys)
+        .to match_array(claves[:transito])
     end
 
     it 'answers a warehouse with the fields the frontend declares' do

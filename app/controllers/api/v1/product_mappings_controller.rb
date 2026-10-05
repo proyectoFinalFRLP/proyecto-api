@@ -12,6 +12,8 @@ module Api
 
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
+      rescue_from Catalog::ExternalProductNotFoundError, with: :render_unprocessable
+      rescue_from Integrations::AdapterExecutionError, with: :render_channel_failure
 
       def index
         scope = policy_scope(ProductMapping)
@@ -31,13 +33,17 @@ module Api
       def create
         authorize ProductMapping
 
-        mapping = @product.product_mappings.create!(
-          company_integration: company_integration,
+        result = Catalog::LinkExternalProduct.new(
+          product: @product, company_integration: company_integration,
           external_product_id: mapping_params[:external_product_id],
           external_price: mapping_params[:external_price]
-        )
+        ).call
 
-        render json: ProductMappingSerializer.render(mapping), status: :created
+        # `warnings` no bloquea el vínculo: avisa, por ejemplo, que el SKU del
+        # canal no coincide con el del producto.
+        render json: ProductMappingSerializer.render_as_hash(result.mapping)
+                                             .merge(warnings: result.warnings),
+               status: :created
       end
 
       def destroy
@@ -88,6 +94,12 @@ module Api
       # condición de carrera y acá se traduce a 409.
       def render_conflict(_exception)
         render json: { error: ALREADY_LINKED }, status: :conflict
+      end
+
+      # El canal no contestó o rechazó la consulta: el problema es de arriba
+      # (502), no del dato que mandó el usuario.
+      def render_channel_failure(exception)
+        render json: { error: exception.message }, status: :bad_gateway
       end
     end
   end

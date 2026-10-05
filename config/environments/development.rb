@@ -12,6 +12,10 @@ Rails.application.configure do
   # Show full error reports.
   config.consider_all_requests_local = true
 
+  # Los webhooks de un proveedor real llegan por un túnel (ngrok, cloudflared)
+  # y la protección de hosts los rechazaría con 403.
+  config.hosts << URI(config.x.public_webhook_base_url).host if config.x.public_webhook_base_url
+
   # Enable server timing.
   config.server_timing = true
 
