@@ -19,6 +19,9 @@ Rails.application.routes.draw do
       # del token.
       get 'me', to: 'me#show'
 
+      # Agregados de la pantalla de Reportes (S14) sobre una ventana de tiempo.
+      get 'reports/overview', to: 'reports#overview'
+
       # Sólo lectura: las credenciales las carga el equipo de OneStock desde el
       # backoffice (ADR-018).
       resources :integrations, only: :index
