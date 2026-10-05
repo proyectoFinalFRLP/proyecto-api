@@ -365,6 +365,13 @@ services = [
       'line_items[].variant_id' => 'external_product_id',
       'line_items[].quantity' => 'quantity',
       'line_items[].price' => 'unit_price'
+      # `requires_shipping` NO se mapea, y por eso toda venta que entra por acá
+      # queda como envío (ProcessWebhookOrder asume `true` cuando la plantilla
+      # no lo declara). Shopify no manda un booleano único: lo más cercano es
+      # la ausencia de `shipping_lines`, que el formato de la plantilla
+      # —camino de origen a campo— no sabe expresar. Un canal que quiera
+      # registrar retiros tiene que declararlo en su response_mapper; hasta
+      # entonces el retiro es sólo para el alta manual.
     },
     request_value_mapper: {},
     # Estados de pago de Shopify que no se llaman igual en el OMS. `paid` y
@@ -828,10 +835,19 @@ if norte_company && celular
     o.requires_shipping = false
   end
 
+  central = Warehouse.find_by(company: norte_company, name: 'Depósito Central')
+
   OrderItem.find_or_create_by!(order: retiro, product: celular) do |i|
     i.quantity = 1
     i.unit_price = 285_000.00
-    i.warehouse = Warehouse.find_by(company: norte_company, name: 'Depósito Central')
+    i.warehouse = central
+    # El alta real descuenta el stock (`Catalog::DeductStock`); el seed escribe
+    # la fila a mano, así que descuenta también. Sin esto la unidad quedaba
+    # contada dos veces —en `stocks` y vendida— y el «En depósito» del celular
+    # salía uno más alto que el estante.
+    Stock.find_by(product: celular, warehouse: central)&.then do |stock|
+      stock.update!(quantity: [stock.quantity - 1, 0].max)
+    end
   end
 end
 

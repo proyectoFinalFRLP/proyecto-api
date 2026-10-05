@@ -513,13 +513,16 @@ bin/jobs --queues=realtime    # Sólo una cola
 
 ⚠️ **En Windows `bin/jobs` no arranca**: el supervisor de Solid Queue registra `SIGQUIT`, señal que no existe en la plataforma. Para probar un worker localmente en Windows:
 
-```ruby
-# bundle exec rails runner "..."
-worker = SolidQueue::Worker.new(queues: 'realtime', threads: 1, polling_interval: 0.2)
-Thread.new { worker.start }
-sleep 5
-worker.stop
+Eso mismo, empaquetado y con corte por `Ctrl-C`, vive en `bin/worker_windows.rb`:
+
+```bash
+bundle exec rails runner bin/worker_windows.rb
+QUEUES=realtime bundle exec rails runner bin/worker_windows.rb
 ```
+
+Levanta el worker en el proceso actual, sin supervisor ni fork, que es todo lo que hace falta para ver correr la ingesta de webhooks y el sync de stock.
+
+> El handler de `SIGINT` no para el worker: sólo baja una bandera, y el `stop` corre en el hilo principal. Ruby prohíbe tomar locks en contexto de trap, y `worker.stop` puede terminar tomando uno al instrumentar con `ActiveSupport::Notifications`: hacerlo adentro cambiaría un corte limpio por un `ThreadError`.
 
 Alternativas: WSL, Docker, o dejar la verificación de workers al CI/deploy (Linux).
 

@@ -21,7 +21,6 @@ module Orders
     MISSING_ITEMS = 'the payload does not carry any order item'
     UNREADABLE_ITEMS = 'the template could not read %<count>d of the order items in the payload'
     ORDERS_UNIQUE_INDEX = 'index_orders_on_integration_and_external_order_id'
-    CANCELLED = 'cancelled'
 
     def initialize(webhook_log:)
       super()
@@ -107,7 +106,7 @@ module Orders
     # que las anteriores a TESIS-126, y como la orden ya está cancelada nada va a
     # intentar devolverle unidades.
     def take_units(order, product, quantity)
-      return if order.status == CANCELLED
+      return if order.status == Order::CANCELLED
 
       Catalog::DeductStock.new(product: product, quantity: quantity).call.warehouse_id
     end

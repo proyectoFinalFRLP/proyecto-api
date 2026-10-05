@@ -101,24 +101,26 @@ module Api
       # Las tres pestañas del catálogo más el buscador y la categoría. El orden
       # importa: `with_total_stock` arma el GROUP BY y `by_stock_status` cuelga
       # su HAVING de esa agregación.
-      # Cuántas filas matchean cada pestaña. `nil` es «Todos»: el scope sin
-      # filtro de estado.
-      def tab_count(status)
-        count_of(
-          policy_scope(Product)
-            .search_catalog(scalar_param(:search))
-            .by_category(scalar_param(:category))
-            .with_total_stock
-            .by_stock_status(status)
-        )
-      end
-
-      def filtered_products
+      #
+      # Una sola definición de la cadena, y el estado por parámetro: el listado
+      # pasa el del request y cada pestaña pasa el suyo. Con dos copias, el
+      # invariante que la card pide —que el número de la pestaña y las filas
+      # visibles digan lo mismo— dependía de mantenerlas iguales a mano.
+      #
+      # `in_transit:` sale del scope cuando sólo se va a contar: la subconsulta
+      # es por fila y el conteo no la lee.
+      def filtered_products(status = scalar_param(:status), in_transit: true)
         policy_scope(Product)
           .search_catalog(scalar_param(:search))
           .by_category(scalar_param(:category))
-          .with_total_stock
-          .by_stock_status(scalar_param(:status))
+          .with_total_stock(in_transit: in_transit)
+          .by_stock_status(status)
+      end
+
+      # Cuántas filas matchean cada pestaña. `nil` es «Todos»: el scope sin
+      # filtro de estado.
+      def tab_count(status)
+        count_of(filtered_products(status, in_transit: false))
       end
 
       # Cuántas filas matchean, sobre el scope YA filtrado.

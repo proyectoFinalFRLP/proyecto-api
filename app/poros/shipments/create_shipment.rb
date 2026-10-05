@@ -19,7 +19,7 @@ module Shipments
     # inalcanzable justo para el alta manual que necesita el wizard de TESIS-59.
     # Cuando exista la transición de estados, esta constante es el único lugar a
     # tocar.
-    NON_SHIPPABLE_STATUSES = %w[cancelled].freeze
+    NON_SHIPPABLE_STATUSES = [Order::CANCELLED].freeze
 
     # Redundante con el default de la columna (TESIS-45) y a propósito: el estado
     # inicial es parte del contrato de este caso de uso, no un detalle del schema.

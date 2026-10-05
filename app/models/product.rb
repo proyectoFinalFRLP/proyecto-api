@@ -59,11 +59,14 @@ class Product < ApplicationRecord
   # tienen ninguna y no hay con qué inferirla.
   validates :category, inclusion: { in: CATEGORIES }, allow_nil: true
 
-  scope :with_total_stock, lambda {
-    left_joins(:stocks)
-      .group(:id)
-      .select('products.*', 'COALESCE(SUM(stocks.quantity), 0) AS total_stock',
-              "(#{IN_TRANSIT_SUBQUERY}) AS in_transit_quantity")
+  # `in_transit:` lo pide quien va a leerlo. Es una subconsulta correlacionada
+  # —una por fila— y los contadores de las pestañas no la miran: pedirla ahí
+  # era pagarla cuatro veces para descartarla.
+  scope :with_total_stock, lambda { |in_transit: true|
+    columnas = ['products.*', 'COALESCE(SUM(stocks.quantity), 0) AS total_stock']
+    columnas << "(#{IN_TRANSIT_SUBQUERY}) AS in_transit_quantity" if in_transit
+
+    left_joins(:stocks).group(:id).select(*columnas)
   }
 
   # Filtro por disponibilidad, para las pestañas del catálogo.

@@ -7,7 +7,8 @@ class Order < ApplicationRecord
 
   # El estado final de una venta que no va a salir. Con nombre porque son varios
   # los lugares que lo preguntan —el alta del envío, el despacho, el cálculo de
-  # lo comprometido— y un literal repetido en cada uno es un typo esperando.
+  # lo comprometido, la edición y los reportes— y un literal repetido en cada
+  # uno es un typo esperando.
   CANCELLED = 'cancelled'
 
   # Las 24 jurisdicciones de la Argentina, con el nombre con el que se muestran

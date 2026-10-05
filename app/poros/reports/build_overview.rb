@@ -55,7 +55,7 @@ module Reports
 
     # Las ventas que cuentan: las canceladas no facturaron.
     def sales(range)
-      Order.where(created_at: range).where.not(status: 'cancelled')
+      Order.where(created_at: range).where.not(status: Order::CANCELLED)
     end
 
     # `shipments` no guarda cuándo se despachó: lo dice el primer evento de la
