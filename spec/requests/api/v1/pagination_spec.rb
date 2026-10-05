@@ -56,6 +56,15 @@ RSpec.describe 'Pagination', type: :request do
     end
 
     # Una página más allá del final no es un error: es una página vacía.
+    # Un número de veinte dígitos desbordaba el OFFSET (bigint) y respondía 500.
+    it 'answers an empty page for a page number too large for the database', :aggregate_failures do
+      get '/api/v1/orders', params: { page: '99999999999999999999' }, headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['data']).to be_empty
+      expect(response.parsed_body.dig('meta', 'page')).to eq(Api::V1::Paginatable::MAX_PAGE)
+    end
+
     it 'answers an empty page past the end, with the real total', :aggregate_failures do
       create_products(3)
 

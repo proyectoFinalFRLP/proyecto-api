@@ -4,6 +4,20 @@ class Warehouse < ApplicationRecord
   include CompanyScoped
 
   belongs_to :company
+
+  # Antes que el `restrict_with_error` de `stocks` (por eso `prepend`): las
+  # filas en cero no son stock, son asignaciones vacías. Sin esto, un depósito
+  # al que el modal de producto le «quitó» todos los productos —que viajan como
+  # `quantity: 0`— no se podía borrar nunca, aunque no guardara nada.
+  #
+  # `delete_all` y no `destroy_all`: borrar una fila en cero no le cambia el
+  # total a ningún producto, así que no hay nada que sincronizar con los canales
+  # y el callback de `Stock` encolaría un job por producto para nada.
+  #
+  # Si otra cosa frena el borrado (ventas, transferencias), el `destroy` se
+  # aborta dentro de su transacción y estas filas vuelven: no se pierde nada.
+  before_destroy :release_empty_stock_rows, prepend: true
+
   # Bloquea el borrado si hay stock: las unidades son dato de negocio y no deben
   # evaporarse por un DELETE. destroy! levanta RecordNotDestroyed -> 409 (API).
   has_many :stocks, dependent: :restrict_with_error
@@ -44,5 +58,14 @@ class Warehouse < ApplicationRecord
   # —el detalle, o un deposito recien creado— se suma por asociacion.
   def stored_units
     has_attribute?(:stored_units) ? self[:stored_units].to_i : stocks.sum(:quantity)
+  end
+
+  private
+
+  # `reset`: si la asociación ya estaba cargada, el `restrict_with_error` que
+  # corre después miraría la lista vieja, con las filas que ya no existen.
+  def release_empty_stock_rows
+    stocks.where(quantity: 0).delete_all
+    stocks.reset
   end
 end
