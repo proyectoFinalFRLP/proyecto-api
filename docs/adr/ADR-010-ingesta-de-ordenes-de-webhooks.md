@@ -125,8 +125,8 @@ La excepción **no se propaga** desde el job: si subiera, Active Job reintentar�
 Las plataformas reenvían webhooks y Solid Queue garantiza *at-least-once*: el mismo evento puede llegar a procesarse más de una vez, y descontar el stock dos veces por una sola venta es el peor error posible acá. Tres barreras, en orden:
 
 1. Un log ya `processed` no se vuelve a procesar.
-2. Si ya existe una `Order` con ese `external_order_id`, se marca el log como procesado y no se crea nada.
-3. Si dos workers corren a la vez, el índice único `(company_id, external_order_id)` deja pasar a uno solo; el que pierde la carrera captura el `RecordNotUnique` y termina como duplicado. El rescate verifica que la violación sea **la de ese índice** por nombre: cubre toda la transacción, y un índice único que aparezca más adelante en `order_items` o en `stocks` es un fallo real que tiene que llegar a la DLQ, no un duplicado ya registrado.
+2. Si ya existe una `Order` con ese `external_order_id` **en la misma integración**, se marca el log como procesado y no se crea nada. La clave es el canal y no la empresa: cada canal numera sus ventas por su lado, y con la clave por empresa la venta de un segundo canal con un id repetido se descartaba en silencio (TESIS-999020).
+3. Si dos workers corren a la vez, el índice único `(company_integration_id, external_order_id)` deja pasar a uno solo; el que pierde la carrera captura el `RecordNotUnique` y termina como duplicado. El rescate verifica que la violación sea **la de ese índice** por nombre: cubre toda la transacción, y un índice único que aparezca más adelante en `order_items` o en `stocks` es un fallo real que tiene que llegar a la DLQ, no un duplicado ya registrado.
 
 ### Ruteo en el gateway
 

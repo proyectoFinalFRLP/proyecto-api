@@ -20,7 +20,7 @@ module Orders
     MISSING_ORDER_ID = 'the payload does not carry an external order id'
     MISSING_ITEMS = 'the payload does not carry any order item'
     UNREADABLE_ITEMS = 'the template could not read %<count>d of the order items in the payload'
-    ORDERS_UNIQUE_INDEX = 'index_orders_on_company_id_and_external_order_id'
+    ORDERS_UNIQUE_INDEX = 'index_orders_on_integration_and_external_order_id'
     CANCELLED = 'cancelled'
 
     def initialize(webhook_log:)
@@ -45,7 +45,7 @@ module Orders
 
     def ingest
       validate_payload!
-      duplicate = Order.find_by(external_order_id: external_order_id)
+      duplicate = already_registered
       return duplicate if duplicate
 
       items = resolve_items
@@ -59,10 +59,19 @@ module Orders
       # log quedaría en `processed` sin ninguna orden creada.
       raise unless e.message.include?(ORDERS_UNIQUE_INDEX)
 
-      # Dos workers con el mismo evento: el índice único (company_id,
+      # Dos workers con el mismo evento: el índice único (company_integration_id,
       # external_order_id) deja pasar a uno solo. El que perdió la carrera no
       # tiene nada que hacer, la venta ya está registrada.
-      Order.find_by(external_order_id: external_order_id)
+      already_registered
+    end
+
+    # La misma venta es el mismo id **en el mismo canal**. Antes se buscaba por
+    # empresa: si dos canales de una empresa usaban el mismo id (cada uno numera
+    # por su lado), la segunda venta se tomaba por duplicada, el log quedaba
+    # `processed` sin orden, sin stock descontado y sin nada en la DLQ.
+    def already_registered
+      Order.find_by(company_integration_id: @log.company_integration_id,
+                    external_order_id: external_order_id)
     end
 
     def create_order(items)
