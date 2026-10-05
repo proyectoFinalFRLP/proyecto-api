@@ -379,6 +379,61 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
     end
   end
 
+  # La primera notificación de una venta puede traerla ya cancelada (en ML, un
+  # pago rechazado). Antes descontaba igual, y como una orden cancelada no se
+  # edita ni se vuelve a cancelar, esas unidades no volvían nunca.
+  context 'when the sale arrives already cancelled' do
+    subject(:process) { described_class.new(webhook_log: cancelled_log) }
+
+    def cancelled_log
+      @cancelled_log ||= create_log(order_payload(items: [line('MLA-1', 2, 100)],
+                                                  status: 'cancelado'))
+    end
+
+    def create_service(mapper: order_mapper)
+      Service.create!(service_name: "Mercado Libre #{SecureRandom.hex(4)}", type: 'ecommerce',
+                      http_method: 'GET', uri: 'https://api.ml.test/orders',
+                      response_mapper: mapper,
+                      response_value_mapper: { 'pagado' => 'paid', 'cancelado' => 'cancelled' })
+    end
+
+    before { publish('SKU-1', 'MLA-1', stock: 20) }
+
+    it 'records the sale as cancelled, so it leaves a trace', :aggregate_failures do
+      order = process.call
+
+      expect(order.status).to eq('cancelled')
+      expect(order.order_items.sum(:quantity)).to eq(2)
+    end
+
+    it 'takes no units from the stock' do
+      process.call
+
+      expect(stock_of('SKU-1')).to eq(20)
+    end
+
+    it 'marks the log as processed' do
+      process.call
+
+      expect(cancelled_log.reload.status).to eq('processed')
+    end
+
+    # Ya cancelada, nada va a intentar devolverle unidades.
+    it 'leaves its lines without a warehouse, since nothing was taken from any' do
+      expect(process.call.order_items.pluck(:warehouse_id)).to eq([nil])
+    end
+  end
+
+  context 'when the sale arrives paid' do
+    before { publish('SKU-1', 'MLA-1', stock: 20) }
+
+    it 'still takes its units from the stock' do
+      described_class.new(webhook_log: create_log(order_payload(items: [line('MLA-1', 2, 100)]))).call
+
+      expect(stock_of('SKU-1')).to eq(18)
+    end
+  end
+
   # La ciudad y la provincia las necesita el courier para cotizar el envío
   # (TESIS-128). La provincia se valida contra Order::PROVINCES.
   describe 'the city and the province of the customer' do
