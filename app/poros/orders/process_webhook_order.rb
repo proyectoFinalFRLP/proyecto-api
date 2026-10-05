@@ -141,10 +141,27 @@ module Orders
     def order_attributes
       translated[:order]
         .slice(:external_order_id, :customer_name, :customer_document,
-               :customer_address, :customer_zip_code)
+               :customer_address, :customer_zip_code, :customer_city)
         .merge(company_id: @log.company_id, company_integration: @log.company_integration,
-               status: status)
+               status: status, customer_province: province)
     end
+
+    # La provincia se valida contra Order::PROVINCES, y cada canal la escribe a
+    # su manera: Shopify manda «Santiago Del Estero», otro puede mandar
+    # «Cordoba» sin tilde. Se compara sin mayúsculas ni tildes para no perder
+    # lo que es la misma provincia; un alias de verdad («Capital Federal») lo
+    # traduce el response_value_mapper de la plantilla.
+    #
+    # Si igual no matchea, la venta entra sin provincia en vez de fallar: mismo
+    # criterio que el status, la venta es el dato que no se puede perder.
+    def province
+      value = comparable(translated[:order][:customer_province])
+      return if value.empty?
+
+      Order::PROVINCES.find { |name| comparable(name) == value }
+    end
+
+    def comparable(text) = I18n.transliterate(text.to_s).downcase.squish
 
     # El status externo llega ya traducido por el response_value_mapper de la
     # plantilla ('pagado' => 'paid'). Si no viene, o si el canal usa un estado

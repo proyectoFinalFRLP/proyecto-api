@@ -77,8 +77,11 @@ module Api
                status: :conflict
       end
 
+      # `holding_units` y no `stocks`: las filas en cero no bloquean (ver
+      # `Warehouse#release_empty_stock_rows`), así que nombrarlas como el motivo
+      # escondería el verdadero cuando lo que frena son las ventas.
       def blocking_reason
-        return 'existing stock' if @warehouse.stocks.exists?
+        return 'existing stock' if @warehouse.stocks.holding_units.exists?
         return 'order lines taken from it' if @warehouse.order_items.exists?
 
         'stock transfers from or to it'
