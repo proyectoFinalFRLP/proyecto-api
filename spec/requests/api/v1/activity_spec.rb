@@ -40,10 +40,20 @@ RSpec.describe 'Activity API', type: :request do
     end
   end
 
-  def fail_event(at: Time.current, owner: company)
+  def fail_event(at: Time.current, owner: company, status: 'pending')
     Current.set(company_id: owner.id) do
       FailedEvent.create!(company: owner, event_type: 'order_ingestion', direction: 'inbound',
-                          payload: {}, created_at: at)
+                          payload: {}, created_at: at, status: status)
+    end
+  end
+
+  # Un aviso informativo posterior al despacho: la plantilla no lo sabe
+  # traducir, así que RegisterTrackingEvent lo guarda con el estado actual del
+  # envío, que después del despacho es `ready_to_ship`.
+  def log_another_push(shipment, at: 1.hour.ago)
+    Current.set(company_id: company.id) do
+      ShipmentEvent.create!(shipment: shipment, internal_status: 'ready_to_ship',
+                            external_status: 'Recibido en sucursal', occurred_at: at)
     end
   end
 
@@ -98,6 +108,50 @@ RSpec.describe 'Activity API', type: :request do
       entry = feed.find { |event| event['type'] == 'event_failed' }
       expect(entry).to include('failed_event_id' => failure.id,
                                'event_type' => 'order_ingestion', 'status' => 'pending')
+    end
+
+    # `RegisterTrackingEvent` guarda con el estado actual del envío cualquier
+    # push que la plantilla del courier no sepa traducir, y después del despacho
+    # ese estado es `ready_to_ship`. Sin tomar uno por envío, cada aviso
+    # informativo entra como otro despacho del mismo paquete.
+    it 'reports one dispatch per shipment, however many events it logged' do
+      log_another_push(dispatch_order(create_order, at: 2.hours.ago))
+
+      expect(feed.count { |event| event['type'] == 'shipment_dispatched' }).to eq(1)
+    end
+
+    # El que queda es el primero: es el que escribió ConfirmDispatch, y su hora
+    # es la del despacho, no la del último aviso del courier.
+    it 'keeps the earliest of them, which is the one that dispatched it' do
+      log_another_push(dispatch_order(create_order, at: 2.hours.ago))
+
+      entry = feed.find { |event| event['type'] == 'shipment_dispatched' }
+      expect(Time.zone.parse(entry['occurred_at'])).to be_within(2.seconds).of(2.hours.ago)
+    end
+
+    it 'still reports a dispatch for each shipment that had one' do
+      dispatch_order(create_order, tracking: 'AND-1')
+      dispatch_order(create_order, tracking: 'AND-2')
+
+      expect(feed.count { |event| event['type'] == 'shipment_dispatched' }).to eq(2)
+    end
+
+    # Un evento que se reprocesó bien o que alguien descartó a mano ya no es una
+    # novedad: volver a avisarlo ocuparía el cupo del feed y desplazaría a los
+    # que siguen abiertos.
+    it 'leaves out a failure that was already resolved', :aggregate_failures do
+      fail_event(status: 'succeeded')
+      fail_event(status: 'discarded')
+
+      expect(feed.select { |event| event['type'] == 'event_failed' }).to be_empty
+    end
+
+    it 'keeps the ones that are still open', :aggregate_failures do
+      fail_event(status: 'pending')
+      fail_event(status: 'dead')
+      fail_event(status: 'succeeded')
+
+      expect(feed.count { |event| event['type'] == 'event_failed' }).to eq(2)
     end
 
     # Los tres datos que el feed deja en null cuando no hay: la orden sin total

@@ -25,6 +25,13 @@ module Activity
 
     DISPATCH_STATUS = Shipments::ConfirmDispatch::DISPATCHED_STATUS
 
+    # Los estados de la cola sobre los que todavía hay algo que hacer. Uno que
+    # se reprocesó bien (`succeeded`) o que alguien descartó a mano
+    # (`discarded`) ya no es una novedad: mostrarlo volvería a avisar de un
+    # problema resuelto y, peor, ocuparía el cupo del feed desplazando a los
+    # que sí están abiertos.
+    OPEN_FAILURE_STATUSES = %w[pending processing dead].freeze
+
     def initialize(limit: nil)
       super()
       @limit = normalize_limit(limit)
@@ -69,14 +76,31 @@ module Activity
     # primer evento `ready_to_ship` de la bitácora, que es el que escribe
     # `ConfirmDispatch`. Mismo criterio que usan los reportes.
     #
+    # **Uno por envío, el más temprano.** `ready_to_ship` no aparece una sola
+    # vez: `RegisterTrackingEvent` guarda con el estado actual del envío
+    # cualquier push que la plantilla del courier no sepa traducir, y después
+    # del despacho ese estado es `ready_to_ship`. Sin el `DISTINCT ON`, un
+    # «paquete recibido en sucursal» entra al feed como un segundo despacho del
+    # mismo envío, con la hora del push, y las repeticiones ocupan el cupo
+    # desplazando a los despachos de otros envíos.
+    #
     # `ShipmentEvent` no es CompanyScoped —no tiene company_id— así que el
     # aislamiento entra por el join con `Shipment`, que sí lo es.
     def recent_dispatches
-      ShipmentEvent.where(internal_status: DISPATCH_STATUS)
-                   .joins(:shipment).merge(Shipment.all)
+      ShipmentEvent.from(first_dispatch_per_shipment, :shipment_events)
                    .includes(shipment: { company_integration: :service })
                    .order(occurred_at: :desc, id: :desc).limit(@limit)
                    .map { |event| dispatch_entry(event, event.shipment) }
+    end
+
+    # El `ORDER BY` arranca por `shipment_id` porque Postgres lo exige para el
+    # `DISTINCT ON`; `occurred_at` decide cuál de las filas de cada envío queda,
+    # y el `id` desempata dos eventos de la misma hora.
+    def first_dispatch_per_shipment
+      ShipmentEvent.where(internal_status: DISPATCH_STATUS)
+                   .joins(:shipment).merge(Shipment.all)
+                   .select('DISTINCT ON (shipment_events.shipment_id) shipment_events.*')
+                   .order(:shipment_id, :occurred_at, :id)
     end
 
     def dispatch_entry(event, shipment)
@@ -88,9 +112,11 @@ module Activity
       }
     end
 
-    # Igual que las órdenes: `FailedEvent` es CompanyScoped.
+    # Igual que las órdenes: `FailedEvent` es CompanyScoped. Se filtran los
+    # estados abiertos: ver `OPEN_FAILURE_STATUSES`.
     def recent_failures
-      FailedEvent.includes(company_integration: :service)
+      FailedEvent.where(status: OPEN_FAILURE_STATUSES)
+                 .includes(company_integration: :service)
                  .order(created_at: :desc, id: :desc).limit(@limit).map do |failure|
         {
           id: "failure-#{failure.id}", type: 'event_failed', occurred_at: failure.created_at,

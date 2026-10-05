@@ -405,6 +405,16 @@ RSpec.describe 'Orders API', type: :request do
         expect(response.parsed_body['requires_shipping']).to be(true)
       end
 
+      # La columna es NOT NULL y el campo entra por strong params desde
+      # TESIS-162: un `null` llegaba a la base y levantaba NotNullViolation,
+      # que ningún rescue_from mapea.
+      it 'refuses a null requires_shipping with 422 and not 500', :aggregate_failures do
+        post_order(build_payload.deep_merge(order: { requires_shipping: nil }))
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('shipping')
+      end
+
       it 'records a pickup when the body asks for one', :aggregate_failures do
         post_order(build_payload.deep_merge(order: { requires_shipping: false }))
 

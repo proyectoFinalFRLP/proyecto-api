@@ -38,11 +38,15 @@ module Shipments
 
     private
 
+    # El estado va primero: una orden cancelada de retiro tiene que responder
+    # que está cancelada y no «esta venta se retira en el local», que es la
+    # confusión que motivó separar los dos errores.
     def validate_status!
-      raise PickupOrderError.new(order: @order) unless @order.requires_shipping?
-      return unless NON_SHIPPABLE_STATUSES.include?(@order.status)
+      raise UnshippableOrderError.new(order: @order) if
+        NON_SHIPPABLE_STATUSES.include?(@order.status)
+      return if @order.requires_shipping?
 
-      raise UnshippableOrderError.new(order: @order)
+      raise PickupOrderError.new(order: @order)
     end
 
     # Una sola escritura: sin transacción explícita, porque un choque contra la

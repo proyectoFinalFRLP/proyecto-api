@@ -120,8 +120,9 @@ RSpec.describe Product, type: :model do
       Stock.create!(product: product, warehouse: central, quantity: 10)
     end
 
-    def sell(quantity, warehouse: central, status: 'paid', shipment_status: nil)
-      order = Order.create!(company: company, customer_name: 'Cliente', status: status)
+    def sell(quantity, warehouse: central, status: 'paid', shipment_status: nil, ships: true)
+      order = Order.create!(company: company, customer_name: 'Cliente', status: status,
+                            requires_shipping: ships)
       OrderItem.create!(order: order, product: product, warehouse: warehouse,
                         quantity: quantity, unit_price: 100)
       ship(order, shipment_status) unless shipment_status.nil?
@@ -156,6 +157,28 @@ RSpec.describe Product, type: :model do
       sell(5, status: 'cancelled')
 
       expect(product.committed_quantity).to be_zero
+    end
+
+    # Un retiro no tiene envío —`CreateShipment` lo rechaza— y `Order` no tiene
+    # un estado «retirada»: contarlo lo dejaría comprometido para siempre y el
+    # «En depósito» crecería con cada venta de mostrador. En el mostrador
+    # registrar la venta y entregarla son el mismo momento.
+    it 'ignores an order the customer picks up at the store' do
+      sell(6, ships: false)
+
+      expect(product.committed_quantity).to be_zero
+    end
+
+    it 'leaves a pickup out of the breakdown by warehouse too' do
+      sell(6, ships: false)
+
+      expect(product.committed_by_warehouse).to be_empty
+    end
+
+    it 'still counts the sales that do ship, alongside a pickup' do
+      sell(6, ships: false) && sell(2)
+
+      expect(product.committed_quantity).to eq(2)
     end
 
     # Las anteriores a TESIS-126 no saben de qué depósito salieron: contarlas en

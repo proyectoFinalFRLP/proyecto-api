@@ -321,6 +321,15 @@ RSpec.describe 'Shipments API', type: :request do
       it 'still opens one for an order that is shipped' do
         expect { create_shipment(order_with('paid').id) }.to change(Shipment, :count).by(1)
       end
+
+      # El estado va primero: lo accionable es que está cancelada, no que se
+      # retira en el local. Separar los dos errores fue para no confundirlos.
+      it 'says a cancelled pickup is cancelled, and not that it is a pickup' do
+        pickup.update!(status: 'cancelled')
+        create_shipment(pickup.id)
+
+        expect(response.parsed_body['error']).not_to include('picked up')
+      end
     end
 
     # Mismo motivo que foreign_shipment: assign_current_company pisa el company:

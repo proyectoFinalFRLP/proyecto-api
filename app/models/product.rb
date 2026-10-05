@@ -220,10 +220,28 @@ class Product < ApplicationRecord
   # Las líneas que cuentan como comprometidas. El LEFT JOIN con `shipments` es
   # lo que deja entrar a las órdenes que todavía no tienen envío; un INNER las
   # dejaría afuera, que es justo el caso más común apenas entra una venta.
+  #
+  # **Los retiros en el local no cuentan.** Lo comprometido es lo vendido que
+  # todavía está en el estante, y lo que lo saca de ahí es el despacho. Una
+  # venta de retiro no tiene envío —`CreateShipment` lo rechaza— y `Order`
+  # no tiene un estado «retirada», así que nada la cerraría nunca: quedaría
+  # comprometida para siempre y el «En depósito» crecería con cada retiro.
+  #
+  # La decisión es tratar el mostrador como lo que es: registrar la venta y
+  # entregarla son el mismo momento, el cliente está ahí. Las unidades salen
+  # del estante al crear la orden, que es exactamente cuando `DeductStock` las
+  # saca de `stocks`. Así los dos números dicen lo mismo y no hace falta un
+  # estado nuevo.
+  #
+  # Lo que sí queda abierto es la cancelación: sus unidades vuelven al estante
+  # pero nada las devuelve a `stocks`, así que no las cuenta ni este scope ni
+  # `total_stock`. Eso lo cierra TESIS-999009, que es la card que repone el
+  # stock al cancelar.
   def committed_scope
     order_items.joins(:order, :warehouse)
                .left_outer_joins(order: :shipment)
                .where.not(orders: { status: Order::CANCELLED })
+               .where(orders: { requires_shipping: true })
                .where(shipments: { status: UNDISPATCHED_SHIPMENT_STATUSES })
   end
 end

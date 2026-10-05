@@ -212,6 +212,26 @@ RSpec.describe 'Warehouses API', type: :request do
         expect(response.parsed_body['error']).to include('Capacity')
       end
 
+      # La columna es `integer` de 4 bytes: sin tope, el número pasaba la
+      # validación y reventaba al guardar con ActiveModel::RangeError -> 500.
+      it 'refuses a capacity that does not fit in the column, with 422 and not 500',
+         :aggregate_failures do
+        post '/api/v1/warehouses',
+             params: { warehouse: warehouse_attrs.merge(capacity: 99_999_999_999) },
+             headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('Capacity')
+      end
+
+      it 'accepts the largest capacity the column can hold' do
+        post '/api/v1/warehouses',
+             params: { warehouse: warehouse_attrs.merge(capacity: Warehouse::MAX_CAPACITY) },
+             headers: headers, as: :json
+
+        expect(response).to have_http_status(:created)
+      end
+
       it 'refuses a capacity that is not a whole number of units' do
         post '/api/v1/warehouses', params: { warehouse: warehouse_attrs.merge(capacity: 1.5) },
                                    headers: headers, as: :json
