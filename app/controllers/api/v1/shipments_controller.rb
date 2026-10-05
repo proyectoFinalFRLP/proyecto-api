@@ -24,6 +24,15 @@ module Api
       # Cuánto del cuerpo del courier se propaga en el mensaje de error.
       COURIER_ERROR_LIMIT = 300
 
+      # Las dos columnas que recorre el buscador del listado (TESIS-164): el
+      # número de seguimiento y el id con el que el canal nombra la venta. Son
+      # los dos códigos que el operador tiene en la mano cuando lo llaman a
+      # preguntar por un paquete.
+      SEARCH_CONDITION = <<~SQL.squish
+        shipments.tracking_number ILIKE :pattern
+        OR orders.external_order_id ILIKE :pattern
+      SQL
+
       def index
         # La precarga es load-bearing: ShipmentListSerializer lee el nombre del
         # courier a través de la plantilla del Service, y sin ella son dos
@@ -92,7 +101,29 @@ module Api
         shipments = policy_scope(Shipment)
         shipments = shipments.where(status: status) if status.present?
         shipments = shipments.where(order_id: order_id) if order_id.present?
-        shipments
+        apply_search(shipments)
+      end
+
+      # El buscador del listado (TESIS-164). Busca por lo único que el operador
+      # tiene en la mano cuando lo llaman a preguntar por un paquete: el número
+      # de seguimiento que le dio al comprador, o el id con el que el canal
+      # nombra la venta.
+      #
+      # El join con `orders` es `left_outer`: un envío sin orden no existe —la
+      # FK es NOT NULL—, pero un INNER acá obligaría a Postgres a resolver el
+      # join también cuando no hay término, y el listado sin buscar es el caso
+      # normal. Con el `return` de arriba, el join sólo entra cuando se busca.
+      #
+      # Mismo criterio que el buscador de órdenes: ILIKE para ignorar
+      # mayúsculas, `sanitize_sql_like` para que un `%` tipeado se busque
+      # literalmente, y sin índice —un `%term%` necesita GIN con `pg_trgm`, que
+      # es la misma card que `unaccent`—.
+      def apply_search(shipments)
+        term = scalar_param(:search).to_s.strip
+        return shipments if term.blank?
+
+        pattern = "%#{Shipment.sanitize_sql_like(term)}%"
+        shipments.left_outer_joins(:order).where(SEARCH_CONDITION, pattern: pattern)
       end
 
       # find y no find_by dentro del scope del tenant: el default_scope de
