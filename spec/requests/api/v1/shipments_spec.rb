@@ -15,9 +15,9 @@ RSpec.describe 'Shipments API', type: :request do
     { 'Authorization' => "Bearer #{response.parsed_body['token']}" }
   end
 
-  def order_for(customer, owner: company)
+  def order_for(customer, owner: company, external_id: nil)
     Order.create!(company: owner, customer_name: customer, customer_zip_code: '5000',
-                  customer_address: 'Av. Siempreviva 742')
+                  customer_address: 'Av. Siempreviva 742', external_order_id: external_id)
   end
 
   # El alta del courier sale de spec/support/courier_builders.rb: estaba copiada
@@ -84,6 +84,12 @@ RSpec.describe 'Shipments API', type: :request do
 
       it 'returns 400 for an order_id that is not a single value' do
         get '/api/v1/shipments', params: { order_id: %w[1 2] }, headers: headers
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'returns 400 for a search that is not a single value' do
+        get '/api/v1/shipments', params: { search: { foo: 'bar' } }, headers: headers
 
         expect(response).to have_http_status(:bad_request)
       end
@@ -192,6 +198,101 @@ RSpec.describe 'Shipments API', type: :request do
         get '/api/v1/shipments', params: { order_id: target.order_id }, headers: headers
 
         expect(response.parsed_body['data'].pluck('id')).to eq([target.id])
+        expect(response.parsed_body['meta']['total']).to eq(1)
+      end
+    end
+
+    # El buscador del listado (TESIS-164): los dos códigos que el operador tiene
+    # en la mano cuando lo llaman a preguntar por un paquete.
+    describe 'search' do
+      # Propio y no `shipment_for`: acá hace falta el id externo de la orden, que
+      # es la mitad de lo que recorre el buscador.
+      def searchable(customer, status: 'pending', tracking: nil, external_id: nil, owner: company)
+        Shipment.create!(company: owner, status: status, tracking_number: tracking,
+                         order: order_for(customer, owner: owner, external_id: external_id))
+      end
+
+      before do
+        searchable('Ana', status: 'in_transit',
+                          tracking: 'AND-9920-X8829-Z', external_id: 'ML-1001')
+        searchable('Beto', external_id: 'TN-2002')
+        # Alta manual sin despachar: no tiene ninguno de los dos códigos. En SQL
+        # `NULL ILIKE '%%'` no es `true` sino `NULL`, así que si el buscador se
+        # aplicara igual con el término vacío, esta fila desaparecería del
+        # listado normal.
+        searchable('Cora')
+      end
+
+      def ids_for(term)
+        get '/api/v1/shipments', params: { search: term }, headers: headers
+        response.parsed_body['data'].pluck('tracking_number')
+      end
+
+      # Mismo número de seguimiento, otra empresa. Current a nil para que el
+      # fixture nazca afuera: assign_current_company pisaría el company manual.
+      def twin_of_another_company
+        Current.set(company_id: nil) do
+          other = Company.create!(name: 'Tenant C', tax_id: '30-33333333-3')
+          searchable('Ajena', status: 'in_transit',
+                              tracking: 'AND-9920-X8829-Z', owner: other)
+        end
+      end
+
+      it 'matches by tracking number' do
+        expect(ids_for('9920')).to eq(['AND-9920-X8829-Z'])
+      end
+
+      # El envío todavía no tiene seguimiento hasta que se despacha, así que el
+      # id del canal es la única forma de llegar a uno recién abierto.
+      it 'matches by the external order id of its order' do
+        expect(ids_for('TN-20')).to eq([nil])
+      end
+
+      it 'ignores case' do
+        expect(ids_for('and-9920')).to eq(['AND-9920-X8829-Z'])
+      end
+
+      # El paginador y la tabla tienen que decir lo mismo: si el total ignorara
+      # el término, diría que hay más envíos de los que se ven.
+      it 'counts only the matching rows in meta.total', :aggregate_failures do
+        get '/api/v1/shipments', params: { search: '9920' }, headers: headers
+
+        expect(response.parsed_body['data'].length).to eq(1)
+        expect(response.parsed_body['meta']['total']).to eq(1)
+      end
+
+      it 'returns every shipment when the term is blank, including the one with no codes' do
+        get '/api/v1/shipments', params: { search: '   ' }, headers: headers
+
+        expect(response.parsed_body['meta']['total']).to eq(3)
+      end
+
+      # Un `%` tipeado por el usuario es texto a buscar, no un comodín: sin
+      # escaparlo, buscar "%" devolvería la tabla entera.
+      it 'treats a literal % as text and not as a wildcard' do
+        get '/api/v1/shipments', params: { search: '%' }, headers: headers
+
+        expect(response.parsed_body['data']).to be_empty
+      end
+
+      it 'narrows the active tab instead of replacing it', :aggregate_failures do
+        get '/api/v1/shipments', params: { status: 'pending', search: '9920' }, headers: headers
+
+        expect(response.parsed_body['data']).to be_empty
+        expect(response.parsed_body['meta']['total']).to eq(0)
+      end
+
+      # El default_scope de CompanyScoped acota `shipments`, pero la condición
+      # del buscador toca `orders`. El seguimiento lo asigna el courier, no el
+      # OMS: dos empresas que usan el mismo operador pueden terminar con el
+      # mismo código, y ahí el buscador no puede ser la vía de entrada.
+      it 'never reaches the shipment of another company', :aggregate_failures do
+        mine = Shipment.find_by(tracking_number: 'AND-9920-X8829-Z')
+        twin_of_another_company
+
+        get '/api/v1/shipments', params: { search: '9920' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('id')).to eq([mine.id])
         expect(response.parsed_body['meta']['total']).to eq(1)
       end
     end
