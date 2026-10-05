@@ -43,6 +43,25 @@ RSpec.describe Product, type: :model do
     end
   end
 
+  describe '.stock_status_for' do
+    it 'maps a quantity to the three availability states', :aggregate_failures do
+      expect(described_class.stock_status_for(0)).to eq('out_of_stock')
+      expect(described_class.stock_status_for(1)).to eq('low')
+      expect(described_class.stock_status_for(Product::LOW_STOCK_THRESHOLD)).to eq('low')
+      expect(described_class.stock_status_for(Product::LOW_STOCK_THRESHOLD + 1)).to eq('available')
+    end
+
+    it 'treats a missing quantity as no units' do
+      expect(described_class.stock_status_for(nil)).to eq('out_of_stock')
+    end
+
+    it 'only answers values of the vocabulary' do
+      results = [0, 1, 1_000].map { |quantity| described_class.stock_status_for(quantity) }
+
+      expect(results).to all(be_in(Product::STOCK_STATUSES))
+    end
+  end
+
   describe '#primary_stock' do
     let(:central) do
       Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')

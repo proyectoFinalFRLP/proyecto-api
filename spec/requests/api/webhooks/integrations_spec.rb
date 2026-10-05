@@ -79,6 +79,57 @@ RSpec.describe 'Webhooks gateway', type: :request do
       expect(response.body).to be_empty
     end
 
+    # Shopify firma cada webhook con el client secret de la app de la empresa
+    # (ADR-019). Sin la firma correcta el evento no se persiste.
+    context 'when the template signs its webhooks' do
+      let(:service) do
+        Service.create!(service_name: 'Shopify', type: 'ecommerce', http_method: 'POST',
+                        uri: 'https://shop.test/graphql.json',
+                        webhook_config: { 'signature' => 'hmac_sha256_base64',
+                                          'signature_header' => 'X-Shopify-Hmac-SHA256',
+                                          'secret_key' => 'client_secret' })
+      end
+      let(:integration) do
+        CompanyIntegration.create!(company: company, service: service,
+                                   credentials: { 'client_secret' => 'shpss_SECRET' })
+      end
+      let(:body) { '{"id": 820982911946154508, "note": "Envío en 24 h"}' }
+
+      def post_signed(signature)
+        post "/api/webhooks/integrations/#{integration.id}",
+             params: body, headers: { 'CONTENT_TYPE' => 'application/json',
+                                      'X-Shopify-Hmac-SHA256' => signature }
+      end
+
+      def signature_of(text)
+        Base64.strict_encode64(OpenSSL::HMAC.digest('SHA256', 'shpss_SECRET', text))
+      end
+
+      it 'accepts the event signed over the raw body', :aggregate_failures do
+        expect { post_signed(signature_of(body)) }.to change(WebhookLog.unscoped, :count).by(1)
+        expect(response).to have_http_status(:accepted)
+      end
+
+      it 'answers 401 to a wrong signature' do
+        post_signed(signature_of("#{body} "))
+        expect(response).to have_http_status(:unauthorized)
+      end
+
+      it 'persists nothing when the signature does not match' do
+        expect { post_signed(signature_of('{}')) }.not_to change(WebhookLog.unscoped, :count)
+      end
+
+      it 'enqueues nothing when the signature does not match' do
+        expect { post_signed(signature_of('{}')) }.not_to have_enqueued_job(Orders::ProcessWebhookEventJob)
+      end
+
+      it 'answers 401 when the signature header is missing' do
+        post "/api/webhooks/integrations/#{integration.id}",
+             params: body, headers: { 'CONTENT_TYPE' => 'application/json' }
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
+
     context 'when the body is not valid JSON' do
       def post_broken_body
         post "/api/webhooks/integrations/#{integration.id}",

@@ -282,10 +282,199 @@ services = [
       'EN DISTRIBUCION' => 'in_transit',
       'ENTREGADO' => 'delivered'
     }
+  },
+  # Shopify (TESIS-138): la madre es la integración que la empresa conecta.
+  # Cada empresa carga el client_id y el client_secret de SU propia app del
+  # Dev Dashboard (opción B: la app y la tienda están en la organización de la
+  # empresa, que es lo que exige el grant client_credentials) y el dominio de
+  # su tienda. El token lo obtiene y renueva el sistema.
+  #
+  # La versión de la API vive en la URI: se actualiza desde el backoffice sin
+  # deploy. Shopify mantiene cada versión unos 12 meses.
+  #
+  # La madre publica el stock (la usa el sync saliente, TESIS-35): fija la
+  # cantidad `available` del inventory item en la ubicación de la cuenta. Es un
+  # valor absoluto, así que `changeFromQuantity: null` (sin compare-and-set: el
+  # OMS es la fuente de verdad). Desde 2026-04 Shopify exige la clave de
+  # idempotencia, que el sync genera por intento.
+  {
+    service_name: 'Shopify',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: <<~GRAPHQL.squish,
+      mutation SetStock($inventoryItemId: ID!, $locationId: ID!, $quantity: Int!,
+                        $idempotencyKey: String!) {
+        inventorySetQuantities(input: {
+          name: "available", reason: "correction",
+          referenceDocumentUri: "logistics://onestock/stock-sync",
+          quantities: [{ inventoryItemId: $inventoryItemId, locationId: $locationId,
+                         quantity: $quantity, changeFromQuantity: null }]
+        }) @idempotent(key: $idempotencyKey) {
+          userErrors { code field message }
+        }
+      }
+    GRAPHQL
+    error_path: 'data.inventorySetQuantities.userErrors',
+    auth_strategy: 'oauth_client_credentials',
+    auth_config: {
+      'token_url' => 'https://:shop_domain/admin/oauth/access_token',
+      'token_header' => 'X-Shopify-Access-Token',
+      'token_prefix' => ''
+    },
+    credential_fields: [
+      { 'key' => 'client_id', 'label' => 'Client ID', 'required' => true },
+      { 'key' => 'client_secret', 'label' => 'Client secret', 'required' => true }
+    ],
+    setting_fields: [
+      { 'key' => 'shop_domain', 'label' => 'Dominio de la tienda', 'required' => true,
+        'format' => '\A[a-z0-9][a-z0-9-]*\.myshopify\.com\z' },
+      { 'key' => 'location_id', 'label' => 'Ubicación de stock', 'required' => false }
+    ],
+    request_mapper: {
+      'inventoryItemId' => 'inventory_item_id',
+      'locationId' => 'settings.location_id',
+      'quantity' => 'available_quantity',
+      'idempotencyKey' => 'idempotency_key'
+    },
+    # Las ventas llegan por el webhook `orders/create`, que trae la orden
+    # completa: la ingesta (TESIS-43) la traduce con este mapper. El cliente y
+    # la dirección salen de la dirección de envío, que Shopify sólo manda si la
+    # app tiene acceso a los datos protegidos de cliente.
+    response_mapper: {
+      'id' => 'external_order_id',
+      'financial_status' => 'status',
+      'shipping_address.name' => 'customer_name',
+      'shipping_address.address1' => 'customer_address',
+      'shipping_address.zip' => 'customer_zip_code',
+      'shipping_address.city' => 'customer_city',
+      'shipping_address.province' => 'customer_province',
+      'line_items[].variant_id' => 'external_product_id',
+      'line_items[].quantity' => 'quantity',
+      'line_items[].price' => 'unit_price'
+    },
+    request_value_mapper: {},
+    # Estados de pago de Shopify que no se llaman igual en el OMS. `paid` y
+    # `pending` coinciden, y cualquier otro entra como pendiente.
+    response_value_mapper: { 'authorized' => 'pending', 'partially_paid' => 'pending',
+                             'voided' => 'cancelled' },
+    # Shopify firma cada webhook con el client secret de la app que lo
+    # registró: como cada empresa conecta la suya, el secreto es el de su
+    # integración.
+    webhook_config: { 'signature' => 'hmac_sha256_base64',
+                      'signature_header' => 'X-Shopify-Hmac-SHA256',
+                      'secret_key' => 'client_secret' }
+  },
+  # «Probar conexión» de Shopify: plantilla hija, se ejecuta con la cuenta de la
+  # madre. Trae el nombre de la tienda y la primera ubicación, que completa el
+  # setting `location_id` si la empresa no lo cargó.
+  {
+    service_name: 'Shopify - Conexión',
+    parent_service_name: 'Shopify',
+    operation: 'connection_test',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: '{ shop { name } locations(first: 5) { nodes { id name } } }',
+    request_mapper: {},
+    response_mapper: {
+      'data.shop.name' => 'account_name',
+      'data.locations.nodes.0.id' => 'location_id'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  # Vincular por id de variante: confirma que existe y trae su inventory item,
+  # que es con lo que Shopify publica el stock. `node` en vez de una consulta
+  # por variante: es la forma estable de pedir cualquier objeto por su GID.
+  {
+    service_name: 'Shopify - Variante',
+    parent_service_name: 'Shopify',
+    operation: 'product_lookup',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: 'query Variant($id: ID!) { node(id: $id) { ... on ProductVariant { ' \
+                   'legacyResourceId sku inventoryItem { id } product { title } } } }',
+    request_mapper: { 'id' => 'gid://shopify/ProductVariant/{{external_id}}' },
+    response_mapper: {
+      'data.node.legacyResourceId' => 'external_product_id',
+      'data.node.sku' => 'external_sku',
+      'data.node.product.title' => 'external_title',
+      'data.node.inventoryItem.id' => 'inventory_item_id'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  # Vincular por SKU: busca la variante con el SKU del producto. Pide dos
+  # resultados para detectar un SKU repetido en la tienda (`ambiguous_match`).
+  {
+    service_name: 'Shopify - Buscar por SKU',
+    parent_service_name: 'Shopify',
+    operation: 'product_search',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: 'query BySku($query: String!) { productVariants(first: 2, query: $query) { ' \
+                   'nodes { legacyResourceId sku inventoryItem { id } product { title } } } }',
+    request_mapper: { 'query' => 'sku:{{sku}}' },
+    response_mapper: {
+      'data.productVariants.nodes.0.legacyResourceId' => 'external_product_id',
+      'data.productVariants.nodes.0.sku' => 'external_sku',
+      'data.productVariants.nodes.0.product.title' => 'external_title',
+      'data.productVariants.nodes.0.inventoryItem.id' => 'inventory_item_id',
+      'data.productVariants.nodes.1.legacyResourceId' => 'ambiguous_match'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  # Registrar el webhook de ventas (Integrations::RegisterWebhook): primero se
+  # busca si la tienda ya avisa a esta dirección, para no duplicar la
+  # suscripción, y si no se crea. La dirección la arma el sistema.
+  {
+    service_name: 'Shopify - Buscar webhook',
+    parent_service_name: 'Shopify',
+    operation: 'webhook_lookup',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: 'query Webhook($uri: String!) { webhookSubscriptions(first: 1, uri: $uri, ' \
+                   'topics: [ORDERS_CREATE]) { nodes { id } } }',
+    request_mapper: { 'uri' => 'webhook_url' },
+    response_mapper: { 'data.webhookSubscriptions.nodes.0.id' => 'webhook_subscription_id' },
+    request_value_mapper: {},
+    response_value_mapper: {}
+  },
+  {
+    service_name: 'Shopify - Webhook',
+    parent_service_name: 'Shopify',
+    operation: 'webhook_subscription',
+    type: 'ecommerce',
+    uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+    http_method: 'POST',
+    request_format: 'graphql',
+    body_template: 'mutation Subscribe($uri: String!) { webhookSubscriptionCreate(' \
+                   'topic: ORDERS_CREATE, webhookSubscription: { uri: $uri, format: JSON }) { ' \
+                   'webhookSubscription { id } userErrors { field message } } }',
+    error_path: 'data.webhookSubscriptionCreate.userErrors',
+    request_mapper: { 'uri' => 'webhook_url' },
+    response_mapper: {
+      'data.webhookSubscriptionCreate.webhookSubscription.id' => 'webhook_subscription_id'
+    },
+    request_value_mapper: {},
+    response_value_mapper: {}
   }
 ]
 
 services.each do |attrs|
+  # El vínculo con la madre se resuelve después del loop: la madre recién existe
+  # cuando terminó de crearse.
+  attrs = attrs.except(:parent_service_name)
   service = Service.find_or_create_by!(service_name: attrs[:service_name]) do |s|
     s.assign_attributes(attrs)
   end
@@ -297,7 +486,23 @@ services.each do |attrs|
   # la plantilla (uri, http_method, type) por si se editó a mano desde el
   # backoffice, y sin tocar otras plantillas: cada vuelta sólo actualiza su
   # propio service_name.
-  service.update!(attrs.slice(*Service::MAPPER_FIELDS.map(&:to_sym)))
+  # La configuración de conexión (auth, transporte, campos declarados) se
+  # reaplica con el mismo criterio: si no, una base sembrada antes de TESIS-138
+  # se quedaba con plantillas que no saben autenticarse.
+  service.update!(attrs.slice(*(Service::MAPPER_FIELDS + Service::CONNECTION_FIELDS).map(&:to_sym)))
+end
+
+# Las plantillas de siempre se autentican con un token fijo (`bearer`): se
+# declara ese campo para que el formulario de conexión del front sepa pedirlo.
+Service.connectable.where(auth_strategy: 'bearer', credential_fields: []).find_each do |service|
+  service.update!(credential_fields: [{ 'key' => 'access_token', 'label' => 'Access token',
+                                        'required' => true }])
+end
+
+# Plantillas de operación: cada hija apunta a su madre (TESIS-138).
+services.select { |attrs| attrs[:parent_service_name] }.each do |attrs|
+  parent = Service.find_by!(service_name: attrs[:parent_service_name])
+  Service.find_by!(service_name: attrs[:service_name]).update!(parent_service: parent)
 end
 
 # Correo Argentino no empuja el tracking: se le pregunta con su plantilla de
@@ -322,7 +527,6 @@ ml_integration =
   if first_company && ml_service
     CompanyIntegration.find_or_create_by!(company: first_company, service: ml_service) do |ci|
       ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
-      ci.is_active = true
     end
   end
 
@@ -407,7 +611,6 @@ if norte_company
       company: norte_company, service: ml_stock_service
     ) do |ci|
       ci.credentials = { 'access_token' => 'DEMO-TOKEN-ML' }
-      ci.is_active = true
     end
 
     # Una base que corrió estas seeds antes de este cambio tiene el mapping
@@ -442,7 +645,6 @@ if norte_company
       company: norte_company, service: tn_service
     ) do |ci|
       ci.credentials = { 'access_token' => 'DEMO-TOKEN-TN' }
-      ci.is_active = true
     end
 
     ProductMapping.find_or_create_by!(
@@ -459,6 +661,21 @@ if norte_company
       pm.external_price = 705_000.00
     end
   end
+end
+
+# Las conexiones de Mercado Libre y Tiendanube de Norte son de ejemplo: el token
+# es inventado y nunca hablaron con el proveedor. Se conservan porque las órdenes,
+# los vínculos y los eventos de ejemplo salen de ellas, pero inactivas: activas,
+# la pantalla de integraciones las mostraba como conectadas y cada cambio de
+# stock intentaba publicar en ellas y fallaba. Se recorre en vez de crearlas
+# inactivas para corregir también una base que ya había corrido las seeds
+# (find_or_create_by! no toca una fila que existe).
+demo_channel_tokens = %w[DEMO-TOKEN-ML DEMO-TOKEN-TN]
+CompanyIntegration.unscoped.where(is_active: true).find_each do |integration|
+  credentials = integration.credentials
+  next unless credentials.is_a?(Hash) && demo_channel_tokens.include?(credentials['access_token'])
+
+  integration.update!(is_active: false)
 end
 
 if sur_company
@@ -1049,6 +1266,9 @@ if ml_integration
     )
   end
 end
+
+# Cuatro semanas de ventas y dos eventos en la DLQ para la demo (ver el archivo).
+load Rails.root.join('db/seeds/demo_activity.rb')
 
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
