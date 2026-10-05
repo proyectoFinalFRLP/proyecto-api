@@ -72,7 +72,7 @@ La puerta queda abierta: pasar de esta convención a la otra es aditivo del lado
 - La regla se enuncia en una línea y no tiene excepciones que justificar.
 - Ninguna colección queda con un array en la raíz, así que todas pudieron empezar a paginar sin romper su contrato. Fue la precondición de TESIS-108, que se hizo justo encima.
 - El comentario-trampa del frontend se borra: lo que explicaba ya no pasa.
-- `spec/requests/api/v1/api_contract_spec.rb` (TESIS-90) fija las tres formas **sobre los endpoints que enumera**, hoy incluido el registro. La lista está escrita a mano: un endpoint nuevo con otra forma no rompe nada hasta que se lo agrega ahí. Recorrer todas las rutas sería otra card; mientras tanto, sumar el endpoint al spec es parte de agregarlo.
+- `spec/requests/api/v1/api_contract_spec.rb` (TESIS-90) fija las tres formas **sobre los endpoints que enumera**, hoy incluido el registro. La lista está escrita a mano: un endpoint nuevo con otra forma no rompe nada hasta que se lo agrega ahí. Desde TESIS-999031, `spec/requests/api/v1/every_listing_envelope_spec.rb` recorre las rutas: todo `index` de `/api/v1` tiene que responder `data` + `meta`, los vocabularios `data` sola, y una ruta GET nueva que no sea ninguna de las tres cosas hace fallar el spec hasta que se la clasifique.
 
 **En contra**
 

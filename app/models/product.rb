@@ -118,10 +118,20 @@ class Product < ApplicationRecord
   # usa `by_stock_status` para filtrar: si se calculara en el cliente, el filtro
   # y el color de la fila podrían discrepar.
   def stock_status
-    total = total_stock
-    return 'out_of_stock' if total.zero?
+    self.class.stock_status_for(total_stock)
+  end
 
-    total <= LOW_STOCK_THRESHOLD ? 'low' : 'available'
+  # La regla de disponibilidad, en un solo lugar. La usan el producto (sobre su
+  # total) y cada fila de `stocks` (sobre lo que guarda ese depósito): si cada
+  # uno tuviera su copia, el badge del detalle y el del catálogo podían volver a
+  # discrepar, que es justo el bug que motivó exponer el estado desde acá.
+  #
+  # Por depósito es una regla provisoria: usa el mismo umbral global porque el
+  # modelo no tiene punto de reposición por depósito. Si aparece, cambia acá.
+  def self.stock_status_for(quantity)
+    return 'out_of_stock' if quantity.to_i <= 0
+
+    quantity <= LOW_STOCK_THRESHOLD ? 'low' : 'available'
   end
 
   # Unidades que salieron de un depósito y todavía no llegaron a otro. No están
@@ -151,6 +161,26 @@ class Product < ApplicationRecord
                                 .order(:warehouse_id)
                                 .sum(:quantity)
                                 .map do |(warehouse_id, name), quantity|
+      { warehouse_id: warehouse_id, name: name, quantity: quantity.to_i }
+    end
+  end
+
+  # Unidades en vuelo hacia cada depósito: lo que todavía no figura en ningún
+  # número del destino. El saliente no va: ya está descontado del on hand del
+  # origen al despachar, y mostrarlo en esa fila se leería como si siguiera ahí.
+  #
+  # Va aparte y no por fila de `stocks` porque el destino puede no tener fila
+  # hasta que la transferencia se recibe (`AdjustWarehouseStock` la crea
+  # recién entonces). Una sola query agregada para todo el producto; cada
+  # transferencia tiene un único destino, así que la suma de todas las
+  # entradas es exactamente `in_transit_quantity`.
+  def in_transit_by_warehouse
+    stock_transfers.in_flight
+                   .joins(:destination_warehouse)
+                   .group(:destination_warehouse_id, 'warehouses.name')
+                   .order(:destination_warehouse_id)
+                   .sum(:quantity)
+                   .map do |(warehouse_id, name), quantity|
       { warehouse_id: warehouse_id, name: name, quantity: quantity.to_i }
     end
   end

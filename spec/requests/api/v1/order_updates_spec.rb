@@ -283,4 +283,21 @@ RSpec.describe 'Order updates API', type: :request do
       expect(order.reload.customer_name).to eq('Juan Pérez')
     end
   end
+
+  # Hallazgo de auditoría (TESIS-89): el mismo depósito en texto y en número
+  # contaba como dos y daba un 422 falso.
+  def stocked_second_product
+    Product.create!(company: company, sku: 'CEL-2', name: 'Funda').tap do |second|
+      Stock.create!(product: second, warehouse: warehouse, quantity: 5)
+    end
+  end
+
+  it 'accepts new lines that name the same warehouse as text and as a number' do
+    second = stocked_second_product
+    put_order(items: [{ id: line.id, quantity: 4 },
+                      { product_id: second.id, warehouse_id: warehouse.id.to_s, quantity: 1, unit_price: 5 },
+                      { product_id: product.id, warehouse_id: warehouse.id, quantity: 1, unit_price: 100 }])
+
+    expect(response).to have_http_status(:ok)
+  end
 end

@@ -13,4 +13,11 @@ class WarehouseSerializer < ApplicationSerializer
   # Se expone como entero y nunca null: un deposito vacio guarda cero unidades,
   # que es un dato, no un dato faltante.
   field :stored_units
+
+  # El deposito como referencia dentro de otro recurso (el stock de un
+  # producto). Sin `stored_units`: fuera del listado de depositos no viene del
+  # scope `with_stored_units` y costaria una query por deposito.
+  view :reference do
+    excludes :stored_units
+  end
 end

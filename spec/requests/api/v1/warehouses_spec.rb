@@ -349,6 +349,58 @@ RSpec.describe 'Warehouses API', type: :request do
       expect(response.parsed_body['error']).to eq('Cannot delete warehouse with existing stock')
     end
 
+    # Una fila en cero es una asignación vacía: el modal de producto deja así
+    # al depósito que se «quita», porque el update hace upsert y nunca borra.
+    context 'when every stock row of the warehouse is at zero' do
+      before { assign_products_without_units(2) }
+
+      it 'deletes the warehouse along with those empty rows', :aggregate_failures do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response).to have_http_status(:no_content)
+        expect(Warehouse.find_by(id: warehouse.id)).to be_nil
+        expect(Stock.where(warehouse_id: warehouse.id)).to be_empty
+      end
+
+      # Nada que publicar: el total de esos productos no cambió.
+      it 'does not enqueue a stock sync for those products' do
+        expect do
+          delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+        end.not_to have_enqueued_job(Catalog::SyncStockToChannelsJob)
+      end
+    end
+
+    context 'when an empty row sits next to a row with units' do
+      before do
+        assign_products_without_units(1)
+        create_warehouse_with_stock
+      end
+
+      it 'keeps the warehouse and both rows', :aggregate_failures do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response).to have_http_status(:conflict)
+        expect(Stock.where(warehouse_id: warehouse.id).count).to eq(2)
+      end
+    end
+
+    # El borrado se aborta dentro de su transacción: las filas en cero que se
+    # soltaron vuelven, y el motivo que se nombra es el verdadero.
+    context 'when order lines block it and it only has empty stock rows' do
+      before do
+        assign_products_without_units(1)
+        create_order_line_from_warehouse
+      end
+
+      it 'keeps the empty rows and names the order lines', :aggregate_failures do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response.parsed_body['error'])
+          .to eq('Cannot delete warehouse with order lines taken from it')
+        expect(Stock.where(warehouse_id: warehouse.id, quantity: 0).count).to eq(1)
+      end
+    end
+
     # TESIS-126: la línea recuerda su depósito para devolverle unidades al
     # modificar la orden. Borrarlo dejaría esa devolución sin destino.
     context 'when order lines were taken from it and it has no stock left' do
@@ -405,6 +457,14 @@ RSpec.describe 'Warehouses API', type: :request do
   def create_warehouse_with_stock
     product = Product.create!(company: company, sku: 'SKU-1', name: 'Producto')
     Stock.create!(product: product, warehouse: warehouse, quantity: 10)
+  end
+
+  # Productos asignados al depósito con cero unidades.
+  def assign_products_without_units(count)
+    count.times do |index|
+      product = Product.create!(company: company, sku: "EMPTY-#{index}", name: "Vacío #{index}")
+      Stock.create!(product: product, warehouse: warehouse, quantity: 0)
+    end
   end
 
   def create_order_line_from_warehouse

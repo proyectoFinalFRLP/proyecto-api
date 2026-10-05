@@ -22,5 +22,12 @@ class ProductSerializer < ApplicationSerializer
     product.weight.to_f
   end
 
+  # La disponibilidad, con la misma regla que el listado: antes el detalle no la
+  # traía y el front la recalculaba con otros umbrales.
+  field :stock_status
+
+  # Entrante por depósito (ver `Product#in_transit_by_warehouse`).
+  field :in_transit_by_warehouse
+
   association :stocks, blueprint: StockSerializer
 end

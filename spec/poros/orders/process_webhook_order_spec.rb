@@ -197,6 +197,38 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
     end
   end
 
+  # Hallazgo de auditoría (TESIS-89): la idempotencia buscaba el id externo en
+  # toda la empresa. La venta de otro canal con el mismo id se tomaba por
+  # duplicada: log `processed`, sin orden, sin stock descontado, sin DLQ.
+  context 'when another channel of the company already used the same external id' do
+    let(:other_channel) { CompanyIntegration.create!(company: company, service: create_service) }
+
+    before do
+      publish('SKU-1', 'MLA-1', stock: 20)
+      ProductMapping.create!(product: Product.find_by(sku: 'SKU-1'), company_integration: other_channel,
+                             external_product_id: 'TN-1')
+      described_class.new(webhook_log: create_log(order_payload(items: [line('MLA-1', 2, 10)]))).call
+    end
+
+    def sale_from_other_channel
+      WebhookLog.create!(company_id: company.id, company_integration: other_channel,
+                         payload: order_payload(items: [line('TN-1', 3, 10)]))
+    end
+
+    it 'registers it as a sale of its own', :aggregate_failures do
+      order = described_class.new(webhook_log: sale_from_other_channel).call
+
+      expect(order.company_integration).to eq(other_channel)
+      expect(Order.where(external_order_id: 'ML-1001').count).to eq(2)
+    end
+
+    it 'takes its units from the stock' do
+      described_class.new(webhook_log: sale_from_other_channel).call
+
+      expect(stock_of('SKU-1')).to eq(15)
+    end
+  end
+
   context 'when the log was already processed' do
     before { log.update!(status: :processed) }
 
@@ -376,6 +408,61 @@ RSpec.describe Orders::ProcessWebhookOrder, type: :poro do
       log_of_the_loser = losing_worker.instance_variable_get(:@log)
 
       expect { losing_worker.call }.to change { log_of_the_loser.reload.status }.to('processed')
+    end
+  end
+
+  # La primera notificación de una venta puede traerla ya cancelada (en ML, un
+  # pago rechazado). Antes descontaba igual, y como una orden cancelada no se
+  # edita ni se vuelve a cancelar, esas unidades no volvían nunca.
+  context 'when the sale arrives already cancelled' do
+    subject(:process) { described_class.new(webhook_log: cancelled_log) }
+
+    def cancelled_log
+      @cancelled_log ||= create_log(order_payload(items: [line('MLA-1', 2, 100)],
+                                                  status: 'cancelado'))
+    end
+
+    def create_service(mapper: order_mapper)
+      Service.create!(service_name: "Mercado Libre #{SecureRandom.hex(4)}", type: 'ecommerce',
+                      http_method: 'GET', uri: 'https://api.ml.test/orders',
+                      response_mapper: mapper,
+                      response_value_mapper: { 'pagado' => 'paid', 'cancelado' => 'cancelled' })
+    end
+
+    before { publish('SKU-1', 'MLA-1', stock: 20) }
+
+    it 'records the sale as cancelled, so it leaves a trace', :aggregate_failures do
+      order = process.call
+
+      expect(order.status).to eq('cancelled')
+      expect(order.order_items.sum(:quantity)).to eq(2)
+    end
+
+    it 'takes no units from the stock' do
+      process.call
+
+      expect(stock_of('SKU-1')).to eq(20)
+    end
+
+    it 'marks the log as processed' do
+      process.call
+
+      expect(cancelled_log.reload.status).to eq('processed')
+    end
+
+    # Ya cancelada, nada va a intentar devolverle unidades.
+    it 'leaves its lines without a warehouse, since nothing was taken from any' do
+      expect(process.call.order_items.pluck(:warehouse_id)).to eq([nil])
+    end
+  end
+
+  context 'when the sale arrives paid' do
+    before { publish('SKU-1', 'MLA-1', stock: 20) }
+
+    it 'still takes its units from the stock' do
+      described_class.new(webhook_log: create_log(order_payload(items: [line('MLA-1', 2, 100)]))).call
+
+      expect(stock_of('SKU-1')).to eq(18)
     end
   end
 

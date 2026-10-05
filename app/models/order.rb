@@ -40,7 +40,9 @@ class Order < ApplicationRecord
 
   validates :customer_name, presence: true
   validates :status, presence: true, inclusion: { in: STATUSES }
-  validates :external_order_id, uniqueness: { scope: :company_id }, allow_nil: true
+  # Único por canal y no por empresa: dos canales de la misma empresa pueden
+  # usar el mismo id. Es el índice `index_orders_on_integration_and_external_order_id`.
+  validates :external_order_id, uniqueness: { scope: :company_integration_id }, allow_nil: true
   # allow_nil: las órdenes anteriores a TESIS-114 que no tienen líneas no tienen
   # con qué calcularlo, y la orden vive un instante sin total dentro de la
   # transacción que la crea.
