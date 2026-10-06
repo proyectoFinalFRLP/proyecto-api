@@ -238,7 +238,7 @@ class Product < ApplicationRecord
   #
   # Lo que sí queda abierto es la cancelación: sus unidades vuelven al estante
   # pero nada las devuelve a `stocks`, así que no las cuenta ni este scope ni
-  # `total_stock`. Eso lo cierra TESIS-999009, que es la card que repone el
+  # `total_stock`. Eso lo cierra TESIS-168, que es la card que repone el
   # stock al cancelar.
   def committed_scope
     order_items.joins(:order, :warehouse)
