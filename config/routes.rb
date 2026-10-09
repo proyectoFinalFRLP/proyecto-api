@@ -69,6 +69,12 @@ Rails.application.routes.draw do
       # como ruta anidada: el listado es la vista principal, y la orden es un
       # filtro más.
       resources :shipments, only: %i[index show] do
+        # Cuántos envíos cae en cada pestaña del listado, en una sola respuesta
+        # (TESIS-165). Mismo criterio que `/products/counts`: ruta propia y no
+        # dentro del `meta` del listado, porque los contadores no cambian al
+        # pasar de página.
+        get :counts, on: :collection
+
         # La ruta es la de la card (POST /shipments/:id/dispatch); la acción se
         # llama `confirm` porque `dispatch` es un método de ActionController
         # (ver ShipmentsController#confirm).

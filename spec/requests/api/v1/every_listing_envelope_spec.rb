@@ -34,8 +34,10 @@ module FormaDeCadaRuta
   # no rompa este spec.
   # `products#counts` (TESIS-162) es un agregado calculado, como `reports#overview`:
   # devuelve los cuatro contadores de las pestañas del catálogo, no una colección.
+  # `shipments#counts` (TESIS-165) es el mismo caso para las pestañas del
+  # listado de envíos.
   RECURSOS = %w[me#show tenant_config#show warehouses#show products#show orders#show
-                shipments#show reports#overview products#counts].freeze
+                shipments#show reports#overview products#counts shipments#counts].freeze
 end
 
 RSpec.describe 'Every listing keeps the response envelope (ADR-015)', type: :request do
