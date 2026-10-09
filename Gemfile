@@ -80,3 +80,14 @@ gem 'rack-cors', '~> 3.0'
 gem 'avo', '~> 4.2'
 
 gem 'propshaft', '~> 1.3'
+
+# Se queda en 2.x hasta que Rails pueda con la 3. `json` 3.0 sacó la forma
+# `JSON.parse(source, options_hash)` con dos posicionales, y
+# `ActiveSupport::JSON.decode` la sigue llamando así (activesupport 8.1.3.1,
+# active_support/json/decoding.rb:25). Con la 3 instalada, cualquier lectura de
+# una columna `json` o `jsonb` revienta con «wrong number of arguments
+# (given 2, expected 1)»: se cae el panel de Avo, la ingesta de webhooks y todo
+# lo que toque `payload` o `credentials`. No lo pide el Gemfile: entra como
+# dependencia de rubocop, así que la restricción va acá para que Dependabot no
+# vuelva a subirla sola.
+gem 'json', '~> 2.21'
