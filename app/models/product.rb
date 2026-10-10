@@ -24,12 +24,6 @@ class Product < ApplicationRecord
   # Los tres estados de disponibilidad, en el vocabulario de la pantalla.
   STOCK_STATUSES = %w[out_of_stock low available].freeze
 
-  # Un envío en este estado todavía no salió, así que sus unidades siguen
-  # físicamente en el depósito aunque ya estén vendidas. Una orden sin envío
-  # —todavía no se abrió, o es un retiro en el local— está en la misma
-  # situación, y por eso el filtro acepta también el NULL del LEFT JOIN.
-  UNDISPATCHED_SHIPMENT_STATUSES = [nil, 'pending'].freeze
-
   # Unidades en vuelo hacia/desde depósitos, como subconsulta escalar.
   #
   # Subconsulta y no un segundo left_joins: `with_total_stock` ya hace join con
@@ -159,7 +153,11 @@ class Product < ApplicationRecord
   # atribuir a ninguno, y contarlas en el total pero en ningún depósito dejaría
   # una pantalla cuyas filas no suman el encabezado.
   def committed_by_warehouse
+    # El `joins` es de acá y no del scope: `OrderItem.committed` filtra por
+    # `warehouse_id` justamente para no meter `warehouses` en el FROM (ver
+    # su comentario). Este agrupado sí necesita el nombre, así que lo suma.
     @committed_by_warehouse ||= committed_scope
+                                .joins(:warehouse)
                                 .group(:warehouse_id, 'warehouses.name')
                                 .order(:warehouse_id)
                                 .sum(:quantity)
@@ -240,11 +238,10 @@ class Product < ApplicationRecord
   # pero nada las devuelve a `stocks`, así que no las cuenta ni este scope ni
   # `total_stock`. Eso lo cierra TESIS-168, que es la card que repone el
   # stock al cancelar.
+  # La definición vive en `OrderItem.committed` desde TESIS-170, porque
+  # `Warehouse` necesita la misma para su ocupación. Acá sólo se la acota a
+  # las líneas de este producto.
   def committed_scope
-    order_items.joins(:order, :warehouse)
-               .left_outer_joins(order: :shipment)
-               .where.not(orders: { status: Order::CANCELLED })
-               .where(orders: { requires_shipping: true })
-               .where(shipments: { status: UNDISPATCHED_SHIPMENT_STATUSES })
+    order_items.committed
   end
 end
