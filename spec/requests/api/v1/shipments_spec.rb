@@ -337,7 +337,6 @@ RSpec.describe 'Shipments API', type: :request do
       expect(response).to have_http_status(:unauthorized)
     end
 
-
     it 'counts every tab of the lifecycle in one answer', :aggregate_failures do
       one_shipment_per_tab
 
@@ -345,6 +344,19 @@ RSpec.describe 'Shipments API', type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body['data']).to eq(uno_por_pestania)
+    end
+
+    # Una pestaña sin envíos tiene que decir 0 y no desaparecer: el GROUP BY
+    # no devuelve los estados sin filas, y un contador en null deja la pestaña
+    # mostrando «—» en vez de un cero (proyecto-web#82).
+    it 'answers zero for a tab with no shipments', :aggregate_failures do
+      shipment_for('Pendiente', status: 'pending')
+
+      get '/api/v1/shipments/counts', headers: headers
+
+      expect(response.parsed_body['data'])
+        .to eq('all' => 1, 'pending' => 1, 'ready_to_ship' => 0,
+               'in_transit' => 0, 'delivered' => 0)
     end
 
     # Si los contadores ignoraran el buscador, el número de la pestaña y las

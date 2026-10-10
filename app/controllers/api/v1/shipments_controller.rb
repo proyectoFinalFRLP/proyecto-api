@@ -61,16 +61,16 @@ module Api
         render json: ShipmentSerializer.render(@shipment)
       end
 
-      # Cuántos envíos cae en cada pestaña del listado, respetando el mismo
+      # Cuántos envíos caen en cada pestaña del listado, respetando el mismo
       # buscador y el mismo filtro por orden que el listado: si no, el número de
       # la pestaña y las filas que se ven dirían cosas distintas.
       #
-      # Una consulta por estado y no cinco requests: es lo que la pantalla hacía
-      # desde el cliente (TESIS-163), y cada una era un round trip que traía una
-      # página de una fila sólo para leer su `meta.total`.
+      # Una consulta y no cinco requests: es lo que la pantalla hacía desde el
+      # cliente (TESIS-163), y cada una era un round trip que traía una página
+      # de una fila sólo para leer su `meta.total`.
       def counts
         skip_authorization
-        render json: { data: SHIPMENT_TABS.transform_values { |status| tab_count(status) } }
+        render json: { data: tab_counts }
       end
 
       def create
@@ -115,6 +115,7 @@ module Api
       # `?order_id[]=1` era peor porque NO reventaba: `where` recibía el Array y
       # lo traducía a un `IN`, así que la query filtraba por varias órdenes a la
       # vez —una capacidad que nadie declaró ni documentó— y el 200 lo tapaba.
+      #
       # Una sola definición de la cadena, y el estado por parámetro: el listado
       # pasa el del request y cada pestaña pasa el suyo. Con dos copias, el
       # invariante que la card pide —que el número de la pestaña y las filas
@@ -129,15 +130,27 @@ module Api
         apply_search(shipments)
       end
 
-      # Cuántas filas matchean cada pestaña. `nil` es «Todos»: el scope sin
-      # filtro de estado.
+      # Cuántas filas matchean cada pestaña, en una sola consulta: un
+      # `GROUP BY status` sobre el mismo scope filtrado, en vez de un COUNT por
+      # pestaña. «Todos» no necesita el suyo: es la suma de los grupos.
       #
-      # `.count` alcanza —a diferencia del catálogo, que viene agrupado—: el
-      # único join que puede entrar es el de `orders` del buscador, y un envío
-      # tiene a lo sumo una orden (la FK es NOT NULL y apunta a una sola), así
-      # que no multiplica filas.
-      def tab_count(status)
-        filtered_shipments(status).count
+      # `filtered_shipments(nil)` y no el default: acá el estado no sale del
+      # request —se cuentan las cinco pestañas— y pasarle el del listado dejaría
+      # las otras cuatro en cero.
+      #
+      # Se arranca de SHIPMENT_TABS y no de lo que devolvió la base: un estado
+      # sin filas no aparece en el GROUP BY, y una pestaña vacía tiene que decir
+      # 0, no desaparecer de la respuesta.
+      #
+      # El agrupado no multiplica filas: el único join que puede entrar es el de
+      # `orders` del buscador, y un envío tiene a lo sumo una orden (la FK es
+      # NOT NULL y apunta a una sola).
+      def tab_counts
+        by_status = filtered_shipments(nil).group(:status).count
+
+        SHIPMENT_TABS.transform_values do |status|
+          status.nil? ? by_status.values.sum : by_status.fetch(status, 0)
+        end
       end
 
       # El buscador del listado (TESIS-164). Busca por lo único que el operador
