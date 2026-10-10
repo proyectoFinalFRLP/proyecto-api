@@ -460,6 +460,77 @@ RSpec.describe 'Products API', type: :request do
     end
   end
 
+  # TESIS-162: la pantalla pedía un request por pestaña, sólo para leer el total
+  # de cada una.
+  describe 'GET /api/v1/products/counts' do
+    let(:warehouse) do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+    end
+
+    def stocked(sku, quantity, category: nil)
+      product = Product.create!(company: company, sku: sku, name: sku, category: category)
+      Stock.create!(product: product, warehouse: warehouse, quantity: quantity)
+      product
+    end
+
+    # Uno de cada pestaña, para que los cuatro contadores digan algo distinto.
+    def one_product_per_tab
+      stocked('OUT-1', 0)
+      stocked('LOW-1', Product::LOW_STOCK_THRESHOLD)
+      stocked('OK-1', Product::LOW_STOCK_THRESHOLD + 1)
+    end
+
+    it 'returns 401 without a token' do
+      get '/api/v1/products/counts'
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'counts every tab of the catalog in one answer', :aggregate_failures do
+      one_product_per_tab
+
+      get '/api/v1/products/counts', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['data'])
+        .to eq('all' => 3, 'available' => 1, 'low' => 1, 'out_of_stock' => 1)
+    end
+
+    # Si los contadores ignoraran el buscador, el número de la pestaña y las
+    # filas que se ven dirían cosas distintas.
+    it 'honours the same search as the listing' do
+      stocked('ALPHA-1', 5)
+      stocked('BETA-1', 5)
+
+      get '/api/v1/products/counts', params: { search: 'ALPHA' }, headers: headers
+
+      expect(response.parsed_body['data']).to include('all' => 1, 'low' => 1)
+    end
+
+    it 'honours the category filter too' do
+      stocked('CAT-1', 5, category: 'Cabling')
+      stocked('CAT-2', 5, category: 'Power')
+
+      get '/api/v1/products/counts', params: { category: 'Cabling' }, headers: headers
+
+      expect(response.parsed_body['data']).to include('all' => 1)
+    end
+
+    it 'does not count the products of another company' do
+      other_product
+
+      get '/api/v1/products/counts', headers: headers
+
+      expect(response.parsed_body['data']['all']).to be_zero
+    end
+
+    # Vocabulario, no colección paginada: `data` sola (ADR-015).
+    it 'answers without a meta envelope' do
+      get '/api/v1/products/counts', headers: headers
+
+      expect(response.parsed_body.keys).to eq(['data'])
+    end
+  end
+
   describe 'GET /api/v1/products/:id' do
     let!(:product) do
       wh = Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
@@ -477,6 +548,65 @@ RSpec.describe 'Products API', type: :request do
       get "/api/v1/products/#{product.id}", headers: headers
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body['total_stock']).to eq(7)
+    end
+
+    # TESIS-162: los tres números del detalle dejan de ser «—» y pasan a ser
+    # dato. Se exponen desde acá y no se derivan en el cliente: `on_hand` no es
+    # `total_stock`, y restarlos mal del lado del front era el riesgo.
+    describe 'the three stock figures' do
+      def sell(quantity)
+        warehouse = Warehouse.find_by(name: 'Central')
+        order = Order.create!(company: company, customer_name: 'Cliente', status: 'paid')
+        OrderItem.create!(order: order, product: product, warehouse: warehouse,
+                          quantity: quantity, unit_price: 100)
+      end
+
+      it 'answers zero and not null for a product nobody reserved', :aggregate_failures do
+        get "/api/v1/products/#{product.id}", headers: headers
+
+        expect(response.parsed_body)
+          .to include('committed_quantity' => 0, 'committed_by_warehouse' => [],
+                      'available_to_promise' => 7, 'on_hand_quantity' => 7)
+      end
+
+      it 'separates what is free from what is on the shelf' do
+        sell(2)
+
+        get "/api/v1/products/#{product.id}", headers: headers
+
+        expect(response.parsed_body)
+          .to include('committed_quantity' => 2, 'available_to_promise' => 7,
+                      'on_hand_quantity' => 9)
+      end
+
+      it 'breaks the commitment down by warehouse' do
+        sell(3)
+
+        get "/api/v1/products/#{product.id}", headers: headers
+
+        expect(response.parsed_body['committed_by_warehouse'].first)
+          .to include('name' => 'Central', 'quantity' => 3)
+      end
+
+      # Una consulta agregada y no una por depósito.
+      it 'does not add a query per warehouse' do
+        add_extra_stocks(product) && sell(1)
+
+        queries = count_queries(matching: /FROM "order_items"/) do
+          get "/api/v1/products/#{product.id}", headers: headers
+        end
+
+        expect(queries).to eq(1)
+      end
+    end
+
+    it 'returns the packaging and the technical standard', :aggregate_failures do
+      product.update!(packaging: 'Caja x12', technical_standard: 'IRAM 2063')
+
+      get "/api/v1/products/#{product.id}", headers: headers
+
+      expect(response.parsed_body['packaging']).to eq('Caja x12')
+      expect(response.parsed_body['technical_standard']).to eq('IRAM 2063')
     end
 
     it 'returns 404 for a product from another company', :aggregate_failures do
@@ -501,6 +631,142 @@ RSpec.describe 'Products API', type: :request do
 
       expect(response).to have_http_status(:ok)
       expect(queries).to eq(1)
+    end
+  end
+
+  # Lo que la pantalla de detalle necesita para pintar estados sin
+  # reimplementar reglas: antes el front calculaba el badge con sus propios
+  # umbrales y el mismo producto salía «Disponible» en el catálogo y «Crítico»
+  # en el detalle.
+  describe 'GET /api/v1/products/:id availability and units in flight' do
+    # Un método y no un `let` por depósito: el grupo ya hereda tres helpers del
+    # describe de arriba y RSpec/MultipleMemoizedHelpers corta en cinco.
+    def depot(name)
+      Warehouse.find_or_create_by!(company: company, name: name) do |warehouse|
+        warehouse.assign_attributes(zip_code: '1900', address: "Calle #{name}")
+      end
+    end
+
+    def product_with(quantity, sku: 'D-001')
+      Product.create!(company: company, sku: sku, name: sku).tap do |product|
+        Stock.create!(product: product, warehouse: depot('Central'), quantity: quantity)
+      end
+    end
+
+    def detail(product)
+      get "/api/v1/products/#{product.id}", headers: headers
+      response.parsed_body
+    end
+
+    def statuses_in_both_screens(product)
+      status = detail(product)['stock_status']
+      get '/api/v1/products', headers: headers
+      [status, response.parsed_body['data'].find { |row| row['id'] == product.id }['stock_status']]
+    end
+
+    def transfer(product, to:, quantity:, settle: nil)
+      sent = Catalog::DispatchTransfer.new(company: company, product: product,
+                                           origin_warehouse: depot('Central'),
+                                           destination_warehouse: depot(to), quantity: quantity).call
+      settle ? Catalog::SettleTransfer.new(transfer: sent, outcome: settle).call : sent
+    end
+
+    # Una fila de stock más y dos transferencias en vuelo hacia ese depósito.
+    def spread(product, to:)
+      Stock.create!(product: product, warehouse: depot(to), quantity: 5)
+      2.times { transfer(product, to: to, quantity: 1) }
+    end
+
+    def queries_for_detail(product)
+      count_queries(matching: /SELECT/) { detail(product) }
+    end
+
+    it 'answers the same status as the catalog right at the threshold', :aggregate_failures do
+      at_threshold = product_with(Product::LOW_STOCK_THRESHOLD, sku: 'D-LOW')
+      above = product_with(Product::LOW_STOCK_THRESHOLD + 1, sku: 'D-OK')
+
+      expect(statuses_in_both_screens(at_threshold)).to eq(%w[low low])
+      expect(statuses_in_both_screens(above)).to eq(%w[available available])
+    end
+
+    it 'answers out_of_stock for a product with no units' do
+      expect(detail(product_with(0))['stock_status']).to eq('out_of_stock')
+    end
+
+    # Ejemplo de la card con los números de NOR-003 en los seeds: 130 en total
+    # (available), repartidos 100 y 30 (low los dos).
+    it 'computes the status of each warehouse with the same rule', :aggregate_failures do
+      product = product_with(100)
+      Stock.create!(product: product, warehouse: depot('North'), quantity: 30)
+
+      expect(detail(product)['stock_status']).to eq('available')
+      expect(detail(product)['stocks'].pluck('stock_status')).to eq(%w[low low])
+    end
+
+    it 'adds the status to the create answer as well' do
+      post '/api/v1/products', headers: headers,
+                               params: { product: { sku: 'D-NEW', name: 'Nuevo' } }, as: :json
+
+      expect(response.parsed_body['stock_status']).to eq('out_of_stock')
+    end
+
+    it 'adds the status to the update answer as well' do
+      put "/api/v1/products/#{product_with(7).id}",
+          headers: headers, params: { product: { name: 'Renombrado' } }, as: :json
+
+      expect(response.parsed_body['stock_status']).to eq('low')
+    end
+
+    context 'with transfers in several states' do
+      let!(:product) { product_with(50) }
+
+      before do
+        transfer(product, to: 'North', quantity: 4)
+        transfer(product, to: 'North', quantity: 1)
+        transfer(product, to: 'South', quantity: 6)
+        transfer(product, to: 'North', quantity: 2, settle: :received)
+        transfer(product, to: 'South', quantity: 3, settle: :cancelled)
+      end
+
+      it 'counts only the incoming units still in flight, per destination' do
+        expect(detail(product)['in_transit_by_warehouse']).to eq(
+          [{ 'warehouse_id' => depot('North').id, 'name' => 'North', 'quantity' => 5 },
+           { 'warehouse_id' => depot('South').id, 'name' => 'South', 'quantity' => 6 }]
+        )
+      end
+
+      it 'adds up to the in_transit_quantity of the product' do
+        body = detail(product)
+
+        expect(body['in_transit_by_warehouse'].sum { |row| row['quantity'] })
+          .to eq(body['in_transit_quantity'])
+      end
+
+      # South nunca recibió nada (la de South se canceló), así que no tiene
+      # fila en `stocks`: el entrante igual aparece.
+      it 'includes a destination that has no stock row yet', :aggregate_failures do
+        body = detail(product)
+
+        expect(body['stocks'].pluck('warehouse_id')).not_to include(depot('South').id)
+        expect(body['in_transit_by_warehouse'].pluck('name')).to include('South')
+      end
+    end
+
+    it 'answers an empty breakdown when nothing is in flight' do
+      expect(detail(product_with(5))['in_transit_by_warehouse']).to eq([])
+    end
+
+    # Una query agregada para el entrante y ninguna por depósito: antes, cada
+    # fila de stock sumaba `stored_units` de su depósito con una query propia.
+    # Se compara un producto chico contra uno con más depósitos y
+    # transferencias: la cantidad de queries tiene que ser la misma.
+    it 'does not add queries as warehouses and transfers grow' do
+      small = product_with(50, sku: 'D-SMALL')
+      large = product_with(50, sku: 'D-LARGE')
+      %w[North South].each { |name| spread(large, to: name) }
+      detail(small) # el primer request crea el usuario y carga el esquema
+
+      expect(queries_for_detail(large)).to eq(queries_for_detail(small))
     end
   end
 
@@ -836,6 +1102,48 @@ RSpec.describe 'Products API', type: :request do
       params = { product: { stocks: ['string'] } }
 
       put "/api/v1/products/#{product.id}", params: params, headers: headers, as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+  end
+
+  # Hallazgo de auditoría (TESIS-89): las filas de `stocks` se comparaban crudas
+  # contra los ids de la base. Una fila sin depósito hacía reventar el `sort`
+  # (500), y un id en texto daba un 422 falso de «no pertenece a la empresa».
+  describe 'the warehouse of each stock row' do
+    let(:product) { Product.create!(company: company, sku: 'ROW-001', name: 'Filas') }
+    let(:central) do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+    end
+
+    def put_stocks(stocks)
+      put "/api/v1/products/#{product.id}",
+          params: { product: { name: 'Filas', stocks: stocks } }, headers: headers, as: :json
+    end
+
+    it 'answers 422 and names the row that has no warehouse', :aggregate_failures do
+      put_stocks([{ warehouse_id: central.id, quantity: 1 }, { quantity: 3 }])
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to eq('stocks[1]: warehouse_id must be a positive integer')
+    end
+
+    it 'accepts a warehouse id that comes as text', :aggregate_failures do
+      put_stocks([{ warehouse_id: central.id.to_s, quantity: 4 }])
+
+      expect(response).to have_http_status(:ok)
+      expect(Stock.find_by(product: product, warehouse: central).quantity).to eq(4)
+    end
+
+    it 'still refuses a warehouse of another company' do
+      put_stocks([{ warehouse_id: other_warehouse.id, quantity: 1 }])
+
+      expect(response.parsed_body['error']).to eq('One or more warehouses do not belong to this company')
+    end
+
+    it 'refuses the same row on creation too' do
+      post '/api/v1/products', params: { product: { sku: 'ROW-002', name: 'Nuevo', stocks: [{ quantity: 1 }] } },
+                               headers: headers, as: :json
 
       expect(response).to have_http_status(:unprocessable_content)
     end

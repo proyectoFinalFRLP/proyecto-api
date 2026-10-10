@@ -125,4 +125,19 @@ RSpec.describe 'Shipment quotes API', type: :request do
 
     expect(response).to have_http_status(:bad_request)
   end
+
+  # No hay a quién pedirle precio: la venta se retira en el local. Sin esto se
+  # cotizaba igual una orden que después `CreateShipment` rechaza, y una que ya
+  # tenía su envío abierto y pasó a retiro por PUT se podía despachar: una
+  # etiqueta pagada por una venta que no sale.
+  describe 'an order the customer picks up at the store' do
+    before { order.update!(requires_shipping: false) }
+
+    it 'is refused instead of quoted', :aggregate_failures do
+      quote
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to include('picked up')
+    end
+  end
 end

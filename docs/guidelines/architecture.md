@@ -145,7 +145,7 @@ POST /api/v1/products      → { "id": 1, "sku": "...", ... }
 cualquier error            → { "error": "..." }
 ```
 
-`meta` cuenta el scope **ya filtrado**, no la tabla entera, y lo lleva todo **listado de registros**: ninguno devuelve una cantidad ilimitada de filas. Los vocabularios fijos (`/orders/provinces`, `/products/categories`) y el resultado de una acción (`/orders/:id/quotes`) viajan en `data` sin `meta`, porque su largo lo decide el código y no los datos de la empresa (ver ADR-015).
+`meta` cuenta el scope **ya filtrado**, no la tabla entera, y lo lleva todo **listado de registros**: ninguno devuelve una cantidad ilimitada de filas. Los vocabularios fijos (`/orders/provinces`, `/products/categories`), los agregados (`/products/counts`, `/activity`) y el resultado de una acción (`/orders/:id/quotes`) viajan en `data` sin `meta`, porque su largo lo decide el código y no los datos de la empresa (ver ADR-015).
 
 El cálculo vive en un solo lugar, el concern `Api::V1::Paginatable`, con el techo (`MAX_PER_PAGE = 100`) y los dos defaults: 20 para una pantalla paginada y 100 para los listados que el consumidor lee enteros —depósitos, mapeos, integraciones— y usa para llenar un select. `page` y `per_page` fuera de rango se acotan en vez de romper.
 
@@ -448,6 +448,18 @@ estaba.
 > la respuesta del courier se pierde después de que él generó la etiqueta, el
 > envío queda `pending` y un reintento genera una segunda etiqueta.
 
+> **Tercer caso: vincular un producto con su publicación (TESIS-138).**
+> `POST /api/v1/products/:product_id/mappings` le pregunta al canal, dentro del
+> request, si la publicación existe (plantilla hija `product_lookup`) o la busca
+> por SKU (`product_search`), con el mismo timeout de 4 s de la cotización. Es el
+> caso que la nota de arriba anticipaba, y se toma igual por el mismo argumento
+> de producto: el usuario está esperando saber si el vínculo es válido, y un id
+> equivocado le publicaría el stock a otra publicación. Lo que lo distingue de
+> una sincronización de fondo es que es **una sola lectura, sin efectos en el
+> proveedor**: el push de stock que sigue al vínculo sí va a un job
+> (`Catalog::SyncStockToChannelsJob`). Si aparece un cuarto caso, la regla de
+> «encolar y notificar» deja de ser opcional.
+
 Lo que acota el riesgo de sostener un hilo de Puma:
 
 - **Timeout propio y más corto.** El adaptador acepta los timeouts por parámetro;
@@ -501,15 +513,29 @@ bin/jobs --queues=realtime    # Sólo una cola
 
 ⚠️ **En Windows `bin/jobs` no arranca**: el supervisor de Solid Queue registra `SIGQUIT`, señal que no existe en la plataforma. Para probar un worker localmente en Windows:
 
-```ruby
-# bundle exec rails runner "..."
-worker = SolidQueue::Worker.new(queues: 'realtime', threads: 1, polling_interval: 0.2)
-Thread.new { worker.start }
-sleep 5
-worker.stop
+Eso mismo, empaquetado y con corte por `Ctrl-C`, vive en `bin/worker_windows.rb`:
+
+```bash
+bundle exec rails runner bin/worker_windows.rb
+QUEUES=realtime bundle exec rails runner bin/worker_windows.rb
 ```
 
+Levanta el worker en el proceso actual, sin supervisor ni fork, que es todo lo que hace falta para ver correr la ingesta de webhooks y el sync de stock.
+
+> El handler de `SIGINT` no para el worker: sólo baja una bandera, y el `stop` corre en el hilo principal. Ruby prohíbe tomar locks en contexto de trap, y `worker.stop` puede terminar tomando uno al instrumentar con `ActiveSupport::Notifications`: hacerlo adentro cambiaría un corte limpio por un `ThreadError`.
+
 Alternativas: WSL, Docker, o dejar la verificación de workers al CI/deploy (Linux).
+
+⚠️ **En macOS los workers se caen al arrancar** (`Abort trap: 6`, con un volcado de memoria que menciona `performForkChildInitialize`). Solid Queue arranca sus procesos con `fork`, y macOS aborta el proceso hijo si toca clases de Objective-C que el padre dejó a medio inicializar. Pasa igual con `bin/jobs` y con los workers dentro de Puma. Se evita con esta variable de entorno:
+
+```bash
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES PGGSSENCMODE=disable bin/jobs
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES PGGSSENCMODE=disable SOLID_QUEUE_IN_PUMA=1 bin/rails server   # todo en un proceso, como en el deploy
+```
+
+`PGGSSENCMODE=disable` evita la segunda forma del mismo problema: el hijo muere con `Segmentation fault` en `pg/connection.rb` (`connect_start`) al abrir su conexión a PostgreSQL, porque libpq intenta negociar cifrado GSS con las librerías de Kerberos del sistema. El supervisor vuelve a forkear y el log se llena de volcados sin que ningún job corra. En desarrollo no se usa GSS, así que apagarlo no cambia nada más.
+
+Conviene exportar las dos en el perfil de la terminal (`~/.zshrc`). En Linux (el deploy) no hacen falta.
 
 ### 8.4 Tareas programadas
 

@@ -75,10 +75,15 @@ module Shipments
     # etiqueta ya se emitió, y descartar el número de seguimiento perdería el
     # rastro de un paquete que el courier ya conoce. Se guarda y la cancelación
     # se resuelve por el canal que corresponda.
+    # El estado va primero: una orden cancelada **de retiro** tiene que decir
+    # que está cancelada, que es lo accionable, y no «esta venta se retira en el
+    # local». Separar los dos errores fue justamente para no confundirlos.
     def validate_order!
-      return unless CreateShipment::NON_SHIPPABLE_STATUSES.include?(order.status)
+      raise UnshippableOrderError.new(order: order) if
+        CreateShipment::NON_SHIPPABLE_STATUSES.include?(order.status)
+      return if order.requires_shipping?
 
-      raise UnshippableOrderError.new(order: order)
+      raise PickupOrderError.new(order: order)
     end
 
     # Se valida antes de llamar al courier para no gastar una etiqueta —que el

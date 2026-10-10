@@ -44,7 +44,7 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
     dispatch(target, using: using)
   rescue Shipments::AlreadyDispatchedError, Shipments::DispatchResponseError,
          Shipments::InvalidCourierIntegrationError, Shipments::UnshippableOrderError,
-         Integrations::AdapterExecutionError
+         Shipments::PickupOrderError, Integrations::AdapterExecutionError
     nil
   end
 
@@ -182,6 +182,32 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
       stub_courier
 
       expect { attempt_dispatch }.not_to change(ShipmentEvent, :count)
+    end
+  end
+
+  # El alta del envío ya rechazaba los retiros; el despacho no lo miraba, así
+  # que una orden con envío `pending` a la que después se le pone
+  # `requires_shipping: false` por PUT se podía despachar igual: pagar una
+  # etiqueta por una venta que el cliente se lleva del mostrador.
+  describe 'when the order became a pickup after the shipment was opened' do
+    before { order.update!(requires_shipping: false) }
+
+    it 'refuses to dispatch it' do
+      expect { dispatch }.to raise_error(Shipments::PickupOrderError, /picked up/)
+    end
+
+    it 'does not call the courier' do
+      stub = stub_courier
+      attempt_dispatch
+
+      expect(stub).not_to have_been_requested
+    end
+
+    # El estado manda sobre el motivo: lo accionable es que está cancelada.
+    it 'says a cancelled pickup is cancelled, and not that it is a pickup' do
+      order.update!(status: 'cancelled')
+
+      expect { dispatch }.to raise_error(Shipments::UnshippableOrderError)
     end
   end
 

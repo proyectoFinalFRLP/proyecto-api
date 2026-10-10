@@ -24,6 +24,12 @@ class Product < ApplicationRecord
   # Los tres estados de disponibilidad, en el vocabulario de la pantalla.
   STOCK_STATUSES = %w[out_of_stock low available].freeze
 
+  # Un envío en este estado todavía no salió, así que sus unidades siguen
+  # físicamente en el depósito aunque ya estén vendidas. Una orden sin envío
+  # —todavía no se abrió, o es un retiro en el local— está en la misma
+  # situación, y por eso el filtro acepta también el NULL del LEFT JOIN.
+  UNDISPATCHED_SHIPMENT_STATUSES = [nil, 'pending'].freeze
+
   # Unidades en vuelo hacia/desde depósitos, como subconsulta escalar.
   #
   # Subconsulta y no un segundo left_joins: `with_total_stock` ya hace join con
@@ -53,11 +59,14 @@ class Product < ApplicationRecord
   # tienen ninguna y no hay con qué inferirla.
   validates :category, inclusion: { in: CATEGORIES }, allow_nil: true
 
-  scope :with_total_stock, lambda {
-    left_joins(:stocks)
-      .group(:id)
-      .select('products.*', 'COALESCE(SUM(stocks.quantity), 0) AS total_stock',
-              "(#{IN_TRANSIT_SUBQUERY}) AS in_transit_quantity")
+  # `in_transit:` lo pide quien va a leerlo. Es una subconsulta correlacionada
+  # —una por fila— y los contadores de las pestañas no la miran: pedirla ahí
+  # era pagarla cuatro veces para descartarla.
+  scope :with_total_stock, lambda { |in_transit: true|
+    columnas = ['products.*', 'COALESCE(SUM(stocks.quantity), 0) AS total_stock']
+    columnas << "(#{IN_TRANSIT_SUBQUERY}) AS in_transit_quantity" if in_transit
+
+    left_joins(:stocks).group(:id).select(*columnas)
   }
 
   # Filtro por disponibilidad, para las pestañas del catálogo.
@@ -112,10 +121,20 @@ class Product < ApplicationRecord
   # usa `by_stock_status` para filtrar: si se calculara en el cliente, el filtro
   # y el color de la fila podrían discrepar.
   def stock_status
-    total = total_stock
-    return 'out_of_stock' if total.zero?
+    self.class.stock_status_for(total_stock)
+  end
 
-    total <= LOW_STOCK_THRESHOLD ? 'low' : 'available'
+  # La regla de disponibilidad, en un solo lugar. La usan el producto (sobre su
+  # total) y cada fila de `stocks` (sobre lo que guarda ese depósito): si cada
+  # uno tuviera su copia, el badge del detalle y el del catálogo podían volver a
+  # discrepar, que es justo el bug que motivó exponer el estado desde acá.
+  #
+  # Por depósito es una regla provisoria: usa el mismo umbral global porque el
+  # modelo no tiene punto de reposición por depósito. Si aparece, cambia acá.
+  def self.stock_status_for(quantity)
+    return 'out_of_stock' if quantity.to_i <= 0
+
+    quantity <= LOW_STOCK_THRESHOLD ? 'low' : 'available'
   end
 
   # Unidades que salieron de un depósito y todavía no llegaron a otro. No están
@@ -128,6 +147,60 @@ class Product < ApplicationRecord
 
     stock_transfers.in_flight.sum(:quantity)
   end
+
+  # Unidades vendidas que todavía no salieron del depósito, por depósito.
+  #
+  # El stock se descuenta al **crear** la orden (`Catalog::DeductStock`) y el
+  # despacho no vuelve a tocar `stocks`, así que estas unidades ya no figuran en
+  # ninguna fila de stock pero siguen estando en el estante hasta que el courier
+  # se las lleva. Son las que el detalle muestra como «Comprometido».
+  #
+  # Las líneas sin depósito (anteriores a TESIS-126) quedan afuera: no se pueden
+  # atribuir a ninguno, y contarlas en el total pero en ningún depósito dejaría
+  # una pantalla cuyas filas no suman el encabezado.
+  def committed_by_warehouse
+    @committed_by_warehouse ||= committed_scope
+                                .group(:warehouse_id, 'warehouses.name')
+                                .order(:warehouse_id)
+                                .sum(:quantity)
+                                .map do |(warehouse_id, name), quantity|
+      { warehouse_id: warehouse_id, name: name, quantity: quantity.to_i }
+    end
+  end
+
+  # Unidades en vuelo hacia cada depósito: lo que todavía no figura en ningún
+  # número del destino. El saliente no va: ya está descontado del on hand del
+  # origen al despachar, y mostrarlo en esa fila se leería como si siguiera ahí.
+  #
+  # Va aparte y no por fila de `stocks` porque el destino puede no tener fila
+  # hasta que la transferencia se recibe (`AdjustWarehouseStock` la crea
+  # recién entonces). Una sola query agregada para todo el producto; cada
+  # transferencia tiene un único destino, así que la suma de todas las
+  # entradas es exactamente `in_transit_quantity`.
+  def in_transit_by_warehouse
+    stock_transfers.in_flight
+                   .joins(:destination_warehouse)
+                   .group(:destination_warehouse_id, 'warehouses.name')
+                   .order(:destination_warehouse_id)
+                   .sum(:quantity)
+                   .map do |(warehouse_id, name), quantity|
+      { warehouse_id: warehouse_id, name: name, quantity: quantity.to_i }
+    end
+  end
+
+  # Lo comprometido de todo el producto. Suma el desglose en vez de volver a la
+  # base: es el mismo número por definición, y así no puede discrepar con las
+  # filas que muestra la pantalla.
+  def committed_quantity
+    committed_by_warehouse.sum { |row| row[:quantity] }
+  end
+
+  # Lo que hay físicamente: lo que queda libre más lo vendido sin despachar.
+  def on_hand_quantity = total_stock + committed_quantity
+
+  # Lo que se puede prometer es lo que queda libre: lo vendido ya se descontó de
+  # `stocks` al crear la orden, así que no hay que volver a restarlo.
+  def available_to_promise = total_stock
 
   # Depósito donde está el grueso de las unidades. Lo consume la columna
   # "Location Node" del listado, que muestra un nodo y no el desglose.
@@ -143,5 +216,35 @@ class Product < ApplicationRecord
   def primary_stock
     stocks.reject { |stock| stock.quantity.zero? }
           .min_by { |stock| [-stock.quantity, stock.warehouse_id] }
+  end
+
+  private
+
+  # Las líneas que cuentan como comprometidas. El LEFT JOIN con `shipments` es
+  # lo que deja entrar a las órdenes que todavía no tienen envío; un INNER las
+  # dejaría afuera, que es justo el caso más común apenas entra una venta.
+  #
+  # **Los retiros en el local no cuentan.** Lo comprometido es lo vendido que
+  # todavía está en el estante, y lo que lo saca de ahí es el despacho. Una
+  # venta de retiro no tiene envío —`CreateShipment` lo rechaza— y `Order`
+  # no tiene un estado «retirada», así que nada la cerraría nunca: quedaría
+  # comprometida para siempre y el «En depósito» crecería con cada retiro.
+  #
+  # La decisión es tratar el mostrador como lo que es: registrar la venta y
+  # entregarla son el mismo momento, el cliente está ahí. Las unidades salen
+  # del estante al crear la orden, que es exactamente cuando `DeductStock` las
+  # saca de `stocks`. Así los dos números dicen lo mismo y no hace falta un
+  # estado nuevo.
+  #
+  # Lo que sí queda abierto es la cancelación: sus unidades vuelven al estante
+  # pero nada las devuelve a `stocks`, así que no las cuenta ni este scope ni
+  # `total_stock`. Eso lo cierra TESIS-168, que es la card que repone el
+  # stock al cancelar.
+  def committed_scope
+    order_items.joins(:order, :warehouse)
+               .left_outer_joins(order: :shipment)
+               .where.not(orders: { status: Order::CANCELLED })
+               .where(orders: { requires_shipping: true })
+               .where(shipments: { status: UNDISPATCHED_SHIPMENT_STATUSES })
   end
 end

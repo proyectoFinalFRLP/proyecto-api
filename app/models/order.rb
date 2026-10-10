@@ -5,6 +5,12 @@ class Order < ApplicationRecord
 
   STATUSES = %w[pending paid cancelled].freeze
 
+  # El estado final de una venta que no va a salir. Con nombre porque son varios
+  # los lugares que lo preguntan —el alta del envío, el despacho, el cálculo de
+  # lo comprometido, la edición y los reportes— y un literal repetido en cada
+  # uno es un typo esperando.
+  CANCELLED = 'cancelled'
+
   # Las 24 jurisdicciones de la Argentina, con el nombre con el que se muestran
   # en el select de provincia del alta manual (TESIS-58). No es una lista
   # citable como nombres oficiales: Tierra del Fuego, por ejemplo, se llama
@@ -35,13 +41,24 @@ class Order < ApplicationRecord
 
   validates :customer_name, presence: true
   validates :status, presence: true, inclusion: { in: STATUSES }
-  validates :external_order_id, uniqueness: { scope: :company_id }, allow_nil: true
+  # Único por canal y no por empresa: dos canales de la misma empresa pueden
+  # usar el mismo id. Es el índice `index_orders_on_integration_and_external_order_id`.
+  validates :external_order_id, uniqueness: { scope: :company_integration_id }, allow_nil: true
   # allow_nil: las órdenes anteriores a TESIS-114 que no tienen líneas no tienen
   # con qué calcularlo, y la orden vive un instante sin total dentro de la
   # transacción que la crea.
   validates :total_amount, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
   # allow_nil: las órdenes anteriores a TESIS-128 y las de webhook no la tienen.
   validates :customer_province, inclusion: { in: PROVINCES }, allow_nil: true
+  # `inclusion` y no `presence`: la columna es NOT NULL y el campo es editable
+  # por la API (TESIS-162), así que un `null` llegaba a la base y reventaba con
+  # NotNullViolation -> 500. `presence` tampoco serviría: `false` es un valor
+  # válido y para `presence` es ausencia.
+  #
+  # Un texto cualquiera sigue entrando como `true`: el casteo a booleano lo
+  # hace ActiveRecord **antes** de validar, así que desde acá no se distingue
+  # de un `true` legítimo. Es el comportamiento de Rails en toda la API.
+  validates :requires_shipping, inclusion: { in: [true, false] }
   validate :company_integration_belongs_to_company
 
   def display_name

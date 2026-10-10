@@ -38,6 +38,13 @@ RSpec.describe Orders::OrderVersion, type: :poro do
     expect { order.update!(customer_province: 'Santa Fe') }.to(change { version })
   end
 
+  # TESIS-162: `requires_shipping` se edita por el mismo PUT. Sin esto, cambiar
+  # una venta de envío a retiro no movía la versión, y el que guardó con el
+  # If-Match viejo la devolvía a envío sin recibir el 412.
+  it 'changes when the order stops needing a shipment' do
+    expect { order.update!(requires_shipping: false) }.to(change { version })
+  end
+
   it 'changes when the status changes' do
     expect { order.update!(status: 'paid') }.to(change { version })
   end

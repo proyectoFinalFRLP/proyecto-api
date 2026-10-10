@@ -75,7 +75,7 @@ module Orders
     # El envío `pending` sin número de seguimiento todavía no salió, y ése sí
     # admite cambios.
     def ensure_editable!
-      return unless @order.status == 'cancelled' || dispatched?
+      return unless @order.status == Order::CANCELLED || dispatched?
 
       raise OrderNotEditableError.new(order: @order)
     end

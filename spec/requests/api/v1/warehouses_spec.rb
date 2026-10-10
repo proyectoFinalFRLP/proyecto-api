@@ -184,6 +184,62 @@ RSpec.describe 'Warehouses API', type: :request do
       expect(response).to have_http_status(:created)
     end
 
+    # TESIS-162: la barra de ocupación del detalle de producto compara lo
+    # guardado contra un techo que nadie puede derivar de otro dato.
+    describe 'the declared capacity' do
+      it 'is saved when it comes in the body', :aggregate_failures do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs.merge(capacity: 6000) },
+                                   headers: headers, as: :json
+
+        expect(response).to have_http_status(:created)
+        expect(response.parsed_body['capacity']).to eq(6000)
+      end
+
+      # Null y no cero: nadie declaró el techo todavía, que no es lo mismo que
+      # decir que no entra nada.
+      it 'stays null when nobody declared it' do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs },
+                                   headers: headers, as: :json
+
+        expect(response.parsed_body['capacity']).to be_nil
+      end
+
+      it 'refuses a capacity that could not hold anything', :aggregate_failures do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs.merge(capacity: 0) },
+                                   headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('Capacity')
+      end
+
+      # La columna es `integer` de 4 bytes: sin tope, el número pasaba la
+      # validación y reventaba al guardar con ActiveModel::RangeError -> 500.
+      it 'refuses a capacity that does not fit in the column, with 422 and not 500',
+         :aggregate_failures do
+        post '/api/v1/warehouses',
+             params: { warehouse: warehouse_attrs.merge(capacity: 99_999_999_999) },
+             headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('Capacity')
+      end
+
+      it 'accepts the largest capacity the column can hold' do
+        post '/api/v1/warehouses',
+             params: { warehouse: warehouse_attrs.merge(capacity: Warehouse::MAX_CAPACITY) },
+             headers: headers, as: :json
+
+        expect(response).to have_http_status(:created)
+      end
+
+      it 'refuses a capacity that is not a whole number of units' do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs.merge(capacity: 1.5) },
+                                   headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+    end
+
     it 'assigns the company from the JWT, ignoring any company_id in the body' do
       post '/api/v1/warehouses',
            params: { warehouse: warehouse_attrs.merge(company_id: other_company.id) },
@@ -313,6 +369,58 @@ RSpec.describe 'Warehouses API', type: :request do
       expect(response.parsed_body['error']).to eq('Cannot delete warehouse with existing stock')
     end
 
+    # Una fila en cero es una asignación vacía: el modal de producto deja así
+    # al depósito que se «quita», porque el update hace upsert y nunca borra.
+    context 'when every stock row of the warehouse is at zero' do
+      before { assign_products_without_units(2) }
+
+      it 'deletes the warehouse along with those empty rows', :aggregate_failures do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response).to have_http_status(:no_content)
+        expect(Warehouse.find_by(id: warehouse.id)).to be_nil
+        expect(Stock.where(warehouse_id: warehouse.id)).to be_empty
+      end
+
+      # Nada que publicar: el total de esos productos no cambió.
+      it 'does not enqueue a stock sync for those products' do
+        expect do
+          delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+        end.not_to have_enqueued_job(Catalog::SyncStockToChannelsJob)
+      end
+    end
+
+    context 'when an empty row sits next to a row with units' do
+      before do
+        assign_products_without_units(1)
+        create_warehouse_with_stock
+      end
+
+      it 'keeps the warehouse and both rows', :aggregate_failures do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response).to have_http_status(:conflict)
+        expect(Stock.where(warehouse_id: warehouse.id).count).to eq(2)
+      end
+    end
+
+    # El borrado se aborta dentro de su transacción: las filas en cero que se
+    # soltaron vuelven, y el motivo que se nombra es el verdadero.
+    context 'when order lines block it and it only has empty stock rows' do
+      before do
+        assign_products_without_units(1)
+        create_order_line_from_warehouse
+      end
+
+      it 'keeps the empty rows and names the order lines', :aggregate_failures do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response.parsed_body['error'])
+          .to eq('Cannot delete warehouse with order lines taken from it')
+        expect(Stock.where(warehouse_id: warehouse.id, quantity: 0).count).to eq(1)
+      end
+    end
+
     # TESIS-126: la línea recuerda su depósito para devolverle unidades al
     # modificar la orden. Borrarlo dejaría esa devolución sin destino.
     context 'when order lines were taken from it and it has no stock left' do
@@ -369,6 +477,14 @@ RSpec.describe 'Warehouses API', type: :request do
   def create_warehouse_with_stock
     product = Product.create!(company: company, sku: 'SKU-1', name: 'Producto')
     Stock.create!(product: product, warehouse: warehouse, quantity: 10)
+  end
+
+  # Productos asignados al depósito con cero unidades.
+  def assign_products_without_units(count)
+    count.times do |index|
+      product = Product.create!(company: company, sku: "EMPTY-#{index}", name: "Vacío #{index}")
+      Stock.create!(product: product, warehouse: warehouse, quantity: 0)
+    end
   end
 
   def create_order_line_from_warehouse

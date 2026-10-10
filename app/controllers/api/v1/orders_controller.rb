@@ -18,7 +18,8 @@ module Api
       # Los datos del cliente que acepta el body. `items` queda afuera: se arma
       # aparte, línea por línea, en `items_params`.
       ORDER_FIELDS = %i[customer_name customer_document customer_address
-                        customer_zip_code customer_city customer_province].freeze
+                        customer_zip_code customer_city customer_province
+                        requires_shipping].freeze
 
       # Campos sobre los que corre el buscador del listado (TESIS-52). Son las
       # formas en que un operador nombra una venta: el id con el que la conoce el

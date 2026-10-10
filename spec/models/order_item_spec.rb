@@ -40,6 +40,19 @@ RSpec.describe OrderItem, type: :model do
     expect(order_item).not_to be_valid
   end
 
+  # La columna es integer: 0,5 se guardaba como 0 y 2,7 como 2.
+  it 'refuses a fractional quantity', :aggregate_failures do
+    [0.5, 2.7, '1.5'].each do |quantity|
+      order_item.quantity = quantity
+      expect(order_item).not_to be_valid, "#{quantity.inspect} should be refused"
+    end
+  end
+
+  it 'accepts an integer that comes as text from a form' do
+    order_item.quantity = '3'
+    expect(order_item).to be_valid
+  end
+
   it 'validates unit_price is not negative' do
     order_item.unit_price = -1
     expect(order_item).not_to be_valid
