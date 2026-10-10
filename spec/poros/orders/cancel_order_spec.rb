@@ -40,6 +40,10 @@ RSpec.describe Orders::CancelOrder, type: :poro do
 
   def stock(product, warehouse) = Stock.find_by(product: product, warehouse: warehouse).quantity
 
+  # Una instancia nueva y no `reload`: `Product` memoiza lo comprometido en una
+  # variable de instancia, que `reload` no limpia.
+  def fresh(product) = Product.find(product.id)
+
   it 'marks the order as cancelled' do
     expect(cancel.reload.status).to eq('cancelled')
   end
@@ -73,6 +77,41 @@ RSpec.describe Orders::CancelOrder, type: :poro do
       expect { cancel }.to raise_error(Orders::OrderNotEditableError, /in_transit/)
       expect(order.reload.status).to eq('pending')
       expect(stock(product, central)).to eq(20)
+    end
+  end
+
+  # El hallazgo que trajo de vuelta este PR (review de #115): una orden cancelada
+  # dejaba sus unidades fuera de todo número. Lo comprometido ya no la contaba y
+  # nada las devolvía a `stocks`. Lo físico tiene que ser el mismo antes y
+  # después: las unidades pasan de comprometidas a libres, sin perderse ni
+  # contarse dos veces.
+  it 'moves the units from committed back to free, without losing any', :aggregate_failures do
+    expect { cancel }.not_to(change { fresh(product).on_hand_quantity })
+    expect(fresh(product).committed_quantity).to eq(0)
+    expect(fresh(product).total_stock).to eq(24)
+  end
+
+  # TESIS-162: un retiro en el local no tiene envío ni cuenta como comprometido.
+  # Sus unidades salieron de `stocks` al crearla, y ahí vuelven.
+  context 'when the order is picked up at the store' do
+    let(:order) do
+      Orders::CreateOrder.new(
+        params: { customer_name: 'Mostrador', requires_shipping: false },
+        items: [{ product_id: product.id, warehouse_id: central.id, quantity: 4, unit_price: 100 }],
+        company: company
+      ).call
+    end
+
+    it 'cancels it and gives its units back', :aggregate_failures do
+      expect(cancel.reload.status).to eq('cancelled')
+      expect(stock(product, central)).to eq(24)
+    end
+
+    it 'never counted the units as committed, so they only come back as free', :aggregate_failures do
+      expect(fresh(product).committed_quantity).to eq(0)
+
+      expect { cancel }.to change { fresh(product).total_stock }.from(20).to(24)
+      expect(fresh(product).committed_quantity).to eq(0)
     end
   end
 

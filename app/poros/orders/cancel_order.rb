@@ -16,9 +16,17 @@ module Orders
   # (TESIS-136), así que no hay forma de que siga viaje. Uno que ya salió frena la
   # cancelación: el paquete está en manos del courier y eso es una devolución,
   # que está fuera del MVP (E4b, exclusión 5).
+  #
+  # Un retiro en el local (TESIS-162) se cancela como cualquier otra: no tiene
+  # envío, así que `dispatched?` no lo frena, y sus unidades vuelven a `stocks`
+  # igual que las de una orden con envío. Lo que esta clase no puede distinguir
+  # es un retiro que el cliente ya se llevó de uno que todavía no pasó a
+  # buscar: `Order` no tiene un estado «retirada», porque TESIS-162 decidió que
+  # registrar la venta de mostrador y entregarla son el mismo momento. Hasta que
+  # el modelo lo distinga, cancelar un retiro se lee como «la venta no ocurrió»;
+  # deshacer una que sí ocurrió es una devolución, igual que con un envío que ya
+  # salió.
   class CancelOrder < ApplicationPoro
-    CANCELLED = 'cancelled'
-
     def initialize(order:, expected_version: nil)
       super()
       @order = order
@@ -33,7 +41,7 @@ module Orders
         verify_version!
         ensure_cancellable!
         give_back_stock!
-        @order.update!(status: CANCELLED)
+        @order.update!(status: Order::CANCELLED)
         @order
       end
     end
@@ -55,7 +63,7 @@ module Orders
     # Ya cancelada, o con el envío en camino: el mismo error y el mismo 409 que la
     # edición, que nombra lo que bloquea.
     def ensure_cancellable!
-      return unless @order.status == CANCELLED || dispatched?
+      return unless @order.status == Order::CANCELLED || dispatched?
 
       raise OrderNotEditableError.new(order: @order)
     end
