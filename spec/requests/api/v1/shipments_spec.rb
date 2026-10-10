@@ -317,6 +317,117 @@ RSpec.describe 'Shipments API', type: :request do
     end
   end
 
+  # TESIS-165: la pantalla pedía un request por pestaña, cinco en total, sólo
+  # para leer el `meta.total` de una página de una fila.
+  describe 'GET /api/v1/shipments/counts' do
+    # Uno de cada pestaña, para que los cinco contadores digan algo distinto.
+    def one_shipment_per_tab
+      shipment_for('Pendiente', status: 'pending')
+      shipment_for('Lista', status: 'ready_to_ship')
+      shipment_for('En viaje', status: 'in_transit')
+      shipment_for('Entregada', status: 'delivered')
+    end
+
+    let(:uno_por_pestania) do
+      { 'all' => 4, 'pending' => 1, 'ready_to_ship' => 1, 'in_transit' => 1, 'delivered' => 1 }
+    end
+
+    it 'returns 401 without a token' do
+      get '/api/v1/shipments/counts'
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'counts every tab of the lifecycle in one answer', :aggregate_failures do
+      one_shipment_per_tab
+
+      get '/api/v1/shipments/counts', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['data']).to eq(uno_por_pestania)
+    end
+
+    # Una pestaña sin envíos tiene que decir 0 y no desaparecer: el GROUP BY
+    # no devuelve los estados sin filas, y un contador en null deja la pestaña
+    # mostrando «—» en vez de un cero (proyecto-web#82).
+    it 'answers zero for a tab with no shipments', :aggregate_failures do
+      shipment_for('Pendiente', status: 'pending')
+
+      get '/api/v1/shipments/counts', headers: headers
+
+      expect(response.parsed_body['data'])
+        .to eq('all' => 1, 'pending' => 1, 'ready_to_ship' => 0,
+               'in_transit' => 0, 'delivered' => 0)
+    end
+
+    # Si los contadores ignoraran el buscador, el número de la pestaña y las
+    # filas que se ven dirían cosas distintas.
+    def with_channel_id(customer, external_id)
+      Shipment.create!(company: company, status: 'pending',
+                       order: order_for(customer, external_id: external_id))
+    end
+
+    it 'honours the same search as the listing' do
+      with_channel_id('Ana', 'ML-900')
+      with_channel_id('Beto', 'TN-700')
+
+      get '/api/v1/shipments/counts', params: { search: 'ML-900' }, headers: headers
+
+      expect(response.parsed_body['data']).to include('all' => 1, 'pending' => 1)
+    end
+
+    it 'honours the order filter too' do
+      mine = shipment_for('Ana')
+      shipment_for('Beto')
+
+      get '/api/v1/shipments/counts', params: { order_id: mine.order_id }, headers: headers
+
+      expect(response.parsed_body['data']).to include('all' => 1)
+    end
+
+    # El buscador mete un LEFT OUTER JOIN con orders y su condición es un OR
+    # sobre las dos columnas. Un envío cuyo seguimiento y cuyo id de canal
+    # matchean los dos es el caso donde un join mal armado contaría dos veces.
+    it 'counts a shipment once even when both of its codes match' do
+      Shipment.create!(company: company, order: order_for('Ana', external_id: 'AND-1'),
+                       status: 'pending', tracking_number: 'AND-1')
+
+      get '/api/v1/shipments/counts', params: { search: 'AND-1' }, headers: headers
+
+      expect(response.parsed_body['data']['all']).to eq(1)
+    end
+
+    it 'does not count the shipments of another company' do
+      foreign_shipment
+
+      get '/api/v1/shipments/counts', headers: headers
+
+      expect(response.parsed_body['data']['all']).to be_zero
+    end
+
+    # Una query mal armada es un error del cliente, igual que en el listado
+    # (TESIS-124): el contador comparte la misma cadena de filtros.
+    it 'returns 400 for a malformed search' do
+      get '/api/v1/shipments/counts', params: { search: { foo: 'bar' } }, headers: headers
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    # Agregado, no colección paginada: `data` sola (ADR-015).
+    it 'answers without a meta envelope' do
+      get '/api/v1/shipments/counts', headers: headers
+
+      expect(response.parsed_body.keys).to eq(['data'])
+    end
+
+    # El vocabulario sale de Shipment::STATUSES: un estado nuevo en el modelo
+    # aparece solo, sin que nadie tenga que acordarse de sumarlo acá.
+    it 'has one tab per status of the model, plus «all»' do
+      get '/api/v1/shipments/counts', headers: headers
+
+      expect(response.parsed_body['data'].keys).to eq(['all'] + Shipment::STATUSES)
+    end
+  end
+
   describe 'GET /api/v1/shipments/:id' do
     let(:shipment) do
       shipment_for('Ana', status: 'in_transit', integration: courier('Andreani'),

@@ -46,6 +46,7 @@ cualquier error                → { "error": "..." }
 | --- | --- |
 | `GET /orders/provinces`, `GET /products/categories` | Vocabularios fijos del dominio, no filas de una tabla: su tamaño lo fija el código, no los datos de la empresa |
 | `GET /products/counts` | Los cuatro contadores de las pestañas del catálogo: un agregado de largo fijo, no una colección (TESIS-162) |
+| `GET /shipments/counts` | Los cinco contadores de las pestañas del listado de envíos, por el mismo motivo (TESIS-165) |
 | `GET /activity` | La actividad reciente de la empresa, con un techo propio (`BuildFeed::MAX_LIMIT`): es un panel desplegable, no un listado que se pagine (TESIS-162) |
 | `POST /orders/:id/quotes` | El resultado de una acción —una cotización por courier configurado—, no una consulta |
 
