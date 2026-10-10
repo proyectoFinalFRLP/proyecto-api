@@ -19,15 +19,25 @@
 #
 # Sin la variable (desarrollo y test) se acepta localhost en cualquier puerto: el
 # dev server de Vite (5173), `vite preview` o el contenedor de nginx del front.
-cors_origins = ENV.fetch('CORS_ALLOWED_ORIGINS', '').split(',').map(&:strip).reject(&:empty?)
-cors_origins.map! do |origin|
-  next origin unless origin.include?('*')
+#
+# La traducción vive en un módulo para que spec/config/cors_origins_spec.rb la
+# pruebe con el valor de producción: la suite corre sin la variable. Se define
+# acá y no en lib/ porque lib/ se autocarga y un initializer no puede usar
+# constantes autocargables.
+module CorsOrigins
+  LOCALHOST = %r{\Ahttp://(localhost|127\.0\.0\.1)(:\d+)?\z}
 
-  /\A#{Regexp.escape(origin).sub('\*', '[a-z0-9-]+')}\z/
+  def self.parse(value)
+    value.to_s.split(',').map(&:strip).reject(&:empty?).map do |origin|
+      next origin unless origin.include?('*')
+
+      /\A#{Regexp.escape(origin).sub('\*', '[a-z0-9-]+')}\z/
+    end
+  end
 end
-if cors_origins.empty? && !Rails.env.production?
-  cors_origins = [%r{\Ahttp://(localhost|127\.0\.0\.1)(:\d+)?\z}]
-end
+
+cors_origins = CorsOrigins.parse(ENV.fetch('CORS_ALLOWED_ORIGINS', nil))
+cors_origins = [CorsOrigins::LOCALHOST] if cors_origins.empty? && !Rails.env.production?
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
