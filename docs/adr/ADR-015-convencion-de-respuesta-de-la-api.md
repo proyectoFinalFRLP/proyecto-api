@@ -45,9 +45,11 @@ cualquier error                → { "error": "..." }
 | Respuesta | Por qué no pagina |
 | --- | --- |
 | `GET /orders/provinces`, `GET /products/categories` | Vocabularios fijos del dominio, no filas de una tabla: su tamaño lo fija el código, no los datos de la empresa |
+| `GET /products/counts` | Los cuatro contadores de las pestañas del catálogo: un agregado de largo fijo, no una colección (TESIS-162) |
+| `GET /activity` | La actividad reciente de la empresa, con un techo propio (`BuildFeed::MAX_LIMIT`): es un panel desplegable, no un listado que se pagine (TESIS-162) |
 | `POST /orders/:id/quotes` | El resultado de una acción —una cotización por courier configurado—, no una consulta |
 
-La distinción importa para el consumidor: leer `meta.total` en cualquiera de esas tres devuelve `undefined`. La regla corta es **si el largo lo decide la empresa, pagina; si lo decide el código, no**.
+La distinción importa para el consumidor: leer `meta.total` en cualquiera de ellas devuelve `undefined`. La regla corta es **si el largo lo decide la empresa, pagina; si lo decide el código, no**.
 
 Hubo que cambiar dos endpoints. `integrations#index`, que devolvía un array en la raíz, y `auth/register`, que respondía sus dos errores como `{ "errors": [...] }` —plural y array—. El registro no lo detectó la primera pasada porque el spec de contrato no lo cubría; ahora sí.
 

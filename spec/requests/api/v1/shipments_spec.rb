@@ -404,6 +404,35 @@ RSpec.describe 'Shipments API', type: :request do
       post "/api/v1/orders/#{order_id}/shipment", headers: auth, as: :json
     end
 
+    # TESIS-162: una venta con retiro en el local no entra al circuito
+    # logístico. Es un 422 propio y no el de la orden cancelada: una cancelada
+    # es un callejón sin salida, un retiro es una venta sana que no se despacha.
+    context 'when the customer picks the order up at the store' do
+      let(:pickup) do
+        order_with('paid').tap { |o| o.update!(requires_shipping: false) }
+      end
+
+      it 'refuses to open a shipment', :aggregate_failures do
+        expect { create_shipment(pickup.id) }.not_to change(Shipment, :count)
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('picked up')
+      end
+
+      it 'still opens one for an order that is shipped' do
+        expect { create_shipment(order_with('paid').id) }.to change(Shipment, :count).by(1)
+      end
+
+      # El estado va primero: lo accionable es que está cancelada, no que se
+      # retira en el local. Separar los dos errores fue para no confundirlos.
+      it 'says a cancelled pickup is cancelled, and not that it is a pickup' do
+        pickup.update!(status: 'cancelled')
+        create_shipment(pickup.id)
+
+        expect(response.parsed_body['error']).not_to include('picked up')
+      end
+    end
+
     # Mismo motivo que foreign_shipment: assign_current_company pisa el company:
     # manual si Current.company_id quedó seteado por un request previo.
     def foreign_order

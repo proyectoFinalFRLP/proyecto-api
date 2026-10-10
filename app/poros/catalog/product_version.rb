@@ -33,8 +33,13 @@ module Catalog
       (edited_fields + stock_pairs).join(SEPARATOR)
     end
 
+    # Todo lo que `ProductsController::PRODUCT_FIELDS` deja editar menos el
+    # `sku`, que es inmutable. Un campo editable que no entre acá no mueve la
+    # versión: dos operadores que lo cambian a la vez no reciben el 412 y el
+    # segundo revierte al primero sin enterarse.
     def edited_fields
-      [@product.name.to_s, @product.description.to_s,
+      [@product.name.to_s, @product.description.to_s, @product.category.to_s,
+       @product.packaging.to_s, @product.technical_standard.to_s,
        @product.weight.to_s, @product.dimensions.to_s]
     end
 

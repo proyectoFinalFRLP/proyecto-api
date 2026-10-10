@@ -460,6 +460,77 @@ RSpec.describe 'Products API', type: :request do
     end
   end
 
+  # TESIS-162: la pantalla pedía un request por pestaña, sólo para leer el total
+  # de cada una.
+  describe 'GET /api/v1/products/counts' do
+    let(:warehouse) do
+      Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+    end
+
+    def stocked(sku, quantity, category: nil)
+      product = Product.create!(company: company, sku: sku, name: sku, category: category)
+      Stock.create!(product: product, warehouse: warehouse, quantity: quantity)
+      product
+    end
+
+    # Uno de cada pestaña, para que los cuatro contadores digan algo distinto.
+    def one_product_per_tab
+      stocked('OUT-1', 0)
+      stocked('LOW-1', Product::LOW_STOCK_THRESHOLD)
+      stocked('OK-1', Product::LOW_STOCK_THRESHOLD + 1)
+    end
+
+    it 'returns 401 without a token' do
+      get '/api/v1/products/counts'
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'counts every tab of the catalog in one answer', :aggregate_failures do
+      one_product_per_tab
+
+      get '/api/v1/products/counts', headers: headers
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body['data'])
+        .to eq('all' => 3, 'available' => 1, 'low' => 1, 'out_of_stock' => 1)
+    end
+
+    # Si los contadores ignoraran el buscador, el número de la pestaña y las
+    # filas que se ven dirían cosas distintas.
+    it 'honours the same search as the listing' do
+      stocked('ALPHA-1', 5)
+      stocked('BETA-1', 5)
+
+      get '/api/v1/products/counts', params: { search: 'ALPHA' }, headers: headers
+
+      expect(response.parsed_body['data']).to include('all' => 1, 'low' => 1)
+    end
+
+    it 'honours the category filter too' do
+      stocked('CAT-1', 5, category: 'Cabling')
+      stocked('CAT-2', 5, category: 'Power')
+
+      get '/api/v1/products/counts', params: { category: 'Cabling' }, headers: headers
+
+      expect(response.parsed_body['data']).to include('all' => 1)
+    end
+
+    it 'does not count the products of another company' do
+      other_product
+
+      get '/api/v1/products/counts', headers: headers
+
+      expect(response.parsed_body['data']['all']).to be_zero
+    end
+
+    # Vocabulario, no colección paginada: `data` sola (ADR-015).
+    it 'answers without a meta envelope' do
+      get '/api/v1/products/counts', headers: headers
+
+      expect(response.parsed_body.keys).to eq(['data'])
+    end
+  end
+
   describe 'GET /api/v1/products/:id' do
     let!(:product) do
       wh = Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
@@ -477,6 +548,65 @@ RSpec.describe 'Products API', type: :request do
       get "/api/v1/products/#{product.id}", headers: headers
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body['total_stock']).to eq(7)
+    end
+
+    # TESIS-162: los tres números del detalle dejan de ser «—» y pasan a ser
+    # dato. Se exponen desde acá y no se derivan en el cliente: `on_hand` no es
+    # `total_stock`, y restarlos mal del lado del front era el riesgo.
+    describe 'the three stock figures' do
+      def sell(quantity)
+        warehouse = Warehouse.find_by(name: 'Central')
+        order = Order.create!(company: company, customer_name: 'Cliente', status: 'paid')
+        OrderItem.create!(order: order, product: product, warehouse: warehouse,
+                          quantity: quantity, unit_price: 100)
+      end
+
+      it 'answers zero and not null for a product nobody reserved', :aggregate_failures do
+        get "/api/v1/products/#{product.id}", headers: headers
+
+        expect(response.parsed_body)
+          .to include('committed_quantity' => 0, 'committed_by_warehouse' => [],
+                      'available_to_promise' => 7, 'on_hand_quantity' => 7)
+      end
+
+      it 'separates what is free from what is on the shelf' do
+        sell(2)
+
+        get "/api/v1/products/#{product.id}", headers: headers
+
+        expect(response.parsed_body)
+          .to include('committed_quantity' => 2, 'available_to_promise' => 7,
+                      'on_hand_quantity' => 9)
+      end
+
+      it 'breaks the commitment down by warehouse' do
+        sell(3)
+
+        get "/api/v1/products/#{product.id}", headers: headers
+
+        expect(response.parsed_body['committed_by_warehouse'].first)
+          .to include('name' => 'Central', 'quantity' => 3)
+      end
+
+      # Una consulta agregada y no una por depósito.
+      it 'does not add a query per warehouse' do
+        add_extra_stocks(product) && sell(1)
+
+        queries = count_queries(matching: /FROM "order_items"/) do
+          get "/api/v1/products/#{product.id}", headers: headers
+        end
+
+        expect(queries).to eq(1)
+      end
+    end
+
+    it 'returns the packaging and the technical standard', :aggregate_failures do
+      product.update!(packaging: 'Caja x12', technical_standard: 'IRAM 2063')
+
+      get "/api/v1/products/#{product.id}", headers: headers
+
+      expect(response.parsed_body['packaging']).to eq('Caja x12')
+      expect(response.parsed_body['technical_standard']).to eq('IRAM 2063')
     end
 
     it 'returns 404 for a product from another company', :aggregate_failures do

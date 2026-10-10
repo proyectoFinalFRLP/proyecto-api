@@ -38,7 +38,24 @@ class Warehouse < ApplicationRecord
                                 foreign_key: :destination_warehouse_id,
                                 dependent: :restrict_with_error
 
+  # Lo que entra en la columna `integer` de la base. Declarar más unidades de
+  # las que un entero de 4 bytes puede guardar no es una capacidad: es un error
+  # de carga, y se responde como tal.
+  MAX_CAPACITY = 2_147_483_647
+
   validates :name, presence: true
+  # Capacidad declarada del depósito, en unidades. Opcional: un depósito sin
+  # capacidad cargada no es un error, es uno del que nadie declaró el techo
+  # todavía, y la pantalla no dibuja su barra de ocupación. Mayor que cero
+  # porque un depósito de capacidad cero no podría guardar nada.
+  #
+  # El techo no es cosmético: la columna es `integer` de 4 bytes, así que un
+  # número más grande pasaba la validación y reventaba al guardar con
+  # ActiveModel::RangeError -> 500. Mismo criterio que `Shipment::MAX_SHIPPING_COST`.
+  validates :capacity,
+            numericality: { only_integer: true, greater_than: 0,
+                            less_than_or_equal_to: MAX_CAPACITY },
+            allow_nil: true
   validates :zip_code, presence: true
   validates :address, presence: true
 

@@ -35,7 +35,12 @@ companies = [
       { email: 'operador@norte.com', password: 'password123' }
     ],
     warehouses: [
-      { name: 'Depósito Central', zip_code: '1900', address: 'Av. 7 N° 1234, La Plata' },
+      # `capacity` es la capacidad declarada (TESIS-162): la barra de ocupación
+      # del detalle de producto compara lo guardado contra este techo. El
+      # satélite va sin declarar a propósito, para que se vea el caso en que la
+      # pantalla no dibuja la barra porque nadie cargó el número.
+      { name: 'Depósito Central', zip_code: '1900', address: 'Av. 7 N° 1234, La Plata',
+        capacity: 6_000 },
       { name: 'Depósito Satélite Norte', zip_code: '1602', address: 'Calle 25 N° 456, Florida' }
     ]
   },
@@ -119,9 +124,16 @@ companies.each do |attrs|
   end
 
   attrs[:warehouses].each do |warehouse_attrs|
-    Warehouse.find_or_create_by!(name: warehouse_attrs[:name], company: company) do |w|
+    warehouse = Warehouse.find_or_create_by!(name: warehouse_attrs[:name], company: company) do |w|
       w.zip_code = warehouse_attrs[:zip_code]
       w.address = warehouse_attrs[:address]
+    end
+
+    # Fuera del bloque de creación, por el mismo motivo que la categoría de los
+    # productos: así las bases ya sembradas antes de que existiera la columna
+    # también quedan con capacidad. El `if` no pisa una cargada a mano.
+    if warehouse.capacity.nil? && warehouse_attrs[:capacity]
+      warehouse.update!(capacity: warehouse_attrs[:capacity])
     end
   end
 end
@@ -353,6 +365,13 @@ services = [
       'line_items[].variant_id' => 'external_product_id',
       'line_items[].quantity' => 'quantity',
       'line_items[].price' => 'unit_price'
+      # `requires_shipping` NO se mapea, y por eso toda venta que entra por acá
+      # queda como envío (ProcessWebhookOrder asume `true` cuando la plantilla
+      # no lo declara). Shopify no manda un booleano único: lo más cercano es
+      # la ausencia de `shipping_lines`, que el formato de la plantilla
+      # —camino de origen a campo— no sabe expresar. Un canal que quiera
+      # registrar retiros tiene que declararlo en su response_mapper; hasta
+      # entonces el retiro es sólo para el alta manual.
     },
     request_value_mapper: {},
     # Estados de pago de Shopify que no se llaman igual en el OMS. `paid` y
@@ -573,6 +592,15 @@ if norte_company
   { celular => 'Electronics', notebook => 'Electronics', mouse => 'Electronics' }
     .each { |product, category| product.update!(category: category) if product.category.nil? }
 
+  # Empaque y norma técnica (TESIS-162). Mismo criterio que la categoría: fuera
+  # del bloque de creación, y sólo si no están, para no pisar lo cargado a mano.
+  { celular => ['Caja individual', 'IRAM 4220'],
+    notebook => ['Caja con separadores x4', 'IEC 62368-1'],
+    mouse => ['Blíster x12', 'IRAM 2063'] }.each do |product, (packaging, standard)|
+    product.update!(packaging: packaging) if product.packaging.nil?
+    product.update!(technical_standard: standard) if product.technical_standard.nil?
+  end
+
   # Stock en depósitos de Norte
   central = Warehouse.find_by(company: norte_company, name: 'Depósito Central')
   satelite = Warehouse.find_by(company: norte_company, name: 'Depósito Satélite Norte')
@@ -791,6 +819,35 @@ if norte_company
   OrderItem.find_or_create_by!(order: webhook_order, product: notebook) do |i|
     i.quantity = 1
     i.unit_price = 699_999.50
+  end
+end
+
+# Venta de Norte que el cliente retira en el local (TESIS-162): no entra al
+# circuito logístico, así que el detalle no ofrece crearle un envío y la API
+# rechaza el alta con 422. Es el caso que distingue «esta orden no lleva envío»
+# de «a esta orden le falta el envío», que hasta ahora se veían igual.
+if norte_company && celular
+  retiro = Order.find_or_create_by!(
+    company: norte_company, external_order_id: nil, customer_name: 'Retiro en Mostrador'
+  ) do |o|
+    o.customer_document = '27-35123456-4'
+    o.status = 'paid'
+    o.requires_shipping = false
+  end
+
+  central = Warehouse.find_by(company: norte_company, name: 'Depósito Central')
+
+  OrderItem.find_or_create_by!(order: retiro, product: celular) do |i|
+    i.quantity = 1
+    i.unit_price = 285_000.00
+    i.warehouse = central
+    # El alta real descuenta el stock (`Catalog::DeductStock`); el seed escribe
+    # la fila a mano, así que descuenta también. Sin esto la unidad quedaba
+    # contada dos veces —en `stocks` y vendida— y el «En depósito» del celular
+    # salía uno más alto que el estante.
+    Stock.find_by(product: celular, warehouse: central)&.then do |stock|
+      stock.update!(quantity: [stock.quantity - 1, 0].max)
+    end
   end
 end
 

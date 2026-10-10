@@ -2,7 +2,9 @@
 
 class WarehouseSerializer < ApplicationSerializer
   identifier :id
-  fields :name, :zip_code, :address
+  # `capacity` puede ser null y eso significa algo: nadie declaró el techo de
+  # este depósito todavía. No es cero, que diría que no entra nada.
+  fields :name, :zip_code, :address, :capacity
 
   # Unidades guardadas en el deposito. Alimenta el widget de capacidad del panel
   # (TESIS-55): la barra compara depositos entre si, no contra una capacidad

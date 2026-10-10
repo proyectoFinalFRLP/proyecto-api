@@ -11,6 +11,7 @@ module Api
       before_action :set_shipment, only: %i[show]
 
       rescue_from Shipments::UnshippableOrderError, with: :render_unprocessable
+      rescue_from Shipments::PickupOrderError, with: :render_unprocessable
       rescue_from Shipments::DuplicateShipmentError, with: :render_conflict
       rescue_from Shipments::AlreadyDispatchedError, with: :render_conflict
       rescue_from Shipments::InvalidCourierIntegrationError, with: :render_unprocessable

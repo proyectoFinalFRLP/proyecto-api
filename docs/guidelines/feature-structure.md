@@ -8,6 +8,11 @@ Los archivos se agrupan por **dominio de negocio** (qué hace para el negocio), 
 
 ## 2. Los seis dominios del proyecto
 
+Los seis son los del alcance, uno por épica del cronograma. No son todos los
+namespaces de `app/poros/`: hay cuatro más que **sólo leen** lo que los seis
+escriben y que no tienen épica propia porque no modelan nada nuevo. Están
+abajo, en «Namespaces de lectura».
+
 | Dominio        | Epic Jira  | Alcance                                                            |
 | -------------- | ---------- | ------------------------------------------------------------------ |
 | `auth`         | TESIS-19   | Companies, Users, Warehouses, autenticación JWT, multi-tenancy     |
@@ -97,7 +102,26 @@ shipments →  orders         ✅ (un envío pertenece a una orden)
 webhooks  →  orders         ✅ (los webhooks disparan procesamiento de órdenes)
 webhooks  →  shipments      ✅ (los webhooks de couriers actualizan tracking)
 reports   →  orders, shipments ✅ (sólo lee: agrega ventas y despachos, nunca escribe)
+activity  →  orders, shipments, webhooks ✅ (sólo lee: el feed de la campanita)
 ```
+
+### Namespaces de lectura
+
+Cuatro namespaces de `app/poros/` no son dominios: no tienen épica, no modelan
+entidades propias y **no escriben** nada. Leen lo que los seis ya registran y
+arman una vista. Por eso pueden cruzar dominios sin romper la jerarquía: una
+dependencia de lectura no crea un ciclo ni un acoplamiento de escritura.
+
+| Namespace  | Qué arma                                                                 | De dónde lee            |
+| ---------- | ------------------------------------------------------------------------ | ----------------------- |
+| `activity` | El feed de la campanita y el de «actividad reciente» del panel (RF-26)   | orders, shipments, webhooks |
+| `reports`  | Los agregados de la pantalla de Reportes                                 | orders, shipments       |
+| `products` | El alta y la edición de producto, que son del dominio `catalog`          | catalog                 |
+| `users`    | Lo que cuelga de `auth` y no entra en el model                           | auth                    |
+
+La regla sigue siendo la del párrafo de arriba: si **escribe** algo que cruza
+dominios, va en `app/poros/shared/` o en el model. Si sólo lee para mostrar,
+puede vivir en su namespace y nombrar a los seis.
 
 Los dominios nunca importan hacia arriba en la jerarquía de dependencia. Si dos dominios necesitan lógica compartida que no pertenece a ninguno, esa lógica va en `app/poros/shared/` o en el model directamente.
 

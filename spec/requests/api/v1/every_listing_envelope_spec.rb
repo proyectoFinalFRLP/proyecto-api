@@ -11,7 +11,7 @@ require 'rails_helper'
 # Toma de `Rails.application.routes` cada GET de `/api/v1` y lo clasifica:
 #
 # - un `index` es una colección: viaja en `data` + `meta` (`page`, `per_page`,
-#   `total`), sin excepción (TESIS-108);
+#   `total`), salvo los feeds acotados, que no paginan y van pelados;
 # - los vocabularios fijos van en `data` sin `meta` (ADR-015, «Excepciones»);
 # - los recursos sueltos (`show`, `me`, `tenant-config`) se prueban en sus
 #   specs: acá sólo se verifica que estén clasificados.
@@ -24,11 +24,18 @@ require 'rails_helper'
 # `ContratoDeLaApi`).
 module FormaDeCadaRuta
   VOCABULARIOS = %w[products#categories orders#provinces].freeze
+  # Feeds acotados: son `index` pero no paginan. `/activity` (TESIS-162) corta
+  # en un límite duro y se lee entero de una vez, así que un `meta` con `page`
+  # y `total` describiría una paginación que no existe. Van en `data` pelado,
+  # como los vocabularios, y por eso se excluyen del barrido de colecciones.
+  FEEDS = %w[activity#index].freeze
   # `reports#overview` (TESIS-999007) es un recurso calculado: va pelado. Está
   # anotado acá aunque la ruta llegue en otra rama, para que el orden de merge
   # no rompa este spec.
+  # `products#counts` (TESIS-162) es un agregado calculado, como `reports#overview`:
+  # devuelve los cuatro contadores de las pestañas del catálogo, no una colección.
   RECURSOS = %w[me#show tenant_config#show warehouses#show products#show orders#show
-                shipments#show reports#overview].freeze
+                shipments#show reports#overview products#counts].freeze
 end
 
 RSpec.describe 'Every listing keeps the response envelope (ADR-015)', type: :request do
@@ -58,7 +65,11 @@ RSpec.describe 'Every listing keeps the response envelope (ADR-015)', type: :req
     end
   end
 
-  def listings = api_get_routes.select { |action, _| action.end_with?('#index') }
+  def listings
+    api_get_routes.select do |action, _|
+      action.end_with?('#index') && FormaDeCadaRuta::FEEDS.exclude?(action)
+    end
+  end
 
   def sample(path) = path.gsub(':product_id', product.id.to_s)
 
@@ -80,8 +91,9 @@ RSpec.describe 'Every listing keeps the response envelope (ADR-015)', type: :req
     expect(shapes_of_listings).to all(satisfy { |_action, shape| shape == expected })
   end
 
-  it 'answers every vocabulary with data and no meta', :aggregate_failures do
-    api_get_routes.slice(*FormaDeCadaRuta::VOCABULARIOS).each do |action, path|
+  it 'answers every vocabulary and bounded feed with data and no meta', :aggregate_failures do
+    bare = FormaDeCadaRuta::VOCABULARIOS + FormaDeCadaRuta::FEEDS
+    api_get_routes.slice(*bare).each do |action, path|
       get path, headers: headers
 
       expect(response.parsed_body.keys).to eq(['data']), "#{action} should be a bare vocabulary"
@@ -92,7 +104,8 @@ RSpec.describe 'Every listing keeps the response envelope (ADR-015)', type: :req
   # (que sea un `index`), un vocabulario o un recurso, y sumala a su lista.
   it 'knows the shape of every other GET route' do
     unclassified = api_get_routes.keys.reject do |action|
-      action.end_with?('#index') || FormaDeCadaRuta::VOCABULARIOS.include?(action) || FormaDeCadaRuta::RECURSOS.include?(action)
+      action.end_with?('#index') || FormaDeCadaRuta::VOCABULARIOS.include?(action) ||
+        FormaDeCadaRuta::RECURSOS.include?(action)
     end
 
     expect(unclassified).to be_empty

@@ -184,6 +184,62 @@ RSpec.describe 'Warehouses API', type: :request do
       expect(response).to have_http_status(:created)
     end
 
+    # TESIS-162: la barra de ocupación del detalle de producto compara lo
+    # guardado contra un techo que nadie puede derivar de otro dato.
+    describe 'the declared capacity' do
+      it 'is saved when it comes in the body', :aggregate_failures do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs.merge(capacity: 6000) },
+                                   headers: headers, as: :json
+
+        expect(response).to have_http_status(:created)
+        expect(response.parsed_body['capacity']).to eq(6000)
+      end
+
+      # Null y no cero: nadie declaró el techo todavía, que no es lo mismo que
+      # decir que no entra nada.
+      it 'stays null when nobody declared it' do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs },
+                                   headers: headers, as: :json
+
+        expect(response.parsed_body['capacity']).to be_nil
+      end
+
+      it 'refuses a capacity that could not hold anything', :aggregate_failures do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs.merge(capacity: 0) },
+                                   headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('Capacity')
+      end
+
+      # La columna es `integer` de 4 bytes: sin tope, el número pasaba la
+      # validación y reventaba al guardar con ActiveModel::RangeError -> 500.
+      it 'refuses a capacity that does not fit in the column, with 422 and not 500',
+         :aggregate_failures do
+        post '/api/v1/warehouses',
+             params: { warehouse: warehouse_attrs.merge(capacity: 99_999_999_999) },
+             headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('Capacity')
+      end
+
+      it 'accepts the largest capacity the column can hold' do
+        post '/api/v1/warehouses',
+             params: { warehouse: warehouse_attrs.merge(capacity: Warehouse::MAX_CAPACITY) },
+             headers: headers, as: :json
+
+        expect(response).to have_http_status(:created)
+      end
+
+      it 'refuses a capacity that is not a whole number of units' do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs.merge(capacity: 1.5) },
+                                   headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+    end
+
     it 'assigns the company from the JWT, ignoring any company_id in the body' do
       post '/api/v1/warehouses',
            params: { warehouse: warehouse_attrs.merge(company_id: other_company.id) },

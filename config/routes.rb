@@ -30,6 +30,12 @@ Rails.application.routes.draw do
         # Vocabulario de categorías: ruta de colección, no depende de un producto.
         get :categories, on: :collection
 
+        # Cuántos productos cae en cada pestaña del catálogo, en una sola
+        # respuesta (TESIS-162). Ruta propia y no dentro del `meta` del listado:
+        # los contadores no cambian al pasar de página, así que el cliente los
+        # pide una vez y los invalida recién cuando algo muta.
+        get :counts, on: :collection
+
         resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
       end
 
@@ -68,6 +74,11 @@ Rails.application.routes.draw do
         # (ver ShipmentsController#confirm).
         post :dispatch, on: :member, action: :confirm
       end
+
+      # Actividad reciente de la empresa (TESIS-162): la lista que abre la
+      # campanita. Recurso singular en plural por costumbre REST, pero sin id:
+      # es una vista agregada, no una colección de filas propias.
+      resources :activity, only: %i[index]
 
       resources :failed_events, path: 'failed-events', only: %i[index] do
         member do

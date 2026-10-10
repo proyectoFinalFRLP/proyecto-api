@@ -18,7 +18,7 @@ module Orders
     # lo asigna el courier al confirmar (TESIS-47). Mismo criterio que
     # Shipments::AlreadyDispatchedError, y el mensaje nombra lo que bloquea.
     def reason(order)
-      return 'a cancelled order cannot be modified' if order.status == 'cancelled'
+      return 'a cancelled order cannot be modified' if order.status == Order::CANCELLED
 
       shipment = order.shipment
       if shipment.status == 'pending'

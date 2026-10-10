@@ -21,7 +21,6 @@ module Orders
     MISSING_ITEMS = 'the payload does not carry any order item'
     UNREADABLE_ITEMS = 'the template could not read %<count>d of the order items in the payload'
     ORDERS_UNIQUE_INDEX = 'index_orders_on_integration_and_external_order_id'
-    CANCELLED = 'cancelled'
 
     def initialize(webhook_log:)
       super()
@@ -107,7 +106,7 @@ module Orders
     # que las anteriores a TESIS-126, y como la orden ya está cancelada nada va a
     # intentar devolverle unidades.
     def take_units(order, product, quantity)
-      return if order.status == CANCELLED
+      return if order.status == Order::CANCELLED
 
       Catalog::DeductStock.new(product: product, quantity: quantity).call.warehouse_id
     end
@@ -152,7 +151,24 @@ module Orders
         .slice(:external_order_id, :customer_name, :customer_document,
                :customer_address, :customer_zip_code, :customer_city)
         .merge(company_id: @log.company_id, company_integration: @log.company_integration,
-               status: status, customer_province: province)
+               status: status, customer_province: province,
+               requires_shipping: requires_shipping?)
+    end
+
+    # Si la venta se despacha o la retira el cliente (TESIS-162). Lo informa la
+    # plantilla del canal cuando el payload lo trae —Shopify lo manda, Mercado
+    # Libre no siempre—; cuando no dice nada, se asume que hay envío.
+    #
+    # El default es `true` y no `false` a propósito: asumir envío y que sobre
+    # deja una orden lista para despachar que nadie despacha, y eso se ve en la
+    # pantalla. Asumir retiro y que falte deja una venta que había que mandar
+    # sin ninguna señal de que falta hacerlo, y eso no se ve hasta que reclama
+    # el comprador.
+    def requires_shipping?
+      value = translated[:order][:requires_shipping]
+      return true if value.nil?
+
+      ActiveModel::Type::Boolean.new.cast(value) != false
     end
 
     # La provincia se valida contra Order::PROVINCES, y cada canal la escribe a

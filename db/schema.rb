@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_045858) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_194416) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -108,6 +108,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_045858) do
     t.string "customer_province"
     t.string "customer_zip_code"
     t.string "external_order_id"
+    t.boolean "requires_shipping", default: true, null: false
     t.string "status", default: "pending", null: false
     t.decimal "total_amount", precision: 10, scale: 2
     t.datetime "updated_at", null: false
@@ -139,7 +140,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_045858) do
     t.text "description"
     t.string "dimensions"
     t.string "name", null: false
+    t.string "packaging"
     t.string "sku", null: false
+    t.string "technical_standard"
     t.datetime "updated_at", null: false
     t.decimal "weight", precision: 10, scale: 2, default: "0.0"
     t.index ["company_id", "category"], name: "index_products_on_company_id_and_category"
@@ -259,6 +262,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_045858) do
 
   create_table "warehouses", force: :cascade do |t|
     t.string "address", null: false
+    t.integer "capacity"
     t.bigint "company_id", null: false
     t.datetime "created_at", null: false
     t.string "name", null: false
