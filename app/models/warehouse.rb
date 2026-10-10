@@ -63,10 +63,33 @@ class Warehouse < ApplicationRecord
   # consulta (TESIS-127). Misma mecanica que Product.with_total_stock: el
   # listado la necesita para todas las filas, y sumarla por asociacion seria
   # una consulta por deposito.
+  #
+  # Son las libres MÁS las comprometidas (TESIS-170). Lo comprometido es lo
+  # vendido que todavía no se despachó: ya no figura en `stocks` —`DeductStock`
+  # lo sacó al crear la orden— pero sigue ocupando lugar en el estante hasta
+  # que el courier se lo lleva. Contar sólo `stocks.quantity` hacía que la barra
+  # de capacidad del panel midiera menos ocupación de la real, y que el KPI
+  # «Unidades en stock» no cerrara con la suma de los «En depósito» del
+  # catálogo, que sí los cuenta.
+  #
+  # Subconsulta correlacionada y no un segundo join, por el mismo motivo que
+  # `Product::IN_TRANSIT_SUBQUERY`: el scope ya hace join con `stocks` y agrupa
+  # por warehouses.id, y sumar un join a `order_items` daría producto cartesiano
+  # entre las dos tablas hijas.
+  #
+  # El SQL sale de `OrderItem.committed` y no se escribe acá: qué cuenta como
+  # comprometido se decide en un solo lugar, el mismo que lee el detalle del
+  # producto.
   scope :with_stored_units, lambda {
+    comprometidas = OrderItem.committed
+                             .where('order_items.warehouse_id = warehouses.id')
+                             .select('COALESCE(SUM(order_items.quantity), 0)')
+                             .to_sql
+
     left_joins(:stocks)
       .group(:id)
-      .select('warehouses.*', 'COALESCE(SUM(stocks.quantity), 0) AS stored_units')
+      .select('warehouses.*',
+              "COALESCE(SUM(stocks.quantity), 0) + (#{comprometidas}) AS stored_units")
   }
 
   # Cuantas unidades hay guardadas aca. Si la fila vino de `with_stored_units`,
@@ -74,7 +97,16 @@ class Warehouse < ApplicationRecord
   # porque este metodo tiene precedencia sobre el atributo. Si no vino del scope
   # —el detalle, o un deposito recien creado— se suma por asociacion.
   def stored_units
-    has_attribute?(:stored_units) ? self[:stored_units].to_i : stocks.sum(:quantity)
+    return self[:stored_units].to_i if has_attribute?(:stored_units)
+
+    stocks.sum(:quantity) + committed_units
+  end
+
+  # Lo vendido y todavía sin despachar que sale de este depósito. Mismo scope
+  # que usa el scope de arriba, para que las dos ramas de `stored_units` no
+  # puedan contestar distinto.
+  def committed_units
+    OrderItem.committed.where(order_items: { warehouse_id: id }).sum(:quantity)
   end
 
   private
