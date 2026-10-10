@@ -91,6 +91,14 @@ RSpec.describe 'API contract with the frontend', type: :request do
     end
   end
 
+  # Una línea que recuerda su depósito: sin él, cancelar responde 422.
+  def cancellable_order
+    Order.create!(company: company, customer_name: 'Cliente', total_amount: 100).tap do |placed|
+      OrderItem.create!(order: placed, product: product, warehouse: warehouse, quantity: 1,
+                        unit_price: 100)
+    end
+  end
+
   # Un envío despachado hoy con un courier: lo que el reporte cuenta por operador.
   def dispatch_with_a_courier
     sent = Shipment.create!(company: company, order: order, status: 'ready_to_ship',
@@ -161,6 +169,13 @@ RSpec.describe 'API contract with the frontend', type: :request do
       get "/api/v1/products/#{product.id}", headers: headers
 
       expect(response.parsed_body.keys).to include('sku')
+    end
+
+    # Cancelar devuelve la orden como el detalle: el front la mapea con lo mismo.
+    it 'answers a cancellation with the same order the detail returns' do
+      post "/api/v1/orders/#{cancellable_order.id}/cancel", headers: headers
+
+      expect(response.parsed_body.keys).to match_array(claves[:orden])
     end
 
     # Un reporte es un recurso calculado, no una colección: viaja pelado.
