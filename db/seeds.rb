@@ -23,7 +23,7 @@ seed_passwords =
     env_passwords = { user: ENV['SEED_USER_PASSWORD'], admin: ENV['SEED_ADMIN_PASSWORD'] }
     if env_passwords.values.any?(&:blank?) || env_passwords.values.intersect?(repo_passwords.values)
       raise 'Production seeds need SEED_USER_PASSWORD and SEED_ADMIN_PASSWORD, ' \
-            'and neither can be a password from the repo (see ADR-018)'
+            'and neither can be a password from the repo (see ADR-021)'
     end
 
     env_passwords

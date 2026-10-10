@@ -4,7 +4,7 @@ require 'rails_helper'
 
 # Los seeds corren también en el entorno desplegado: el entrypoint del Dockerfile
 # hace db:prepare, que siembra toda base nueva. Las contraseñas que el repo trae
-# para desarrollo no pueden terminar ahí (TESIS-130, ADR-018).
+# para desarrollo no pueden terminar ahí (TESIS-130, ADR-021).
 RSpec.describe 'db/seeds.rb' do # rubocop:disable RSpec/DescribeClass
   let(:company_emails) do
     %w[admin@norte.com operador@norte.com admin@sur.com deposito@sur.com admin@vieja.com]

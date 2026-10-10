@@ -1,4 +1,4 @@
-# ADR-018: Seguridad transversal y configuración del despliegue
+# ADR-021: Seguridad transversal y configuración del despliegue
 
 **Fecha:** 2026-09-29  
 **Estado:** Aceptado

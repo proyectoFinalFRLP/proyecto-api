@@ -37,7 +37,7 @@ DEVISE_JWT_SECRET_KEY=<rails secret>   # Clave para firmar los tokens JWT
 PROYECTO_API_DATABASE_PASSWORD=admin  # Contraseña de PostgreSQL (producción)
 ```
 
-En producción, además, la API no arranca sin `DEVISE_JWT_SECRET_KEY`, `CORS_ALLOWED_ORIGINS` y `RAILS_ALLOWED_HOSTS`, y `db:seed` pide `SEED_USER_PASSWORD` y `SEED_ADMIN_PASSWORD`. Qué define cada una y por qué está en [ADR-018](../adr/ADR-018-seguridad-del-despliegue.md) y en `.env.example`.
+En producción, además, la API no arranca sin `DEVISE_JWT_SECRET_KEY`, `CORS_ALLOWED_ORIGINS` y `RAILS_ALLOWED_HOSTS`, y `db:seed` pide `SEED_USER_PASSWORD` y `SEED_ADMIN_PASSWORD`. Qué define cada una y por qué está en [ADR-021](../adr/ADR-021-seguridad-del-despliegue.md) y en `.env.example`.
 
 ---
 

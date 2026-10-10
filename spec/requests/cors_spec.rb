@@ -4,7 +4,7 @@ require 'rails_helper'
 
 # Hasta TESIS-130 la API respondía `Access-Control-Allow-Origin: *` a cualquier
 # origen. Ahora sólo al front: en producción, la lista de CORS_ALLOWED_ORIGINS;
-# en desarrollo y test, localhost en cualquier puerto (ADR-018).
+# en desarrollo y test, localhost en cualquier puerto (ADR-021).
 RSpec.describe 'CORS', type: :request do
   def preflight(origin)
     options '/api/v1/auth/login', headers: {

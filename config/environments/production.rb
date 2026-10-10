@@ -3,7 +3,7 @@ require 'active_support/core_ext/integer/time'
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
 
-  # Sin estas variables la API no arranca en producción (TESIS-130, ADR-018).
+  # Sin estas variables la API no arranca en producción (TESIS-130, ADR-021).
   # Sin ellas, el JWT se firmaría con secret_key_base, el Host no se validaría y
   # CORS no dejaría pasar al front: las dos primeras dejan la puerta abierta sin
   # que nada falle a la vista, y la tercera rompe el front sin decir por qué.
@@ -15,7 +15,7 @@ Rails.application.configure do
       ENV[name].blank?
     end
     if missing.any?
-      raise "Missing environment variables for production: #{missing.join(', ')} (see ADR-018)"
+      raise "Missing environment variables for production: #{missing.join(', ')} (see ADR-021)"
     end
   end
 
@@ -40,7 +40,7 @@ Rails.application.configure do
   # El TLS termina en el proxy (Caddy), que también redirige HTTP a HTTPS: a Rails
   # le llega HTTP plano. assume_ssl hace que tome esos requests como HTTPS, y
   # force_ssl suma Strict-Transport-Security y marca las cookies como Secure,
-  # entre ellas la de la sesión del backoffice (TESIS-130, ADR-018).
+  # entre ellas la de la sesión del backoffice (TESIS-130, ADR-021).
   config.assume_ssl = true
   config.force_ssl = true
 

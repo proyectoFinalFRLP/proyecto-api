@@ -5,7 +5,7 @@
 
 # Read more: https://github.com/cyu/rack-cors
 
-# Sólo el front puede llamar a la API desde un navegador (TESIS-130, ADR-018).
+# Sólo el front puede llamar a la API desde un navegador (TESIS-130, ADR-021).
 # Con `origins '*'`, cualquier página podía hacerlo: por ejemplo, repartir intentos
 # de login entre los navegadores de sus visitantes, cada uno con su IP, y esquivar
 # el límite por IP de TESIS-82.
