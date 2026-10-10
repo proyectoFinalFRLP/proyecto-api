@@ -40,4 +40,13 @@ RSpec.describe CompanyIntegration, type: :model do
     duplicate = described_class.new(company: company, service: service)
     expect { duplicate.save!(validate: false) }.to raise_error(ActiveRecord::RecordNotUnique)
   end
+
+  # Una hija corre con la cuenta de su madre: el backoffice no la puede conectar sola.
+  it 'rejects an operation template of another service' do
+    child = Service.create!(service_name: "#{service.service_name} - Conexión", type: 'ecommerce',
+                            uri: 'https://example.com/me', http_method: 'GET',
+                            parent_service: service, operation: 'connection_test')
+
+    expect(described_class.new(company: company, service: child)).not_to be_valid
+  end
 end

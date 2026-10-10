@@ -76,20 +76,41 @@ RSpec.describe Order, type: :model do
     expect(another).to be_valid
   end
 
-  it 'enforces external_order_id uniqueness scoped to company' do
-    order.external_order_id = 'ML-123'
-    order.save!
-    duplicate = described_class.new(company: company, customer_name: 'Otro',
-                                    external_order_id: 'ML-123')
-    expect(duplicate).not_to be_valid
-  end
+  # Única por canal: la misma venta es el mismo id en la misma integración.
+  describe 'the external order id' do
+    def channel(owner, name)
+      CompanyIntegration.create!(
+        company: owner,
+        service: Service.create!(service_name: name, type: 'ecommerce',
+                                 uri: "https://#{name.downcase}.test", http_method: 'GET')
+      )
+    end
 
-  it 'allows the same external_order_id across different companies' do
-    order.external_order_id = 'ML-123'
-    order.save!
-    other = described_class.new(company: other_company, customer_name: 'Otro',
-                                external_order_id: 'ML-123')
-    expect(other).to be_valid
+    def sale(owner, integration, id = 'ML-123')
+      described_class.new(company: owner, customer_name: 'Cliente', company_integration: integration,
+                          external_order_id: id)
+    end
+
+    it 'is unique within the same channel' do
+      ml = channel(company, 'ML')
+      sale(company, ml).save!
+
+      expect(sale(company, ml)).not_to be_valid
+    end
+
+    # Cada canal numera por su lado: antes la segunda venta se tomaba por
+    # duplicada y se perdía sin dejar error.
+    it 'repeats freely between two channels of the same company' do
+      sale(company, channel(company, 'ML')).save!
+
+      expect(sale(company, channel(company, 'TN'))).to be_valid
+    end
+
+    it 'repeats freely between companies' do
+      sale(company, channel(company, 'ML')).save!
+
+      expect(sale(other_company, channel(other_company, 'ML2'))).to be_valid
+    end
   end
 
   it 'rejects a company_integration from another company', :aggregate_failures do

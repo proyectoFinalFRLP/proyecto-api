@@ -5,22 +5,64 @@ module Integrations
   # del Service: request_mapper {"ruta.externa.anidada" => "clave_interna"} y
   # request_value_mapper {"valor_interno" => "valor_externo"}. Solo se envían
   # los campos mapeados (whitelist).
+  #
+  # El valor de una entrada del request_mapper puede ser, además de una clave
+  # del payload:
+  # - `settings.<clave>`: un dato de la cuenta de la empresa (en Shopify, la
+  #   ubicación donde se publica el stock). El prefijo evita que una clave del
+  #   payload y una de los settings choquen.
+  # - Un texto con `{{clave}}`: se arma con valores del payload o de los
+  #   settings (Shopify identifica una variante como
+  #   `gid://shopify/ProductVariant/{{external_id}}`, y GraphQL no concatena
+  #   strings). No es un motor de plantillas: sólo reemplaza variables.
+  #
+  # Una entrada cuyo dato no está (o una plantilla a la que le falta alguna
+  # variable) no se envía, igual que una clave ausente del payload.
   class BuildExternalPayload < ApplicationPoro
-    def initialize(service:, payload:)
+    SETTINGS_PREFIX = 'settings.'
+    TEMPLATE_VARIABLE = /\{\{\s*([\w.]+)\s*\}\}/
+
+    def initialize(service:, payload:, settings: {})
       super()
       @service = service
       @payload = payload.transform_keys(&:to_s)
+      @settings = (settings || {}).transform_keys(&:to_s)
     end
 
     def call
-      @service.request_mapper.each_with_object({}) do |(external_path, internal_key), result|
-        next unless @payload.key?(internal_key)
+      @service.request_mapper.each_with_object({}) do |(external_path, source), result|
+        found, value = resolve(source.to_s)
+        next unless found
 
-        set_nested(result, external_path, translate(@payload[internal_key]))
+        set_nested(result, external_path, translate(value))
       end
     end
 
     private
+
+    # [encontrado, valor]: un valor puede ser legítimamente nil o false.
+    def resolve(source)
+      return render_template(source) if source.match?(TEMPLATE_VARIABLE)
+
+      lookup(source)
+    end
+
+    def lookup(source)
+      if source.start_with?(SETTINGS_PREFIX)
+        key = source.delete_prefix(SETTINGS_PREFIX)
+        [@settings.key?(key), @settings[key]]
+      else
+        [@payload.key?(source), @payload[source]]
+      end
+    end
+
+    def render_template(source)
+      variables = source.scan(TEMPLATE_VARIABLE).flatten
+      values = variables.index_with { |variable| lookup(variable) }
+      return [false, nil] unless values.values.all? { |found, value| found && !value.nil? }
+
+      [true, source.gsub(TEMPLATE_VARIABLE) { values[Regexp.last_match(1)].last.to_s }]
+    end
 
     def translate(value)
       @service.request_value_mapper.fetch(value.to_s, value)

@@ -11,19 +11,36 @@ module Api
       before_action :set_shipment, only: %i[show]
 
       rescue_from Shipments::UnshippableOrderError, with: :render_unprocessable
+      rescue_from Shipments::PickupOrderError, with: :render_unprocessable
       rescue_from Shipments::DuplicateShipmentError, with: :render_conflict
       rescue_from Shipments::AlreadyDispatchedError, with: :render_conflict
       rescue_from Shipments::InvalidCourierIntegrationError, with: :render_unprocessable
       rescue_from Shipments::DispatchResponseError, with: :render_bad_gateway
       rescue_from Shipments::InvalidShippingCostError, with: :render_bad_request
       rescue_from Integrations::AdapterExecutionError, with: :render_courier_failure
-      # El parámetro que falta es un 400 de contrato, no un 422 de negocio.
-      rescue_from ActionController::ParameterMissing, with: :render_bad_request
 
       include Paginatable
 
       # Cuánto del cuerpo del courier se propaga en el mensaje de error.
       COURIER_ERROR_LIMIT = 300
+
+      # Las pestañas del listado: cómo se llama cada una en la respuesta y con
+      # qué estado se filtra. «Todos» no filtra, por eso su estado es nil. El
+      # orden es el del ciclo de vida, que es el que muestra la pantalla.
+      #
+      # Se arma sobre Shipment::STATUSES y no a mano: un estado nuevo en el
+      # modelo aparece solo acá, en vez de quedar sin pestaña hasta que alguien
+      # se acuerde de agregarlo.
+      SHIPMENT_TABS = { all: nil }.merge(Shipment::STATUSES.index_by(&:to_sym)).freeze
+
+      # Las dos columnas que recorre el buscador del listado (TESIS-164): el
+      # número de seguimiento y el id con el que el canal nombra la venta. Son
+      # los dos códigos que el operador tiene en la mano cuando lo llaman a
+      # preguntar por un paquete.
+      SEARCH_CONDITION = <<~SQL.squish
+        shipments.tracking_number ILIKE :pattern
+        OR orders.external_order_id ILIKE :pattern
+      SQL
 
       def index
         # La precarga es load-bearing: ShipmentListSerializer lee el nombre del
@@ -42,6 +59,18 @@ module Api
 
       def show
         render json: ShipmentSerializer.render(@shipment)
+      end
+
+      # Cuántos envíos caen en cada pestaña del listado, respetando el mismo
+      # buscador y el mismo filtro por orden que el listado: si no, el número de
+      # la pestaña y las filas que se ven dirían cosas distintas.
+      #
+      # Una consulta y no cinco requests: es lo que la pantalla hacía desde el
+      # cliente (TESIS-163), y cada una era un round trip que traía una página
+      # de una fila sólo para leer su `meta.total`.
+      def counts
+        skip_authorization
+        render json: { data: tab_counts }
       end
 
       def create
@@ -86,14 +115,64 @@ module Api
       # `?order_id[]=1` era peor porque NO reventaba: `where` recibía el Array y
       # lo traducía a un `IN`, así que la query filtraba por varias órdenes a la
       # vez —una capacidad que nadie declaró ni documentó— y el 200 lo tapaba.
-      def filtered_shipments
-        status = scalar_param(:status)
+      #
+      # Una sola definición de la cadena, y el estado por parámetro: el listado
+      # pasa el del request y cada pestaña pasa el suyo. Con dos copias, el
+      # invariante que la card pide —que el número de la pestaña y las filas
+      # visibles digan lo mismo— dependería de mantenerlas iguales a mano.
+      # Mismo criterio que `ProductsController#filtered_products`.
+      def filtered_shipments(status = scalar_param(:status))
         order_id = scalar_param(:order_id)
 
         shipments = policy_scope(Shipment)
         shipments = shipments.where(status: status) if status.present?
         shipments = shipments.where(order_id: order_id) if order_id.present?
-        shipments
+        apply_search(shipments)
+      end
+
+      # Cuántas filas matchean cada pestaña, en una sola consulta: un
+      # `GROUP BY status` sobre el mismo scope filtrado, en vez de un COUNT por
+      # pestaña. «Todos» no necesita el suyo: es la suma de los grupos.
+      #
+      # `filtered_shipments(nil)` y no el default: acá el estado no sale del
+      # request —se cuentan las cinco pestañas— y pasarle el del listado dejaría
+      # las otras cuatro en cero.
+      #
+      # Se arranca de SHIPMENT_TABS y no de lo que devolvió la base: un estado
+      # sin filas no aparece en el GROUP BY, y una pestaña vacía tiene que decir
+      # 0, no desaparecer de la respuesta.
+      #
+      # El agrupado no multiplica filas: el único join que puede entrar es el de
+      # `orders` del buscador, y un envío tiene a lo sumo una orden (la FK es
+      # NOT NULL y apunta a una sola).
+      def tab_counts
+        by_status = filtered_shipments(nil).group(:status).count
+
+        SHIPMENT_TABS.transform_values do |status|
+          status.nil? ? by_status.values.sum : by_status.fetch(status, 0)
+        end
+      end
+
+      # El buscador del listado (TESIS-164). Busca por lo único que el operador
+      # tiene en la mano cuando lo llaman a preguntar por un paquete: el número
+      # de seguimiento que le dio al comprador, o el id con el que el canal
+      # nombra la venta.
+      #
+      # El join con `orders` es `left_outer`: un envío sin orden no existe —la
+      # FK es NOT NULL—, pero un INNER acá obligaría a Postgres a resolver el
+      # join también cuando no hay término, y el listado sin buscar es el caso
+      # normal. Con el `return` de arriba, el join sólo entra cuando se busca.
+      #
+      # Mismo criterio que el buscador de órdenes: ILIKE para ignorar
+      # mayúsculas, `sanitize_sql_like` para que un `%` tipeado se busque
+      # literalmente, y sin índice —un `%term%` necesita GIN con `pg_trgm`, que
+      # es la misma card que `unaccent`—.
+      def apply_search(shipments)
+        term = scalar_param(:search).to_s.strip
+        return shipments if term.blank?
+
+        pattern = "%#{Shipment.sanitize_sql_like(term)}%"
+        shipments.left_outer_joins(:order).where(SEARCH_CONDITION, pattern: pattern)
       end
 
       # find y no find_by dentro del scope del tenant: el default_scope de

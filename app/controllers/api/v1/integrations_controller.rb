@@ -5,10 +5,13 @@ module Api
     class IntegrationsController < ApplicationController
       include Paginatable
 
+      # Sólo lectura. Las credenciales las carga el equipo de OneStock desde el
+      # backoffice (ADR-018): la empresa ve el estado de sus integraciones, no
+      # las configura.
+      #
       # El listado no pasa por Pundit: lo usa el widget de nodos del panel
       # aunque la empresa no tenga la feature `integrations`, y sólo muestra las
-      # plantillas globales con el estado de la propia empresa. El alta y la
-      # modificación sí: ver CompanyIntegrationPolicy.
+      # plantillas globales con el estado de la propia empresa.
       skip_after_action :verify_policy_scoped
 
       # Envuelto en `data` como el resto de las colecciones (ADR-015): era el
@@ -24,7 +27,8 @@ module Api
       # nodos, no de a páginas.
       def index
         integrations = current_company.company_integrations.index_by(&:service_id)
-        services, meta = paginate(Service.order(:id), per_page: WHOLE_LIST_PER_PAGE)
+        services, meta = paginate(Service.connectable.order(:id),
+                                  per_page: WHOLE_LIST_PER_PAGE)
 
         render json: {
           data: IntegrationStatusSerializer.render_as_hash(
@@ -32,28 +36,6 @@ module Api
           ),
           meta: meta
         }
-      end
-
-      def update
-        authorize CompanyIntegration
-        integration = Integrations::UpsertIntegration.new(
-          company: current_company,
-          service_id: params[:service_id],
-          credentials: credentials_params,
-          is_active: params.fetch(:is_active, true)
-        ).call
-        render json: CompanyIntegrationSerializer.render(integration), status: :ok
-      end
-
-      private
-
-      def credentials_params
-        raw = params.require(:credentials)
-        unless raw.is_a?(ActionController::Parameters)
-          raise ActionController::ParameterMissing, :credentials
-        end
-
-        raw.to_unsafe_h
       end
     end
   end

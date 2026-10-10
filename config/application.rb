@@ -43,5 +43,13 @@ module ProyectoApi
                                     key: '_proyecto_api_session'
     config.middleware.insert_before Warden::Manager, ActionDispatch::Flash
     config.middleware.use Rack::MethodOverride
+
+    # La URL pública HTTPS con la que los proveedores llegan a la API: la del
+    # servidor en producción, la de un túnel en desarrollo. Es con lo que se
+    # arma la dirección del webhook que se le registra a cada proveedor
+    # (Integrations::RegisterWebhook). No sale del host del request: el registro
+    # corre desde el backoffice o la consola, y lo que importa es cómo nos ve el
+    # proveedor, no cómo entró el administrador.
+    config.x.public_webhook_base_url = ENV['PUBLIC_WEBHOOK_BASE_URL'].presence&.chomp('/')
   end
 end

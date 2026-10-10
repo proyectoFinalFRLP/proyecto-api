@@ -4,9 +4,16 @@ module Api
   module V1
     # Cotización logística de una orden (TESIS-46).
     class ShipmentQuotesController < ApplicationController
+      rescue_from Shipments::PickupOrderError, with: :render_unprocessable
+
       def create
         order = Order.find(params.expect(:order_id))
         authorize order, :quote?
+        # Una venta de retiro no tiene a quién pedirle precio: no hay envío. Sin
+        # esto se cotizaba igual —y se podía despachar— una orden que después
+        # `CreateShipment` rechaza, o peor, una que ya tenía su envío abierto y
+        # pasó a retiro por PUT: una etiqueta pagada por una venta que no sale.
+        raise Shipments::PickupOrderError.new(order: order) unless order.requires_shipping?
 
         quotes = Shipments::QuoteShipment.for_order(
           order: order, origin_warehouse: origin_warehouse

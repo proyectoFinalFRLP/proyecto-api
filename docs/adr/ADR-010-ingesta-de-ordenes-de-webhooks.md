@@ -89,6 +89,7 @@ Una venta que entra mal es peor que una venta que no entra: queda escrita, con m
 | `unit_price` en el payload **y** `external_price` en el mapping (los dos) | Corta | Un ítem en 0 es indistinguible de una bonificación legítima: el error queda enterrado en un registro financiero y ya no se puede detectar |
 | Un id externo sin `ProductMapping` | Corta (`UnmappedProductError`) | Es el caso que la DLQ resuelve sola: se crea el mapeo y se reintenta |
 | `status` ausente o desconocido para el OMS | **No corta**: entra como `pending` | El estado es informativo y se corrige después; la venta es el dato que no se puede perder |
+| `status` que llega `cancelled` | **No corta**: se registra cancelada, **sin descontar stock** y con las líneas sin depósito | La venta no va a salir. Descontar dejaba las unidades fuera para siempre, porque una orden cancelada no se edita ni se vuelve a cancelar (TESIS-999016) |
 | Datos del comprador (documento, dirección, CP) | **No corta** | La plantilla los mapea si el canal los manda; su ausencia no mueve ni stock ni dinero |
 
 El precio tiene un respaldo antes de cortar: el `external_price` del `ProductMapping`, o sea el precio publicado en ese canal. Es un precio real de la venta y no uno inventado, y cubre el caso común de un canal que no manda el precio en el webhook. Un `0` que **sí** viene en el payload se respeta: ahí el canal está afirmando que el ítem fue bonificado.
@@ -124,8 +125,8 @@ La excepción **no se propaga** desde el job: si subiera, Active Job reintentar�
 Las plataformas reenvían webhooks y Solid Queue garantiza *at-least-once*: el mismo evento puede llegar a procesarse más de una vez, y descontar el stock dos veces por una sola venta es el peor error posible acá. Tres barreras, en orden:
 
 1. Un log ya `processed` no se vuelve a procesar.
-2. Si ya existe una `Order` con ese `external_order_id`, se marca el log como procesado y no se crea nada.
-3. Si dos workers corren a la vez, el índice único `(company_id, external_order_id)` deja pasar a uno solo; el que pierde la carrera captura el `RecordNotUnique` y termina como duplicado. El rescate verifica que la violación sea **la de ese índice** por nombre: cubre toda la transacción, y un índice único que aparezca más adelante en `order_items` o en `stocks` es un fallo real que tiene que llegar a la DLQ, no un duplicado ya registrado.
+2. Si ya existe una `Order` con ese `external_order_id` **en la misma integración**, se marca el log como procesado y no se crea nada. La clave es el canal y no la empresa: cada canal numera sus ventas por su lado, y con la clave por empresa la venta de un segundo canal con un id repetido se descartaba en silencio (TESIS-999020).
+3. Si dos workers corren a la vez, el índice único `(company_integration_id, external_order_id)` deja pasar a uno solo; el que pierde la carrera captura el `RecordNotUnique` y termina como duplicado. El rescate verifica que la violación sea **la de ese índice** por nombre: cubre toda la transacción, y un índice único que aparezca más adelante en `order_items` o en `stocks` es un fallo real que tiene que llegar a la DLQ, no un duplicado ya registrado.
 
 ### Ruteo en el gateway
 

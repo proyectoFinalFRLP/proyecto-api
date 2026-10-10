@@ -396,17 +396,72 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
+      # TESIS-162: hasta ahora toda orden se asumía despachada y no había forma
+      # de registrar una venta que el cliente retira en el local.
+      it 'is shipped when the body says nothing about it', :aggregate_failures do
+        post_order
+
+        expect(response).to have_http_status(:created)
+        expect(response.parsed_body['requires_shipping']).to be(true)
+      end
+
+      # La columna es NOT NULL y el campo entra por strong params desde
+      # TESIS-162: un `null` llegaba a la base y levantaba NotNullViolation,
+      # que ningún rescue_from mapea.
+      it 'refuses a null requires_shipping with 422 and not 500', :aggregate_failures do
+        post_order(build_payload.deep_merge(order: { requires_shipping: nil }))
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('shipping')
+      end
+
+      it 'records a pickup when the body asks for one', :aggregate_failures do
+        post_order(build_payload.deep_merge(order: { requires_shipping: false }))
+
+        expect(response).to have_http_status(:created)
+        expect(response.parsed_body['requires_shipping']).to be(false)
+        expect(Order.last.requires_shipping).to be(false)
+      end
+
+      # Pasaba la validación (0,5 > 0), la columna integer la guardaba en 0 y
+      # DeductStock reventaba con ArgumentError: 500.
+      it 'rejects a quantity below one unit with 422, not 500', :aggregate_failures do
+        post_order(build_payload(items: [default_item.merge(quantity: 0.5)]))
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('must be an integer')
+      end
+
+      it 'rejects a fractional quantity instead of truncating it', :aggregate_failures do
+        expect { post_order(build_payload(items: [default_item.merge(quantity: 2.7)])) }
+          .not_to change(Order, :count)
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
       it 'rejects when warehouse belongs to another company' do
         other_wh = other_company_warehouse
         post_order(build_payload(items: [default_item.merge(warehouse_id: other_wh.id)]))
         expect(response).to have_http_status(:unprocessable_content)
       end
 
-      it 'rejects when order is not an object' do
-        post '/api/v1/orders',
-             params: { order: 'not_an_object' },
-             headers: headers, as: :json
-        expect(response).to have_http_status(:unprocessable_content)
+      # 400 y no 422: la forma del envoltorio es contrato, no negocio. Lo da
+      # `params.expect` desde TESIS-133; antes era un RecordNotSaved a mano.
+      it 'rejects when order is not an object with a 400', :aggregate_failures do
+        expect do
+          post '/api/v1/orders', params: { order: 'not_an_object' },
+                                 headers: headers, as: :json
+        end.not_to change(Order, :count)
+
+        expect(response).to have_http_status(:bad_request)
+      end
+
+      it 'rejects when order is a list with a 400', :aggregate_failures do
+        expect do
+          post '/api/v1/orders', params: { order: [{ customer_name: 'X' }] },
+                                 headers: headers, as: :json
+        end.not_to change(Order, :count)
+
+        expect(response).to have_http_status(:bad_request)
       end
 
       it 'rejects when items is not an array' do

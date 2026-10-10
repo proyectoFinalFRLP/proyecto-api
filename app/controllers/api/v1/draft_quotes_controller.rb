@@ -10,10 +10,6 @@ module Api
     # que el asistente ya juntó: depósito de origen, destino y líneas. La orden se
     # crea una sola vez, cuando el operador elige y confirma.
     class DraftQuotesController < ApplicationController
-      # El parámetro que falta es un 400 de contrato, con el mismo cuerpo
-      # `{ error }` que el resto de la API.
-      rescue_from ActionController::ParameterMissing, with: :render_bad_request
-
       # Es el primer endpoint autenticado que sale a los couriers sin dejar nada
       # en la base: antes cotizar exigía crear la orden, que era un freno natural.
       # Sin tope, un cliente en loop —un `useEffect` mal puesto que cotiza en

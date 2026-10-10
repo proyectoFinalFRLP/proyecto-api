@@ -115,8 +115,10 @@ module Orders
 
     # Warehouse es CompanyScoped, pero fuera de un request Current puede estar
     # en nil y el scope no aplica: el company_id va explícito, como en el alta.
+    # Enteros antes de comparar: `["1", 1]` son el mismo depósito y, crudos,
+    # contaban como dos y daban un 422 falso de «no pertenece a esta empresa».
     def validate_new_warehouses!
-      ids = new_items.pluck(:warehouse_id).uniq
+      ids = new_items.map { |item| item[:warehouse_id].to_s.to_i }.uniq
       return if Warehouse.where(id: ids, company_id: @order.company_id).count == ids.size
 
       raise ActiveRecord::RecordNotSaved, 'One or more warehouses do not belong to this company'

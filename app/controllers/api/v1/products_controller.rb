@@ -6,6 +6,17 @@ module Api
       include OptimisticLocking
       include Paginatable
 
+      # Qué acepta el body del producto. `stocks` no entra: se arma aparte en
+      # `stock_params`, línea por línea.
+      PRODUCT_FIELDS = %i[sku name description category packaging technical_standard
+                          weight dimensions].freeze
+
+      # Las pestañas del catálogo: cómo se llama cada una en la respuesta y con
+      # qué estado se filtra. «Todos» no filtra, por eso su estado es nil. El
+      # orden es el que muestra la pantalla.
+      CATALOG_TABS = { all: nil, available: 'available', low: 'low',
+                       out_of_stock: 'out_of_stock' }.freeze
+
       before_action :set_product, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
@@ -45,6 +56,17 @@ module Api
         render json: { data: Product::CATEGORIES }
       end
 
+      # Cuántos productos tiene cada pestaña del catálogo, respetando el mismo
+      # buscador y el mismo filtro de categoría que el listado: si no, el número
+      # de la pestaña y las filas que se ven dirían cosas distintas.
+      #
+      # Una consulta por estado y no cuatro requests: es lo que la pantalla
+      # hacía desde el cliente (TESIS-162), y cada una era un round trip.
+      def counts
+        skip_authorization
+        render json: { data: CATALOG_TABS.transform_values { |status| tab_count(status) } }
+      end
+
       def create
         authorize Product
 
@@ -79,12 +101,26 @@ module Api
       # Las tres pestañas del catálogo más el buscador y la categoría. El orden
       # importa: `with_total_stock` arma el GROUP BY y `by_stock_status` cuelga
       # su HAVING de esa agregación.
-      def filtered_products
+      #
+      # Una sola definición de la cadena, y el estado por parámetro: el listado
+      # pasa el del request y cada pestaña pasa el suyo. Con dos copias, el
+      # invariante que la card pide —que el número de la pestaña y las filas
+      # visibles digan lo mismo— dependía de mantenerlas iguales a mano.
+      #
+      # `in_transit:` sale del scope cuando sólo se va a contar: la subconsulta
+      # es por fila y el conteo no la lee.
+      def filtered_products(status = scalar_param(:status), in_transit: true)
         policy_scope(Product)
           .search_catalog(scalar_param(:search))
           .by_category(scalar_param(:category))
-          .with_total_stock
-          .by_stock_status(scalar_param(:status))
+          .with_total_stock(in_transit: in_transit)
+          .by_stock_status(status)
+      end
+
+      # Cuántas filas matchean cada pestaña. `nil` es «Todos»: el scope sin
+      # filtro de estado.
+      def tab_count(status)
+        count_of(filtered_products(status, in_transit: false))
       end
 
       # Cuántas filas matchean, sobre el scope YA filtrado.
@@ -110,16 +146,23 @@ module Api
         authorize @product
       end
 
+      # Un company_id en el body se sigue descartando en silencio: `permit` sólo
+      # deja pasar lo que lista.
       def product_params
-        # permit (no expect) es intencional y load-bearing: expect usa
-        # on_unpermitted: :raise, así que un body con company_id daría 400 en
-        # vez de ignorarlo — rompiendo el requisito de la card.
-        # rubocop:disable-next Rails/StrongParametersExpect
-        params.require(:product).permit(:sku, :name, :description, :category, :weight, :dimensions)
+        product_body.permit(*PRODUCT_FIELDS)
       end
 
+      # El envoltorio, validado como objeto por `body_of` (TESIS-133). Antes esto
+      # era `params.require(:product)`, que devolvía el String tal cual y hacía
+      # reventar al `permit` de abajo con un 500.
+      def product_body
+        body_of(:product)
+      end
+
+      # `stocks` queda afuera de `expect`: cada línea necesita sus propios 422
+      # con mensaje, que `expect` no sabe dar.
       def stock_params
-        raw_stocks = params[:product][:stocks]
+        raw_stocks = product_body[:stocks]
         return [] if raw_stocks.nil?
 
         # Si stocks viene presente pero no es un array (ej. un objeto), es un

@@ -1,7 +1,7 @@
 source 'https://rubygems.org'
 
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
-gem 'rails', '~> 8.1.2', '>= 8.1.2.1'
+gem 'rails', '~> 8.1.4'
 # Use postgresql as the database for Active Record
 gem 'pg', '~> 1.1'
 # Use the Puma web server [https://github.com/puma/puma]
@@ -77,6 +77,17 @@ gem 'blueprinter', '~> 1.2'
 
 gem 'rack-cors', '~> 3.0'
 
-gem 'avo', '~> 4.1'
+gem 'avo', '~> 4.2'
 
 gem 'propshaft', '~> 1.3'
+
+# Se queda en 2.x hasta que Rails pueda con la 3. `json` 3.0 sacó la forma
+# `JSON.parse(source, options_hash)` con dos posicionales, y
+# `ActiveSupport::JSON.decode` la sigue llamando así (activesupport 8.1.3.1,
+# active_support/json/decoding.rb:25). Con la 3 instalada, cualquier lectura de
+# una columna `json` o `jsonb` revienta con «wrong number of arguments
+# (given 2, expected 1)»: se cae el panel de Avo, la ingesta de webhooks y todo
+# lo que toque `payload` o `credentials`. No lo pide el Gemfile: entra como
+# dependencia de rubocop, así que la restricción va acá para que Dependabot no
+# vuelva a subirla sola.
+gem 'json', '~> 2.21'

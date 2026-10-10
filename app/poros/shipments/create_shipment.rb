@@ -19,7 +19,7 @@ module Shipments
     # inalcanzable justo para el alta manual que necesita el wizard de TESIS-59.
     # Cuando exista la transición de estados, esta constante es el único lugar a
     # tocar.
-    NON_SHIPPABLE_STATUSES = %w[cancelled].freeze
+    NON_SHIPPABLE_STATUSES = [Order::CANCELLED].freeze
 
     # Redundante con el default de la columna (TESIS-45) y a propósito: el estado
     # inicial es parte del contrato de este caso de uso, no un detalle del schema.
@@ -38,10 +38,15 @@ module Shipments
 
     private
 
+    # El estado va primero: una orden cancelada de retiro tiene que responder
+    # que está cancelada y no «esta venta se retira en el local», que es la
+    # confusión que motivó separar los dos errores.
     def validate_status!
-      return unless NON_SHIPPABLE_STATUSES.include?(@order.status)
+      raise UnshippableOrderError.new(order: @order) if
+        NON_SHIPPABLE_STATUSES.include?(@order.status)
+      return if @order.requires_shipping?
 
-      raise UnshippableOrderError.new(order: @order)
+      raise PickupOrderError.new(order: @order)
     end
 
     # Una sola escritura: sin transacción explícita, porque un choque contra la

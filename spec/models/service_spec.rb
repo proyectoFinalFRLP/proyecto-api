@@ -33,6 +33,36 @@ RSpec.describe Service, type: :model do
     expect(described_class.new(type: 'ecommerce')).to be_an_instance_of(described_class)
   end
 
+  describe 'webhook_config' do
+    def signed(config)
+      service.webhook_config = config
+      service
+    end
+
+    it 'is valid empty: the provider does not sign' do
+      expect(signed({})).to be_valid
+    end
+
+    it 'is valid with the algorithm, the header and the secret' do
+      expect(signed('signature' => 'hmac_sha256_base64', 'signature_header' => 'X-Sig',
+                    'secret_key' => 'client_secret')).to be_valid
+    end
+
+    it 'is invalid with an algorithm the gateway cannot verify' do
+      expect(signed('signature' => 'rsa', 'signature_header' => 'X-Sig',
+                    'secret_key' => 'client_secret')).not_to be_valid
+    end
+
+    it 'is invalid without the header or the secret' do
+      expect(signed('signature' => 'hmac_sha256_hex')).not_to be_valid
+    end
+
+    it 'tells whether the gateway has to verify the signature', :aggregate_failures do
+      expect(signed({})).not_to be_signs_webhooks
+      expect(signed('signature' => 'hmac_sha256_hex')).to be_signs_webhooks
+    end
+  end
+
   describe '#ecommerce?' do
     it 'is true for an ecommerce service' do
       service.type = 'ecommerce'
@@ -343,6 +373,88 @@ RSpec.describe Service, type: :model do
       service.request_mapper = '{"a": "b"}'
       expect(service).to be_valid
       expect(service.request_mapper).to eq('a' => 'b')
+    end
+  end
+
+  describe 'connection config (TESIS-138)' do
+    it 'authenticates with bearer and speaks JSON by default', :aggregate_failures do
+      expect(service.auth_strategy).to eq('bearer')
+      expect(service.request_format).to eq('json')
+    end
+
+    it 'rejects an unknown auth strategy' do
+      service.auth_strategy = 'magic'
+      expect(service).not_to be_valid
+    end
+
+    it 'rejects an unknown request format' do
+      service.request_format = 'soap'
+      expect(service).not_to be_valid
+    end
+
+    it 'requires every declared field to have a key' do
+      service.setting_fields = [{ 'label' => 'Dominio' }]
+      expect(service).not_to be_valid
+    end
+
+    it 'lists the setting keys it asks the company for' do
+      service.setting_fields = [{ 'key' => 'shop_domain' }, { 'key' => 'location_id' }]
+      expect(service.setting_keys).to eq(%w[shop_domain location_id])
+    end
+  end
+
+  describe 'operation templates' do
+    before { service.save! }
+
+    def child(attributes = {})
+      described_class.new({ service_name: 'ML - Conexión', type: 'ecommerce',
+                            uri: 'https://api.ml.com/users/me', http_method: 'GET',
+                            parent_service: service, operation: 'connection_test' }
+                            .merge(attributes))
+    end
+
+    it 'finds the child that performs an operation' do
+      test_template = child.tap(&:save!)
+      expect(service.template_for(:connection_test)).to eq(test_template)
+    end
+
+    it 'returns nil when the provider does not declare the operation' do
+      expect(service.template_for(:connection_test)).to be_nil
+    end
+
+    it 'requires a child to say which operation it performs' do
+      expect(child(operation: nil)).not_to be_valid
+    end
+
+    it 'allows a single child per operation' do
+      child.save!
+      expect(child(service_name: 'ML - Conexión 2')).not_to be_valid
+    end
+
+    it 'keeps children out of the connectable services' do
+      child.save!
+      expect(described_class.connectable).to contain_exactly(service)
+    end
+  end
+
+  describe '#stock_template' do
+    before { service.save! }
+
+    it 'is the template itself when it maps the quantity' do
+      service.update!(request_mapper: { 'stock' => 'available_quantity' })
+      expect(service.stock_template).to eq(service)
+    end
+
+    it 'is its stock child otherwise' do
+      stock = described_class.create!(service_name: 'ML - Stock', type: 'ecommerce',
+                                      uri: 'https://api.ml.com/items/:external_id',
+                                      http_method: 'PUT', parent_service: service,
+                                      operation: 'stock')
+      expect(service.stock_template).to eq(stock)
+    end
+
+    it 'is nil when the provider cannot publish stock' do
+      expect(service.stock_template).to be_nil
     end
   end
 end

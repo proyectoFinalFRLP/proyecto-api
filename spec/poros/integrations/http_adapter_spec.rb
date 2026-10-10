@@ -224,4 +224,111 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
         .with(body: '')
     end
   end
+
+  # Proveedor real (TESIS-138): la plantilla se autentica con OAuth client
+  # credentials, habla GraphQL y completa la URI con los settings de la cuenta.
+  describe 'OAuth client credentials over GraphQL' do
+    let(:shopify) do
+      Service.create!(
+        service_name: 'Shopify', type: 'ecommerce', http_method: 'POST',
+        uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+        request_format: 'graphql', auth_strategy: 'oauth_client_credentials',
+        auth_config: { 'token_url' => 'https://:shop_domain/admin/oauth/access_token',
+                       'token_header' => 'X-Shopify-Access-Token', 'token_prefix' => '' },
+        body_template: 'query Node($id: ID!) { node(id: $id) { id } }',
+        request_mapper: { 'id' => 'node_gid' },
+        response_mapper: { 'data.node.id' => 'node_id' },
+        error_path: 'data.node.userErrors'
+      )
+    end
+    let(:shop_integration) do
+      CompanyIntegration.create!(
+        company: company, service: shopify, settings: { 'shop_domain' => 'demo.myshopify.com' },
+        credentials: { 'client_id' => 'CLIENT-ID', 'client_secret' => 'shpss_SECRET',
+                       'access_token' => 'CACHED-TOKEN',
+                       'token_expires_at' => 1.hour.from_now.iso8601 }
+      )
+    end
+
+    def graphql_url = 'https://demo.myshopify.com/admin/api/2026-07/graphql.json'
+
+    def token_url = 'https://demo.myshopify.com/admin/oauth/access_token'
+
+    def run_graphql
+      described_class.new(company_integration: shop_integration,
+                          payload: { node_gid: 'gid://shopify/Node/1' }).call
+    end
+
+    def graphql_response(body)
+      { status: 200, headers: { 'Content-Type' => 'application/json' }, body: body.to_json }
+    end
+
+    it 'sends the document with the mapped payload as variables to the URI of the account' do
+      stub_request(:post, graphql_url).to_return(graphql_response(data: { node: { id: 'N1' } }))
+      run_graphql
+      expect(WebMock).to have_requested(:post, graphql_url).with(body: {
+        query: shopify.body_template, variables: { id: 'gid://shopify/Node/1' }
+      }.to_json)
+    end
+
+    it 'returns the mapped response' do
+      stub_request(:post, graphql_url).to_return(graphql_response(data: { node: { id: 'N1' } }))
+      expect(run_graphql).to eq('node_id' => 'N1')
+    end
+
+    it 'authenticates with the token in the declared header and never sends the secrets' do
+      stub_request(:post, graphql_url).to_return(graphql_response(data: {}))
+      run_graphql
+      expect(WebMock).to(have_requested(:post, graphql_url).with { |request| token_only?(request) })
+    end
+
+    def token_only?(request)
+      request.headers['X-Shopify-Access-Token'] == 'CACHED-TOKEN' &&
+        request.headers['Authorization'].nil? &&
+        request.headers.keys.none? { |key| key.downcase.include?('client') }
+    end
+
+    context 'when the provider rejects the cached token' do
+      before do
+        stub_request(:post, token_url)
+          .to_return(graphql_response(access_token: 'NEW-TOKEN', expires_in: 86_399))
+        stub_request(:post, graphql_url)
+          .with(headers: { 'X-Shopify-Access-Token' => 'CACHED-TOKEN' }).to_return(status: 401)
+        stub_request(:post, graphql_url).with(headers: { 'X-Shopify-Access-Token' => 'NEW-TOKEN' })
+                                        .to_return(graphql_response(data: { node: { id: 'N1' } }))
+      end
+
+      it 'renews the token and retries with it' do
+        expect(run_graphql).to eq('node_id' => 'N1')
+      end
+
+      it 'asks for a new token only once' do
+        run_graphql
+        expect(WebMock).to have_requested(:post, token_url).once
+      end
+    end
+
+    it 'treats top-level GraphQL errors as a failure even with HTTP 200' do
+      stub_request(:post, graphql_url)
+        .to_return(graphql_response(errors: [{ message: 'Throttled' }]))
+
+      expect { run_graphql }
+        .to raise_error(Integrations::AdapterExecutionError, /returned errors: Throttled/)
+    end
+
+    it 'treats the errors listed in the declared error_path as a failure' do
+      stub_request(:post, graphql_url).to_return(
+        graphql_response(data: { node: { userErrors: [{ field: 'id', message: 'Not found' }] } })
+      )
+
+      expect { run_graphql }.to raise_error(Integrations::AdapterExecutionError, /Not found/)
+    end
+
+    it 'accepts an empty error list as a success' do
+      stub_request(:post, graphql_url)
+        .to_return(graphql_response(data: { node: { id: 'N1', userErrors: [] } }))
+
+      expect(run_graphql).to eq('node_id' => 'N1')
+    end
+  end
 end

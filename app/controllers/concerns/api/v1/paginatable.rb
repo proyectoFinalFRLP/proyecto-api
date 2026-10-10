@@ -38,6 +38,12 @@ module Api
       # preferible a que el default de 20 le esconda depósitos en silencio.
       WHOLE_LIST_PER_PAGE = MAX_PER_PAGE
 
+      # La página más alta que se acepta. Muy por encima de cualquier listado
+      # real (un millón de páginas de cien filas), y lejos del límite de
+      # `bigint` del OFFSET: un `?page=` de veinte dígitos lo desbordaba y la
+      # API respondía 500 (hallazgo de la auditoría de TESIS-89).
+      MAX_PAGE = 1_000_000
+
       private
 
       # Devuelve `[filas, meta]`.
@@ -53,11 +59,13 @@ module Api
          { page: page, per_page: size, total: total || scope.count }]
       end
 
-      # Página pedida, nunca menor que 1. `page=0` y `page=-3` se acotan en vez
+      # Página pedida, entre 1 y MAX_PAGE. `page=0` y `page=-3` se acotan en vez
       # de romper: un offset negativo es un error de SQL, y un 400 por un número
-      # que se puede interpretar sería antipático.
+      # que se puede interpretar sería antipático. Por arriba, el mismo criterio:
+      # una página enorme se lee como la última aceptada y responde vacía, como
+      # cualquier página pasada del final.
       def page_number
-        [scalar_param(:page).to_i, 1].max
+        scalar_param(:page).to_i.clamp(1, MAX_PAGE)
       end
 
       # `scalar_param` y no `params[...]`: `?per_page[]=1` entrega un Array y

@@ -23,6 +23,12 @@ class ApplicationController < ActionController::API
   rescue_from Catalog::LockTimeoutError, with: :render_lock_conflict
   rescue_from ActiveRecord::CheckViolation, with: :render_constraint_violation
   rescue_from MalformedParameterError, with: :render_bad_request
+  # Lo que levanta `params.expect` cuando el body no trae el recurso o no es un
+  # objeto. Rails ya lo mapea a 400, pero con su propio cuerpo; acá se rescata
+  # para que el error viaje como {"error": "..."} igual que todos los demás
+  # (ADR-015). Vive en el padre porque los cuatro controllers que migraron a
+  # `expect` en TESIS-133 lo necesitan por igual.
+  rescue_from ActionController::ParameterMissing, with: :render_bad_request
 
   # Las acciones index usan policy_scope; el resto deben llamar authorize.
   # Si una acción futura olvida el authorize, falla en vez de pasar sin ruido.
@@ -89,6 +95,23 @@ class ApplicationController < ActionController::API
     return value if value.nil? || value.is_a?(String) || value.is_a?(Numeric)
 
     raise MalformedParameterError, "#{name} must be a single value"
+  end
+
+  # El envoltorio del body (`params[:product]`, `params[:order]`), validado como
+  # objeto y no vacío. `params.expect` hace esto mismo y además filtra, y es lo
+  # que usan los controllers cuyo body no tiene partes que se arman a mano.
+  #
+  # Acá no alcanza: `expect` considera faltante un filtrado que queda vacío, y
+  # un PUT que sólo manda `stocks` o `items` —las dos partes que se recorren
+  # línea por línea, cada una con sus propios 422— es un request válido que no
+  # puede terminar en 400. El chequeo de forma, que es lo que evitaba el 500,
+  # es el mismo: `permit` sobre un String levanta NoMethodError (TESIS-133).
+  def body_of(key)
+    body = params[key]
+    raise ActionController::ParameterMissing, key unless body.is_a?(ActionController::Parameters)
+    raise ActionController::ParameterMissing, key if body.empty?
+
+    body
   end
 
   def render_bad_request(exception)

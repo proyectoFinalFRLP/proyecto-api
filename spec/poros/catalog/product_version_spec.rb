@@ -31,6 +31,20 @@ RSpec.describe Catalog::ProductVersion, type: :poro do
 
   # El caso que motiva la card: el modal guarda cantidades absolutas, asi que un
   # movimiento de stock ajeno tiene que invalidar lo que el usuario vio.
+  # Los tres entran en PRODUCT_FIELDS, así que el modal los edita y tienen que
+  # mover la versión. Categoría viene de TESIS-150; empaque y norma, de TESIS-162.
+  it 'changes when the category changes' do
+    expect { product.update!(category: 'Machinery') }.to(change { version })
+  end
+
+  it 'changes when the packaging changes' do
+    expect { product.update!(packaging: 'Caja x 12') }.to(change { version })
+  end
+
+  it 'changes when the technical standard changes' do
+    expect { product.update!(technical_standard: 'IRAM 2178') }.to(change { version })
+  end
+
   it 'changes when the stock of a warehouse moves' do
     stock = Stock.create!(product: product, warehouse: central, quantity: 10)
     before_change = version

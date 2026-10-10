@@ -19,11 +19,22 @@ Rails.application.routes.draw do
       # del token.
       get 'me', to: 'me#show'
 
-      resources :integrations, only: %i[index update], param: :service_id
+      # Agregados de la pantalla de Reportes (S14) sobre una ventana de tiempo.
+      get 'reports/overview', to: 'reports#overview'
+
+      # Sólo lectura: las credenciales las carga el equipo de OneStock desde el
+      # backoffice (ADR-018).
+      resources :integrations, only: :index
       resources :warehouses, only: %i[index show create update destroy]
       resources :products, only: %i[index show create update destroy] do
         # Vocabulario de categorías: ruta de colección, no depende de un producto.
         get :categories, on: :collection
+
+        # Cuántos productos cae en cada pestaña del catálogo, en una sola
+        # respuesta (TESIS-162). Ruta propia y no dentro del `meta` del listado:
+        # los contadores no cambian al pasar de página, así que el cliente los
+        # pide una vez y los invalida recién cuando algo muta.
+        get :counts, on: :collection
 
         resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
       end
@@ -47,6 +58,10 @@ Rails.application.routes.draw do
         # así que no hay id que poner en la URL.
         resource :shipment, only: %i[create]
 
+        # Cancelar devuelve el stock de la orden: no es una edición más del
+        # estado, por eso no viaja en el PUT (Orders::CancelOrder).
+        post :cancel, on: :member
+
         # Vocabulario de provincias del destino (TESIS-128): ruta de colección,
         # no depende de una orden.
         get :provinces, on: :collection
@@ -58,11 +73,22 @@ Rails.application.routes.draw do
       # como ruta anidada: el listado es la vista principal, y la orden es un
       # filtro más.
       resources :shipments, only: %i[index show] do
+        # Cuántos envíos caen en cada pestaña del listado, en una sola respuesta
+        # (TESIS-165). Mismo criterio que `/products/counts`: ruta propia y no
+        # dentro del `meta` del listado, porque los contadores no cambian al
+        # pasar de página.
+        get :counts, on: :collection
+
         # La ruta es la de la card (POST /shipments/:id/dispatch); la acción se
         # llama `confirm` porque `dispatch` es un método de ActionController
         # (ver ShipmentsController#confirm).
         post :dispatch, on: :member, action: :confirm
       end
+
+      # Actividad reciente de la empresa (TESIS-162): la lista que abre la
+      # campanita. Recurso singular en plural por costumbre REST, pero sin id:
+      # es una vista agregada, no una colección de filas propias.
+      resources :activity, only: %i[index]
 
       resources :failed_events, path: 'failed-events', only: %i[index] do
         member do
@@ -74,8 +100,10 @@ Rails.application.routes.draw do
 
     # Ruta pública: la consumen las plataformas externas, no el frontend.
     namespace :webhooks do
-      post 'integrations/:company_integration_id', to: 'integrations#create'
-      post 'couriers/:company_integration_id', to: 'couriers#create'
+      # Con nombre: es la dirección que se le registra al proveedor
+      # (Integrations::RegisterWebhook).
+      post 'integrations/:company_integration_id', to: 'integrations#create', as: :integration
+      post 'couriers/:company_integration_id', to: 'couriers#create', as: :courier
     end
   end
 end

@@ -77,12 +77,13 @@ module Api
         Warehouse.find(transfer_params[key])
       end
 
+      # `expect` y no `require` + `permit`, igual que en productos: un
+      # `stock_transfer` que no sea un objeto es 400 y no un 500 (TESIS-133).
+      # Un company_id en el body se sigue descartando en silencio.
       def transfer_params
-        # permit y no expect, igual que en productos: un body con company_id se
-        # ignora en lugar de devolver 400.
-        # rubocop:disable-next Rails/StrongParametersExpect
-        params.require(:stock_transfer)
-              .permit(:product_id, :origin_warehouse_id, :destination_warehouse_id, :quantity)
+        params.expect(
+          stock_transfer: %i[product_id origin_warehouse_id destination_warehouse_id quantity]
+        )
       end
 
       def render_conflict(exception)

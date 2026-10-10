@@ -265,5 +265,39 @@ RSpec.describe 'Order updates API', type: :request do
 
       expect(response).to have_http_status(:bad_request)
     end
+
+    # `expect` corta por la forma del envoltorio antes de tocar la orden
+    # (TESIS-133); antes de eso, `permit` sobre un String era un 500.
+    it 'returns 400 and changes nothing when order is not an object', :aggregate_failures do
+      put "/api/v1/orders/#{order.id}", params: { order: 'Otro' }, headers: headers, as: :json
+
+      expect(response).to have_http_status(:bad_request)
+      expect(order.reload.customer_name).to eq('Juan Pérez')
+    end
+
+    it 'returns 400 and changes nothing when order is a list', :aggregate_failures do
+      put "/api/v1/orders/#{order.id}", params: { order: [{ customer_name: 'Otro' }] },
+                                        headers: headers, as: :json
+
+      expect(response).to have_http_status(:bad_request)
+      expect(order.reload.customer_name).to eq('Juan Pérez')
+    end
+  end
+
+  # Hallazgo de auditoría (TESIS-89): el mismo depósito en texto y en número
+  # contaba como dos y daba un 422 falso.
+  def stocked_second_product
+    Product.create!(company: company, sku: 'CEL-2', name: 'Funda').tap do |second|
+      Stock.create!(product: second, warehouse: warehouse, quantity: 5)
+    end
+  end
+
+  it 'accepts new lines that name the same warehouse as text and as a number' do
+    second = stocked_second_product
+    put_order(items: [{ id: line.id, quantity: 4 },
+                      { product_id: second.id, warehouse_id: warehouse.id.to_s, quantity: 1, unit_price: 5 },
+                      { product_id: product.id, warehouse_id: warehouse.id, quantity: 1, unit_price: 100 }])
+
+    expect(response).to have_http_status(:ok)
   end
 end

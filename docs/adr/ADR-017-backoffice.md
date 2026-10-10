@@ -49,6 +49,7 @@ Las credenciales de `company_integrations` son API keys y tokens de las cuentas 
 
 - El detalle muestra qué claves hay configuradas, con el valor enmascarado (`••••••`).
 - El formulario no las edita. Las carga cada empresa por la API (`PUT /api/v1/integrations/:service_id`), que tampoco las devuelve nunca.
+  - _(Actualización, [ADR-018](ADR-018-conexion-con-proveedores-reales.md): ahora las carga el equipo de OneStock desde acá, con la acción «Configure connection», un campo de password por clave que nunca se precarga. El formulario del recurso sigue sin editarlas, y la API de la empresa ya no tiene alta.)_
 - Editarlas desde Avo, además, las rompía: el campo de código manda texto, y `serialize :credentials, coder: JSON` lo guardaba como String, con lo que `Integrations::HttpAdapter` fallaba al recorrerlas. Una fila que haya quedado así se muestra enmascarada entera.
 - ⚠️ En Avo, `only_on: :show` saca un campo del formulario pero lo sigue aceptando en un PATCH armado a mano. Para que no se pueda escribir hace falta `disabled: true`. Vale para cualquier recurso nuevo.
 
@@ -90,6 +91,7 @@ Un store en la base (gema `activerecord-session_store`) o en la cache (`:cache_s
 
 - ✅ El admin podría cargar credenciales en nombre de una empresa
 - ❌ Obliga a parsear y validar JSON en el backoffice para un caso de uso que no existe: las carga la empresa
+- _(Actualización, ADR-018: el caso de uso apareció, y se resolvió con una acción con un campo por clave en vez de JSON.)_
 
 ### Sacar «Recordarme»
 
