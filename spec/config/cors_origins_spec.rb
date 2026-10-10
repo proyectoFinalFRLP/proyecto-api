@@ -52,6 +52,13 @@ RSpec.describe CorsOrigins do
     expect(allowed?('https://www.otro.test', value: value)).to be(false)
   end
 
+  # En Ruby, ^ y $ anclan por línea: con ellos, un origen de dos líneas pasaría
+  # por la segunda. Un header no puede traer un salto de línea, pero la regex
+  # tiene que seguir anclada al string entero, con \A y \z.
+  it 'anchors the whole origin, not one of its lines' do
+    expect(allowed?("https://evil.example\nhttps://norte.ejemplo.test")).to be(false)
+  end
+
   # Quien despliega podría escribir `*` esperando «todos»: el valor no puede
   # volver a abrir la API a cualquier origen.
   it 'does not read a bare asterisk as every origin' do
