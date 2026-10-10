@@ -234,10 +234,10 @@ class Product < ApplicationRecord
   # saca de `stocks`. Así los dos números dicen lo mismo y no hace falta un
   # estado nuevo.
   #
-  # Lo que sí queda abierto es la cancelación: sus unidades vuelven al estante
-  # pero nada las devuelve a `stocks`, así que no las cuenta ni este scope ni
-  # `total_stock`. Eso lo cierra TESIS-168, que es la card que repone el
-  # stock al cancelar.
+  # La cancelación ya no deja unidades sin contar: desde TESIS-168
+  # `Orders::CancelOrder` las devuelve a `stocks`, así que salen de este scope
+  # —la orden pasa a `cancelled`— y entran en `total_stock` como libres. No se
+  # cuentan dos veces: es un traspaso de comprometido a libre.
   # La definición vive en `OrderItem.committed` desde TESIS-170, porque
   # `Warehouse` necesita la misma para su ocupación. Acá sólo se la acota a
   # las líneas de este producto.
