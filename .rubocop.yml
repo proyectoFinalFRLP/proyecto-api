@@ -64,6 +64,13 @@ Metrics/MethodLength:
 Metrics/ClassLength:
   Max: 150
 
+# Los archivos de seeds son tablas de datos, no lógica: su largo es el de la
+# tabla, y partirla sólo para entrar en el límite alejaría cada fila de la
+# explicación de por qué está. `db/seeds.rb` ya queda afuera de todos los cops.
+Metrics/ModuleLength:
+  Exclude:
+    - db/seeds/**/*
+
 Metrics/AbcSize:
   Max: 25
 
