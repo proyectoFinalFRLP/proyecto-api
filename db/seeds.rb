@@ -1324,7 +1324,7 @@ if ml_integration
   end
 end
 
-# Cuatro semanas de ventas y dos eventos en la DLQ para la demo (ver el archivo).
+# Dos meses de ventas y dos eventos en la DLQ para la demo (ver el archivo).
 load Rails.root.join('db/seeds/demo_activity.rb')
 
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
