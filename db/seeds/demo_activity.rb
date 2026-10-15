@@ -4,16 +4,31 @@
 #
 # Los seeds de arriba crean las órdenes en el momento de correrlos: todas caen
 # el mismo día, y la pantalla de Reportes dibujaba un solo punto. Tampoco había
-# nada en la cola de eventos fallidos. Esto agrega cuatro semanas de ventas
-# manuales repartidas día por día —algunas despachadas y entregadas, una
-# cancelada— y dos eventos en la DLQ, uno agotado y uno pendiente.
+# nada en la cola de eventos fallidos. Esto agrega dos meses de ventas manuales
+# repartidas día por día —algunas despachadas y entregadas, dos canceladas— y
+# dos eventos en la DLQ, uno agotado y uno pendiente.
+#
+# Dos meses y no cuatro semanas porque Reportes compara la ventana elegida con
+# la anterior del mismo largo (`Reports::BuildOverview#trended`). Con un solo
+# mes, «últimos 30 días» no tenía contra qué comparar: Órdenes y Facturación
+# salían sin tendencia, y Volumen despachado mostraba +2.425 % contra las 4
+# unidades que los seeds de arriba despachan en fechas fijas de 2026. Esas 4
+# siguen contando mientras la ventana anterior las alcance, pero contra el
+# centenar del mes anterior mueven la tendencia unos pocos puntos.
+#
+# Lo mismo con «últimos 7 días», que es lo primero que abre Reportes: las
+# órdenes de los seeds de arriba caen todas en esta semana, y la anterior tenía
+# cuatro ventas y el despacho grande de la Municipalidad. Daba +200 % de
+# órdenes, +175 % de facturación y −75 % de volumen despachado. Las ventas del
+# final de la tabla emparejan las dos semanas.
 #
 # Va en un archivo aparte y no dentro de `seeds.rb` para que tocarlo no choque
 # con los cambios de las plantillas y las conexiones, que viven allá.
 #
 # Idempotente como el resto: cada venta se reconoce por el nombre del cliente,
 # y cada evento por su error. Las fechas son relativas a cuando se corre, en
-# hora de Argentina, para que la ventana de «últimos 30 días» siempre las vea.
+# hora de Argentina, para que «últimos 30 días» y el período anterior siempre
+# las vean.
 #
 # No mueve stock: son ventas pasadas, ya despachadas o canceladas, y el stock
 # de la demo es el que cargan los seeds de arriba.
@@ -45,7 +60,75 @@ module DemoActivity
     [5, 'Gimnasio Olimpo', [['NOR-004', 8]], 'paid', :in_transit],
     [3, 'Distribuidora Este', [['NOR-002', 2], ['NOR-003', 2]], 'paid', :in_transit],
     [2, 'Kiosco El Sol', [['NOR-005', 4]], 'pending', nil],
-    [1, 'Bar Notable', [['NOR-001', 1]], 'pending', nil]
+    [1, 'Bar Notable', [['NOR-001', 1]], 'pending', nil],
+
+    # El mes anterior: contra esto calcula Reportes la tendencia de «últimos 30
+    # días». Va al final y no arriba, en orden, porque del índice salen el
+    # número de seguimiento y el operador de cada envío: corriendo las de arriba,
+    # una base ya sembrada recibiría números repetidos.
+    #
+    # Volumen parecido al de este mes (contando las del final de la tabla), a
+    # propósito no igual: unas órdenes menos, algo menos facturado y más
+    # unidades despachadas, para que las tres tarjetas muestren variaciones
+    # creíbles, y alguna en rojo.
+    #
+    # Todas entregadas: un envío de hace dos meses no sigue en camino, y así
+    # Volumen despachado y Entregas por operador también tienen con qué
+    # comparar. La más nueva es de hace 31 días y no de 30, porque el despacho
+    # va un día después de la venta (ver `seed_shipment`) y tiene que caer
+    # dentro de la ventana anterior: Reportes fecha el despacho por ese evento.
+    # La entrega de las últimas cae ya en este mes, como pasaría de verdad, y no
+    # mueve ningún número: lo entregado se cuenta por el estado del envío.
+    #
+    # Sin hueco con las de arriba: si la serie se cortara unos días antes, la
+    # curva semanal de «últimos 90 días» mostraría una semana en cero en el
+    # medio de la actividad.
+    [59, 'Inmobiliaria Diagonal', [['NOR-001', 2]], 'paid', :delivered],
+    [57, 'Escuela Técnica N° 5', [['NOR-002', 2]], 'paid', :delivered],
+    [56, 'Farmacia Central', [['NOR-005', 12], ['NOR-004', 2]], 'paid', :delivered],
+    [54, 'Club Social Tolosa', [['NOR-003', 5]], 'paid', :delivered],
+    [53, 'Cooperativa City Bell', [['NOR-007', 10], ['NOR-005', 6]], 'paid', :delivered],
+    [51, 'Estudio Jurídico Moreno', [['NOR-001', 1], ['NOR-006', 1]], 'paid', :delivered],
+    [50, 'Veterinaria Los Hornos', [['NOR-004', 4]], 'paid', :delivered],
+    [48, 'Instituto Superior Belgrano', [['NOR-002', 1], ['NOR-003', 3]], 'paid', :delivered],
+    [47, 'Restaurante La Cantina', [['NOR-006', 2]], 'cancelled', nil],
+    [46, 'Centro Médico Gonnet', [['NOR-006', 2]], 'paid', :delivered],
+    [44, 'Imprenta Rápida 7', [['NOR-005', 12]], 'paid', :delivered],
+    [43, 'Lavadero Burbujas', [['NOR-007', 3]], 'paid', :delivered],
+    [41, 'Escribanía Ledesma', [['NOR-001', 2], ['NOR-003', 2]], 'paid', :delivered],
+    [40, 'Supermercado Don Pepe', [['NOR-004', 5], ['NOR-005', 8]], 'paid', :delivered],
+    [38, 'Fundación Esperanza', [['NOR-002', 1]], 'paid', :delivered],
+    [37, 'Autoservicio El Trébol', [['NOR-003', 2]], 'paid', :delivered],
+    [36, 'Agencia de Seguros Plata', [['NOR-001', 1], ['NOR-007', 2]], 'paid', :delivered],
+    [34, 'Laboratorio Bioquímico Sur', [['NOR-006', 1], ['NOR-005', 5]], 'paid', :delivered],
+    [33, 'Cafetería Plaza Moreno', [['NOR-003', 4]], 'paid', :delivered],
+    [32, 'Academia de Idiomas Babel', [['NOR-002', 1], ['NOR-004', 2]], 'paid', :delivered],
+    [31, 'Carpintería Los Pinos', [['NOR-007', 5]], 'paid', :delivered],
+
+    # La semana anterior a «últimos 7 días», por la misma razón y también al
+    # final. Esta semana carga con las órdenes que los seeds de arriba crean al
+    # correr (sin facturación ni despacho), así que la anterior necesita más
+    # ventas que esta para quedar pareja: diez contra doce.
+    #
+    # El volumen despachado se empareja con la de hace 7 días: se vende en la
+    # semana anterior y se despacha al día siguiente, ya en esta. Es lo que
+    # equilibra el despacho de la Municipalidad de Berisso, que cae del otro lado.
+    # Las demás llevan pocas unidades por venta, para no agrandarlo de nuevo.
+    [13, 'Hostel Plaza Paso', [['NOR-003', 2]], 'paid', :delivered],
+    [12, 'Estudio de Arquitectura Línea', [['NOR-002', 1]], 'paid', :delivered],
+    [10, 'Peluquería Glam', [['NOR-004', 2]], 'paid', :delivered],
+    [9, 'Escuela de Música Allegro', [['NOR-003', 2]], 'paid', :delivered],
+    [8, 'Consultora Datos Abiertos', [['NOR-001', 2]], 'paid', :delivered],
+    [7, 'Mayorista El Puerto', [['NOR-005', 30], ['NOR-007', 10], ['NOR-004', 4]], 'paid',
+     :delivered],
+
+    # Las de arriba también suman a «últimos 30 días»: sin estas, el mes
+    # anterior quedaba corto y las tres tendencias subían a entre +34 % y +45 %.
+    [58, 'Hotel del Bosque', [['NOR-003', 4], ['NOR-005', 16]], 'paid', :delivered],
+    [52, 'Corralón Los Andes', [['NOR-007', 12], ['NOR-004', 6]], 'paid', :delivered],
+    [45, 'Biblioteca Popular Alborada', [['NOR-002', 1]], 'paid', :delivered],
+    [39, 'Panificadora Arco Iris', [['NOR-005', 10]], 'paid', :delivered],
+    [35, 'Taller de Motos Ensenada', [['NOR-004', 5], ['NOR-006', 1]], 'paid', :delivered]
   ].freeze
 
   module_function
