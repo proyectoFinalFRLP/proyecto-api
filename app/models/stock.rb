@@ -17,9 +17,12 @@ class Stock < ApplicationRecord
     "#{product&.name} @ #{warehouse&.name}"
   end
 
-  # Disponibilidad de este depósito, con la misma regla que el producto.
+  # Disponibilidad de este depósito: si guarda unidades o no. No hay «stock
+  # bajo» por depósito (TESIS-182): el umbral del producto es para su total, y
+  # aplicarlo a cada depósito exageraba. Con un mínimo de 100 y 60 unidades en
+  # cada uno de dos depósitos, el producto está bien y cada depósito salía bajo.
   def stock_status
-    Product.stock_status_for(quantity)
+    quantity.to_i.positive? ? 'available' : 'out_of_stock'
   end
 
   # El disparo del sync saliente vive acá y no en el ABM porque la condición es

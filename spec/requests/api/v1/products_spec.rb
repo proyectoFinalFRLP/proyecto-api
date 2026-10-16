@@ -155,6 +155,16 @@ RSpec.describe 'Products API', type: :request do
           .to eq(Product::LOW_STOCK_THRESHOLD)
       end
 
+      # TESIS-182: cada producto se compara contra su propio umbral. Las mismas
+      # 58 unidades son pocas para uno y alcanzan para otro.
+      it 'compares each product against its own threshold', :aggregate_failures do
+        stocked('UPS', 58).update!(low_stock_threshold: 100)
+        stocked('DISYUNTOR', 58).update!(low_stock_threshold: 20)
+
+        expect(skus(status: 'low')).to contain_exactly('BAJO', 'UPS')
+        expect(skus(status: 'available')).to contain_exactly('DISPONIBLE', 'DISYUNTOR')
+      end
+
       # Las tres pestañas particionan el catálogo: sin esto un producto podría
       # no aparecer en ninguna, o aparecer en dos.
       it 'splits the catalog with no gaps and no overlap' do
@@ -693,14 +703,16 @@ RSpec.describe 'Products API', type: :request do
       expect(detail(product_with(0))['stock_status']).to eq('out_of_stock')
     end
 
-    # Ejemplo de la card con los números de NOR-003 en los seeds: 130 en total
-    # (available), repartidos 100 y 30 (low los dos).
-    it 'computes the status of each warehouse with the same rule', :aggregate_failures do
+    # Los números de NOR-003 en los seeds: 130 en total (available), repartidos
+    # 100 y 30. Hasta TESIS-182 cada depósito se comparaba contra el umbral del
+    # total y los dos salían «bajo» con el producto bien abastecido. Ahora un
+    # depósito sólo dice si guarda unidades.
+    it 'tells per warehouse only whether it holds units', :aggregate_failures do
       product = product_with(100)
       Stock.create!(product: product, warehouse: depot('North'), quantity: 30)
 
       expect(detail(product)['stock_status']).to eq('available')
-      expect(detail(product)['stocks'].pluck('stock_status')).to eq(%w[low low])
+      expect(detail(product)['stocks'].pluck('stock_status')).to eq(%w[available available])
     end
 
     it 'adds the status to the create answer as well' do
@@ -892,6 +904,25 @@ RSpec.describe 'Products API', type: :request do
       expect(response).to have_http_status(:created)
     end
 
+    it 'takes the low stock threshold of the product (TESIS-182)', :aggregate_failures do
+      post '/api/v1/products', params: { product: product_attrs.merge(low_stock_threshold: 25) },
+                               headers: headers, as: :json
+
+      expect(response.parsed_body['low_stock_threshold']).to eq(25)
+      expect(Product.last.low_stock_threshold).to eq(25)
+    end
+
+    it 'starts at the default threshold when the body does not bring one' do
+      post '/api/v1/products', params: { product: product_attrs }, headers: headers, as: :json
+      expect(response.parsed_body['low_stock_threshold']).to eq(Product::LOW_STOCK_THRESHOLD)
+    end
+
+    it 'rejects a negative threshold with 422' do
+      post '/api/v1/products', params: { product: product_attrs.merge(low_stock_threshold: -1) },
+                               headers: headers, as: :json
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
     it 'serializes weight as a JSON number, not a string', :aggregate_failures do
       post '/api/v1/products', params: { product: product_attrs }, headers: headers, as: :json
 
@@ -1012,6 +1043,12 @@ RSpec.describe 'Products API', type: :request do
           headers: headers, as: :json
       expect(response).to have_http_status(:ok)
       expect(product.reload.name).to eq('Updated Name')
+    end
+
+    it 'changes the low stock threshold (TESIS-182)' do
+      put "/api/v1/products/#{product.id}", params: { product: { low_stock_threshold: 10 } },
+                                            headers: headers, as: :json
+      expect(product.reload.low_stock_threshold).to eq(10)
     end
 
     it 'returns 404 for a product from another company' do

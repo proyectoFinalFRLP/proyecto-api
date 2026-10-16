@@ -4,7 +4,8 @@ class ProductSerializer < ApplicationSerializer
   identifier :id
 
   fields :sku, :name, :description, :category, :packaging, :technical_standard,
-         :dimensions, :total_stock, :in_transit_quantity, :created_at, :updated_at
+         :dimensions, :total_stock, :in_transit_quantity, :low_stock_threshold,
+         :created_at, :updated_at
 
   # Los tres números del stock que muestra el detalle (TESIS-162). Van los tres
   # desde el backend y ninguno se deriva en el cliente: `on_hand` no es
