@@ -4,11 +4,21 @@ module Api
   module V1
     class FailedEventsController < ApplicationController
       include Paginatable
+      include Sortable
 
       before_action :set_failed_event, only: %i[requeue discard]
 
+      # Columnas por las que se puede ordenar el listado (TESIS-184).
+      SORTS = {
+        'status' => Sortable.lifecycle('failed_events.status', FailedEvent::STATUSES.values),
+        'attempts' => 'failed_events.attempts',
+        'next_retry_at' => 'failed_events.next_retry_at',
+        'created_at' => 'failed_events.created_at'
+      }.freeze
+
       def index
-        events, meta = paginate(filtered_events.order(created_at: :desc))
+        events, meta = paginate(sort_listing(filtered_events, SORTS,
+                                             default: { created_at: :desc, id: :desc }))
 
         render json: { data: FailedEventSerializer.render_as_hash(events), meta: meta }
       end

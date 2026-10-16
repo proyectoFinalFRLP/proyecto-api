@@ -4,9 +4,18 @@ module Api
   module V1
     class WarehousesController < ApplicationController
       include Paginatable
+      include Sortable
 
       before_action :set_warehouse, only: %i[show update destroy]
       rescue_from ActiveRecord::RecordNotDestroyed, with: :render_conflict
+
+      # Columnas por las que se puede ordenar el listado (TESIS-184). Las
+      # unidades guardadas son el alias del agregado de `with_stored_units`.
+      SORTS = {
+        'name' => 'warehouses.name',
+        'zip_code' => 'warehouses.zip_code',
+        'stored_units' => 'stored_units'
+      }.freeze
 
       def index
         # with_stored_units agrega la suma de stocks en la misma consulta: sin
@@ -19,7 +28,8 @@ module Api
         # avisa si alguna vez lo pasa.
         #
         # `total:` explícito: with_stored_units agrupa por warehouses.id.
-        scope = policy_scope(Warehouse).with_stored_units.order(created_at: :desc)
+        scope = sort_listing(policy_scope(Warehouse).with_stored_units, SORTS,
+                             default: { created_at: :desc, id: :desc })
         warehouses, meta = paginate(scope, per_page: WHOLE_LIST_PER_PAGE,
                                            total: policy_scope(Warehouse).count)
 
