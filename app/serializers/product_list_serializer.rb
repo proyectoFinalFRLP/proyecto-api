@@ -3,7 +3,7 @@
 class ProductListSerializer < ApplicationSerializer
   identifier :id
 
-  fields :sku, :name, :description, :category, :dimensions, :total_stock,
+  fields :sku, :name, :description, :category, :total_stock,
          :in_transit_quantity, :low_stock_threshold, :created_at, :updated_at
 
   # Disponibilidad ya resuelta, para que la fila no tenga que reimplementar el
@@ -14,6 +14,14 @@ class ProductListSerializer < ApplicationSerializer
   # defecto; exponerlo como número evita que el front tenga que parsear.
   field :weight do |product|
     product.weight.to_f
+  end
+
+  # Las medidas en centímetros (TESIS-185), como número por el mismo motivo que
+  # el peso. null cuando no están cargadas: no es lo mismo que medir cero.
+  Product::MEASURES.each do |measure|
+    field measure do |product|
+      product.public_send(measure)&.to_f
+    end
   end
 
   # Nodo principal para la columna "Location Node" del listado. El desglose

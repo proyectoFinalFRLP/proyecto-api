@@ -53,7 +53,26 @@ module Shipments
     # occurred_at es NOT NULL en la tabla; si el courier no lo mandó, usamos el
     # momento del procesamiento en lugar de fallar.
     def occurred_at
-      @occurred_at ||= @translated[:occurred_at] || Time.current
+      @occurred_at ||= @translated[:occurred_at] || day_precision_time || Time.current
+    end
+
+    # El courier dijo el día y no la hora (`occurred_on`, TESIS-186: OCA informa
+    # el estado actual con `dd/MM/yyyy`). Se registra al final de ese día, o
+    # ahora si el día es hoy, y nunca antes del último evento: sin hora no hay
+    # cómo ordenar dos eventos del mismo día, y la consulta es por el estado
+    # ACTUAL, así que lo que llega es lo más nuevo. Sin esto el primer estado
+    # del día quedaba antes de «Etiqueta generada» y se descartaba como
+    # desordenado. Como no hay hora, el duplicado se mira por el último estado
+    # (ver #duplicate?).
+    def day_precision_time
+      day = @translated[:occurred_on]
+      return nil if day.nil?
+
+      [[day.end_of_day, Time.current].min, last_occurred_at].compact.max
+    end
+
+    def last_occurred_at
+      @shipment.shipment_events.maximum(:occurred_at)
     end
 
     # Si la plantilla no supo traducir el estado externo (no está en el
@@ -90,8 +109,8 @@ module Shipments
     # Llegó desordenado: ya hay registrado un evento con occurred_at más nuevo
     # para este envío. Se descarta en lugar de pisar un estado más reciente.
     def stale?
-      last_occurred_at = @shipment.shipment_events.maximum(:occurred_at)
-      last_occurred_at.present? && occurred_at < last_occurred_at
+      last = last_occurred_at
+      last.present? && occurred_at < last
     end
   end
 end

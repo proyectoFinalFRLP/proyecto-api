@@ -14,6 +14,10 @@ module Integrations
   #
   # Nunca propaga el error del proveedor: lo devuelve como mensaje, que es lo
   # que la pantalla le muestra al usuario.
+  #
+  # Una respuesta en la que no se encuentra nada de lo que la plantilla mapea
+  # también es un fallo: hay proveedores que contestan una cuenta inexistente
+  # con un 200 vacío (OCA devuelve un DataSet sin filas, TESIS-186).
   class TestConnection < ApplicationPoro
     OPERATION = :connection_test
     ACCOUNT_NAME_KEY = 'account_name'
@@ -28,6 +32,8 @@ module Integrations
       return without_test_template if template.nil?
 
       response = HttpAdapter.new(company_integration: @integration, service: template).call
+      return empty_answer(template) if response.empty? && template.response_mapper.any?
+
       complete_settings(response)
       { ok: true, message: success_message(response) }
     rescue AdapterExecutionError => e
@@ -46,6 +52,11 @@ module Integrations
 
       EnsureAccessToken.new(company_integration: @integration).call
       { ok: true, message: "#{service.service_name}: access token obtained" }
+    end
+
+    def empty_answer(template)
+      { ok: false,
+        message: "#{template.service_name} answered without account data: check the credentials" }
     end
 
     def complete_settings(response)

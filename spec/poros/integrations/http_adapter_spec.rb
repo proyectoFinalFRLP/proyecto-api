@@ -331,4 +331,81 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
       expect(run_graphql).to eq('node_id' => 'N1')
     end
   end
+
+  # TESIS-186: OCA e-Pak, un servicio ASMX que recibe un form y contesta XML.
+  describe 'form requests and XML responses' do
+    let(:form_service) do
+      Service.create!(service_name: 'OCA - Cotización', type: 'courier', http_method: 'POST',
+                      uri: 'https://oca.test/Oep_TrackEPak.asmx/Tarifar_Envio_Corporativo',
+                      request_format: 'form', response_format: 'xml', auth_strategy: 'none',
+                      request_mapper: { 'PesoTotal' => 'total_weight',
+                                        'CodigoPostalDestino' => 'destination_postal_code',
+                                        'Cuit' => 'settings.cuit', 'usr' => 'credentials.usr' },
+                      response_mapper: { 'Table.0.Total' => 'shipping_cost',
+                                         'Table.0.PlazoEntrega' => 'estimated_days' },
+                      error_path: 'Table1.0.Error')
+    end
+    let(:form_integration) do
+      CompanyIntegration.create!(company: company, service: form_service,
+                                 settings: { 'cuit' => '30-53625919-4' },
+                                 credentials: { 'usr' => 'test@oca.com.ar', 'psw' => '123456' })
+    end
+
+    def url = 'https://oca.test/Oep_TrackEPak.asmx/Tarifar_Envio_Corporativo'
+
+    def quote(payload = { total_weight: BigDecimal('2.5'), destination_postal_code: '1900' })
+      described_class.new(company_integration: form_integration, payload: payload).call
+    end
+
+    def failure
+      quote
+    rescue Integrations::AdapterExecutionError => e
+      e
+    end
+
+    it 'sends the mapped values as a urlencoded form, decimals with a dot' do
+      stub_request(:post, url).to_return(oca_xml('quote'))
+      quote
+      expect(WebMock).to have_requested(:post, url).with(headers: { 'Content-Type' => 'application/x-www-form-urlencoded' },
+                                                         body: 'PesoTotal=2.5&CodigoPostalDestino=1900&Cuit=30-53625919-4&usr=test%40oca.com.ar')
+    end
+
+    it 'reads the XML DataSet through the response_mapper' do
+      stub_request(:post, url).to_return(oca_xml('quote'))
+      expect(quote).to eq('shipping_cost' => '181.9200', 'estimated_days' => '1')
+    end
+
+    it 'sends no auth headers: the account travels as parameters' do
+      stub_request(:post, url).to_return(oca_xml('quote'))
+      quote
+      leaked = ->(request) { request.headers.keys.intersect?(%w[Usr Psw Authorization]) }
+      expect(WebMock).not_to have_requested(:post, url).with(&leaked)
+    end
+
+    it 'sends the form in the query string of a GET' do
+      form_service.update!(http_method: 'GET')
+      query = 'PesoTotal=2.5&CodigoPostalDestino=1900&Cuit=30-53625919-4&usr=test%40oca.com.ar'
+      stub_request(:get, "#{url}?#{query}").to_return(oca_xml('quote'))
+      expect(quote['shipping_cost']).to eq('181.9200')
+    end
+
+    it 'raises a rejection for a business error that comes with HTTP 200' do
+      stub_request(:post, url).to_return(oca_xml('quote_error'))
+      expect(failure).to have_attributes(
+        rejected?: true, message: end_with('habilitado para el ámbito y operativas elegidos')
+      )
+    end
+
+    it 'raises an HTTP error for a missing parameter, without the secrets', :aggregate_failures do
+      stub_request(:post, url).to_return(status: 500, body: oca_fixture('missing_parameter.txt'))
+      expect(failure).to have_attributes(response_status: 500, rejected?: false,
+                                         response_body: include('Missing parameter: Operativa'))
+      expect(failure.payload.to_s).not_to include('test@oca.com.ar')
+    end
+
+    it 'raises when a 200 is not XML' do
+      stub_request(:post, url).to_return(status: 200, body: 'hola')
+      expect { quote }.to raise_error(Integrations::AdapterExecutionError, /non-XML response/)
+    end
+  end
 end

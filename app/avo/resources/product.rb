@@ -20,7 +20,10 @@ module Avo
         field :description, as: :textarea, only_on: :show
         field :category, as: :select, options: ::Product::CATEGORIES.index_with(&:itself)
         field :weight, as: :number
-        field :dimensions, as: :text
+        # Largo × ancho × alto, en centímetros (TESIS-185).
+        field :length_cm, as: :number, name: 'Length (cm)', step: 0.01
+        field :width_cm, as: :number, name: 'Width (cm)', step: 0.01
+        field :height_cm, as: :number, name: 'Height (cm)', step: 0.01
         field :low_stock_threshold, as: :number, name: 'Low stock threshold'
         field :company, as: :belongs_to
 

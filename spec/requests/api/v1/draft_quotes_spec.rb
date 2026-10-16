@@ -79,6 +79,27 @@ RSpec.describe 'Draft quotes API', type: :request do
         .with(body: hash_including('cp' => '5000', 'kilos' => '3.0'))
     end
 
+    # TESIS-186: los couriers que piden localidad, provincia o valor declarado.
+    def ask_for_city_province_and_value
+      Service.find_by!(service_name: 'Fast - Cotización').update!(
+        request_mapper: { 'ciudad' => 'destination_city', 'provincia' => 'destination_province',
+                          'valor' => 'declared_value' }
+      )
+    end
+
+    it 'passes the optional city, province and declared value to the courier' do
+      ask_for_city_province_and_value
+      quote_draft(draft(destination_city: ' Córdoba ', destination_province: 'Córdoba', declared_value: '1500.50'))
+      expect(WebMock).to have_requested(:post, rates)
+        .with(body: { 'ciudad' => 'Córdoba', 'provincia' => 'Córdoba', 'valor' => 1500.5 })
+    end
+
+    it 'rejects a declared value that is not a number' do
+      quote_draft(draft(declared_value: 'mucho'))
+
+      expect(response).to have_http_status(:bad_request)
+    end
+
     # El punto de la card: cotizar no crea la orden ni toca el stock.
     it 'does not create an order' do
       expect { quote_draft }.not_to change(Order, :count)

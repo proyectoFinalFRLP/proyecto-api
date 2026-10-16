@@ -21,16 +21,28 @@ module Integrations
       @mapper = mapper || service.response_mapper
     end
 
+    # Índices que también valen sobre un Hash suelto: la primera y la última
+    # fila de una lista de una sola fila. Un XML no distingue «una fila» de
+    # «una lista con una fila» (ver ParseXmlResponse), y la plantilla no
+    # tendría cómo saber cuál le toca.
+    SINGLE_ROW_INDEXES = %w[0 -1].freeze
+
     # Navega una ruta con notación de puntos, con soporte de índices de array
-    # ("bulto.0.numeroDeEnvio"). Es método de clase porque
+    # ("bulto.0.numeroDeEnvio", "-1" es el último). Es método de clase porque
     # ParseExternalCollection ubica su lista con las mismas reglas.
     def self.dig_path(node, path)
       path.split('.').reduce(node) do |current, key|
         case current
         when Array then current[key.to_i]
-        when Hash then current[key]
+        when Hash then dig_hash(current, key)
         end
       end
+    end
+
+    def self.dig_hash(hash, key)
+      return hash[key] if hash.key?(key) || SINGLE_ROW_INDEXES.exclude?(key)
+
+      hash
     end
 
     def call
@@ -47,7 +59,9 @@ module Integrations
     private
 
     def translate(value)
-      @service.response_value_mapper.fetch(value.to_s, value)
+      found, translated = TranslateResponseValue.new(mapper: @service.response_value_mapper,
+                                                     value: value).call
+      found ? translated : value
     end
   end
 end

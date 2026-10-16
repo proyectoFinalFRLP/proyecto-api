@@ -119,4 +119,42 @@ RSpec.describe Integrations::TestConnection, type: :poro do
         .to eq(ok: false, message: 'Tiendanube does not declare a connection test')
     end
   end
+
+  # TESIS-186: OCA contesta una cuenta equivocada con un DataSet vacío y HTTP 200.
+  context 'when the provider answers without any of the mapped data' do
+    let(:oca) do
+      Service.create!(service_name: 'OCA e-Pak', type: 'courier', http_method: 'POST',
+                      uri: 'https://oca.test/Alta', auth_strategy: 'none',
+                      setting_fields: [{ 'key' => 'operativa' }])
+    end
+    let(:integration) do
+      CompanyIntegration.create!(company: company, service: oca,
+                                 credentials: { 'usr' => 'test@oca.com.ar', 'psw' => 'wrong' })
+    end
+
+    before do
+      Service.create!(service_name: 'OCA e-Pak - Conexión', type: 'courier', http_method: 'POST',
+                      parent_service: oca, operation: 'connection_test',
+                      uri: 'https://oca.test/GetOperativasByUsuario', request_format: 'form',
+                      response_format: 'xml', auth_strategy: 'none',
+                      request_mapper: { 'usr' => 'credentials.usr', 'psw' => 'credentials.psw' },
+                      response_mapper: { 'Table.0.IdOperativa' => 'operativa' })
+    end
+
+    it 'reports a failure that points at the credentials' do
+      stub_request(:post, 'https://oca.test/GetOperativasByUsuario')
+        .to_return(oca_xml('connection_test_empty'))
+
+      expect(test_connection).to include(ok: false, message: end_with('check the credentials'))
+    end
+
+    it 'passes with the right credentials and learns the operativa', :aggregate_failures do
+      stub_request(:post, 'https://oca.test/GetOperativasByUsuario')
+        .with(body: { 'usr' => 'test@oca.com.ar', 'psw' => 'wrong' })
+        .to_return(oca_xml('connection_test'))
+
+      expect(test_connection).to eq(ok: true, message: 'OCA e-Pak: connection verified')
+      expect(integration.reload.settings).to eq('operativa' => '50007')
+    end
+  end
 end

@@ -6,6 +6,10 @@ class WarehouseSerializer < ApplicationSerializer
   # este depósito todavía. No es cero, que diría que no entra nada.
   fields :name, :zip_code, :address, :capacity
 
+  # Localidad y provincia del depósito (TESIS-185). Pueden ser null: los
+  # depósitos anteriores no las tienen cargadas.
+  fields :city, :province
+
   # Unidades guardadas en el deposito. Alimenta el widget de capacidad del panel
   # (TESIS-55): la barra compara depositos entre si, no contra una capacidad
   # maxima, porque el modelo no tiene ninguna.

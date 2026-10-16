@@ -50,6 +50,14 @@ RSpec.describe Catalog::ProductVersion, type: :poro do
     expect { product.update!(low_stock_threshold: 25) }.to(change { version })
   end
 
+  # TESIS-185: las tres medidas reemplazan al texto `dimensions`, y cada una
+  # se edita por separado.
+  Product::MEASURES.each do |measure|
+    it "changes when the #{measure} changes" do
+      expect { product.update!(measure => 12.5) }.to(change { version })
+    end
+  end
+
   it 'changes when the stock of a warehouse moves' do
     stock = Stock.create!(product: product, warehouse: central, quantity: 10)
     before_change = version

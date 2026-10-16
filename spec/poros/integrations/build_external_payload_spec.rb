@@ -97,4 +97,54 @@ RSpec.describe Integrations::BuildExternalPayload, type: :poro do
       expect(build({ available_quantity: 3 })).not_to have_key('locationId')
     end
   end
+
+  # TESIS-186: un servicio ASMX (OCA e-Pak) que recibe un form con la cuenta
+  # como parámetros y el alta como un XML dentro de uno de ellos.
+  describe 'form parameters, credentials and the body template' do
+    let(:form_service) do
+      Service.create!(
+        service_name: 'OCA', type: 'courier', http_method: 'POST', uri: 'https://oca.test/Alta',
+        request_format: 'form', auth_strategy: 'none',
+        body_template: '<envio cp="{{destination_postal_code}}" piso="{{floor}}" ' \
+                       'nombre="{{customer_name|truncate:10}}"/>',
+        request_mapper: { 'usr' => 'credentials.usr', 'Datos.Xml' => '{{template:body}}',
+                          'Confirmar' => 'literal:true', 'Archivo' => 'literal:',
+                          'Valor' => '{{declared_value|default:0}}' }
+      )
+    end
+
+    let(:result) { build(destination_postal_code: '1900', customer_name: 'Pérez & Cía S.A.') }
+
+    def build(payload)
+      described_class.new(service: form_service, payload: payload,
+                          credentials: { 'usr' => 'test@oca.com.ar' }).call
+    end
+
+    it 'reads a credentials.<key> value from the secrets of the account' do
+      expect(result['usr']).to eq('test@oca.com.ar')
+    end
+
+    it 'sends a literal value, even an empty one', :aggregate_failures do
+      expect(result['Confirmar']).to eq('true')
+      expect(result['Archivo']).to eq('')
+    end
+
+    it 'applies template filters' do
+      expect(result['Valor']).to eq('0')
+    end
+
+    it 'renders the body template escaped for XML, leaving a missing variable empty' do
+      expect(result['Datos.Xml'])
+        .to eq('<envio cp="1900" piso="" nombre="Pérez &amp; Cí"/>')
+    end
+
+    it 'does not nest dotted keys: a form parameter is named as written' do
+      expect(result).to have_key('Datos.Xml')
+    end
+
+    it 'never reads a secret from the payload' do
+      result = described_class.new(service: form_service, payload: { 'usr' => 'intruso' }).call
+      expect(result).not_to have_key('usr')
+    end
+  end
 end

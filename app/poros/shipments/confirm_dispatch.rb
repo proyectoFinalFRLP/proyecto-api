@@ -19,6 +19,10 @@ module Shipments
     # las llama cada courier.
     TRACKING_KEY = 'tracking_number'
     LABEL_KEY = 'shipping_label_url'
+    # El id con el que el courier nombra el despacho, además del número de
+    # seguimiento: en OCA, la orden de retiro (TESIS-186). Opcional, como la
+    # etiqueta.
+    REFERENCE_KEY = 'external_reference'
 
     # Único estado que admite despacho: el envío recién creado (TESIS-105).
     DISPATCHABLE_STATUS = 'pending'
@@ -152,25 +156,25 @@ module Shipments
     end
 
     # Contexto del despacho, en las claves internas que las plantillas mapean.
-    # Mismo vocabulario que la cotización (QuoteShipment#payload) más los datos
-    # del destinatario, que la etiqueta necesita imprimir.
+    # Mismo vocabulario que la cotización (CourierPayload) más los datos del
+    # destinatario, que la etiqueta necesita imprimir, y los ids propios del
+    # envío y la orden, para el courier que pide un número de remito
+    # (TESIS-186).
     def payload
-      {
-        'origin_zip_code' => @origin.zip_code,
-        'origin_address' => @origin.address,
-        'destination_zip_code' => order.customer_zip_code,
-        'destination_address' => order.customer_address,
-        'customer_name' => order.customer_name,
-        'customer_document' => order.customer_document,
-        'total_weight' => total_weight,
-        'total_items' => order.order_items.sum(:quantity)
-      }
+      CourierPayload.call(origin: @origin, destination: destination, lines: lines,
+                          declared_value: order.total_amount)
+                    .merge('customer_name' => order.customer_name,
+                           'customer_document' => order.customer_document,
+                           'shipment_id' => @shipment.id, 'order_id' => order.id)
     end
 
-    # Peso del paquete: peso × cantidad de cada ítem. `products.weight` arranca en
-    # 0, así que un producto sin peso cargado suma cero en vez de romper.
-    def total_weight
-      order.order_items.includes(:product).sum { |item| item.product.weight * item.quantity }
+    def destination
+      { zip_code: order.customer_zip_code, address: order.customer_address,
+        city: order.customer_city, province: order.customer_province }
+    end
+
+    def lines
+      order.order_items.includes(:product).map { |item| [item.product, item.quantity] }
     end
 
     def order
@@ -194,6 +198,7 @@ module Shipments
         @shipment.update!(company_integration: @integration,
                           tracking_number: tracking_number!(parsed),
                           shipping_label_url: parsed[LABEL_KEY],
+                          external_reference: parsed[REFERENCE_KEY]&.to_s,
                           status: DISPATCHED_STATUS,
                           **confirmed_cost)
         register_event

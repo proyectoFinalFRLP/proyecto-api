@@ -72,6 +72,47 @@ RSpec.describe Shipments::RegisterTrackingEvent, type: :poro do
     end
   end
 
+  # TESIS-186: OCA dice el día del estado, no la hora.
+  context 'when the courier dates the movement with a day and no time' do
+    include ActiveSupport::Testing::TimeHelpers
+
+    around { |example| travel_to(Time.zone.local(2026, 10, 16, 15, 0)) { example.run } }
+
+    def register_on(day, external_status: 'Retirado')
+      described_class.new(shipment: shipment,
+                          translated: translated(external_status: external_status,
+                                                 occurred_at: nil).merge(occurred_on: day)).call
+    end
+
+    before do
+      ShipmentEvent.create!(shipment: shipment, internal_status: 'ready_to_ship',
+                            external_status: 'Etiqueta generada',
+                            occurred_at: Time.zone.local(2026, 10, 16, 9, 25))
+    end
+
+    it 'registers a movement of today now, after the label, instead of dropping it' do
+      expect(register_on(Date.new(2026, 10, 16)).occurred_at).to eq(Time.current)
+    end
+
+    it 'registers a movement of a past day at the end of that day' do
+      shipment.shipment_events.update_all(occurred_at: Time.zone.local(2026, 10, 14, 9, 0)) # rubocop:disable Rails/SkipsModelValidations
+      expect(register_on(Date.new(2026, 10, 15)).occurred_at)
+        .to be_within(1.second).of(Date.new(2026, 10, 15).end_of_day)
+    end
+
+    it 'never registers it before the last movement' do
+      expect(register_on(Date.new(2026, 10, 10)).occurred_at)
+        .to eq(Time.zone.local(2026, 10, 16, 9, 25))
+    end
+
+    it 'does not repeat the same status on the next query', :aggregate_failures do
+      register_on(Date.new(2026, 10, 16))
+      travel 1.day
+      expect(register_on(Date.new(2026, 10, 16))).to be_nil
+      expect(shipment.shipment_events.where(external_status: 'Retirado').count).to eq(1)
+    end
+  end
+
   context 'when the courier does not date its movements' do
     before { register(occurred_at: nil) }
 

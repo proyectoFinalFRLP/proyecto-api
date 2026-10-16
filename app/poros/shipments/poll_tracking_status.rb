@@ -27,6 +27,9 @@ module Shipments
     # GET sólo puede usar la URI; un POST masivo, el request_mapper).
     TRACKING_NUMBER_PARAM = 'tracking_number'
     TRACKING_NUMBERS_PARAM = 'tracking_numbers'
+    # El id con el que el courier nombra el despacho (OCA pregunta por número
+    # de envío Y orden de retiro, TESIS-186). Va vacío si el envío no lo tiene.
+    REFERENCE_PARAM = 'external_reference'
 
     MISSING_EXTERNAL_STATUS = 'the response does not carry an external status'
 
@@ -68,8 +71,9 @@ module Shipments
     end
 
     def single(shipment)
-      body = fetch(payload: { TRACKING_NUMBER_PARAM => shipment.tracking_number },
-                   uri_params: { TRACKING_NUMBER_PARAM => shipment.tracking_number })
+      params = { TRACKING_NUMBER_PARAM => shipment.tracking_number,
+                 REFERENCE_PARAM => shipment.external_reference.to_s }
+      body = fetch(payload: params, uri_params: params)
       return if body.nil?
 
       translated = TranslateTrackingPayload.new(service: tracking_service, payload: body).call

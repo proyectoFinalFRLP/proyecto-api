@@ -58,16 +58,20 @@ Layout/EmptyLineAfterGuardClause:
 # Metrics
 # -------------------
 
-Metrics/MethodLength:
-  Max: 20
-
 Metrics/ClassLength:
   Max: 150
 
 # Los archivos de seeds son tablas de datos, no lógica: su largo es el de la
 # tabla, y partirla sólo para entrar en el límite alejaría cada fila de la
 # explicación de por qué está. `db/seeds.rb` ya queda afuera de todos los cops.
+# Lo mismo vale para el método que devuelve una plantilla entera (las de OCA,
+# db/seeds/oca.rb, TESIS-186).
 Metrics/ModuleLength:
+  Exclude:
+    - db/seeds/**/*
+
+Metrics/MethodLength:
+  Max: 20
   Exclude:
     - db/seeds/**/*
 

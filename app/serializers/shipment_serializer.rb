@@ -7,8 +7,14 @@
 class ShipmentSerializer < ApplicationSerializer
   identifier :id
 
-  fields :order_id, :status, :tracking_number, :shipping_label_url,
+  fields :order_id, :status, :tracking_number, :shipping_label_url, :external_reference,
          :created_at, :updated_at
+
+  # Si `GET /api/v1/shipments/:id/label` tiene algo que devolver (TESIS-186):
+  # el courier emite la etiqueta a pedido o dejó su URL al despachar.
+  field :label_available do |shipment|
+    Shipments::FetchLabel.available?(shipment)
+  end
 
   # Mismo motivo que en ShipmentListSerializer (TESIS-181).
   field :external_order_id do |shipment|

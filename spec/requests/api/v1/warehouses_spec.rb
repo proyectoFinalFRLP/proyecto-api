@@ -240,6 +240,41 @@ RSpec.describe 'Warehouses API', type: :request do
       end
     end
 
+    # TESIS-185: el origen de los envíos, desglosado para los couriers.
+    describe 'the city and the province' do
+      let(:located) { warehouse_attrs.merge(city: 'La Plata', province: 'Buenos Aires') }
+
+      it 'are saved when they come in the body', :aggregate_failures do
+        post '/api/v1/warehouses', params: { warehouse: located }, headers: headers, as: :json
+
+        expect(response).to have_http_status(:created)
+        expect(response.parsed_body.slice('city', 'province'))
+          .to eq('city' => 'La Plata', 'province' => 'Buenos Aires')
+      end
+
+      it 'stay null when nobody loaded them' do
+        post '/api/v1/warehouses', params: { warehouse: warehouse_attrs },
+                                   headers: headers, as: :json
+
+        expect(response.parsed_body.values_at('city', 'province')).to eq([nil, nil])
+      end
+
+      it 'refuses a province that is not on the list, with 422', :aggregate_failures do
+        post '/api/v1/warehouses', params: { warehouse: located.merge(province: 'Bs. As.') },
+                                   headers: headers, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.parsed_body['error']).to include('Province')
+      end
+
+      it 'takes a blank province as no province' do
+        post '/api/v1/warehouses', params: { warehouse: located.merge(province: '') },
+                                   headers: headers, as: :json
+
+        expect(response).to have_http_status(:created)
+      end
+    end
+
     it 'assigns the company from the JWT, ignoring any company_id in the body' do
       post '/api/v1/warehouses',
            params: { warehouse: warehouse_attrs.merge(company_id: other_company.id) },
