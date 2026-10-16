@@ -5,6 +5,7 @@ module Api
     class OrdersController < ApplicationController
       include OptimisticLocking
       include Paginatable
+      include Sortable
 
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
       rescue_from Catalog::InsufficientStockError, with: :render_insufficient_stock
@@ -20,6 +21,24 @@ module Api
       ORDER_FIELDS = %i[customer_name customer_document customer_email customer_phone
                         customer_address customer_zip_code customer_city
                         customer_province requires_shipping].freeze
+
+      # Columnas por las que se puede ordenar el listado (TESIS-184), con la
+      # expresión de cada una. El courier sale del envío de la orden con una
+      # subconsulta y no con un join: sumar tablas al FROM cambiaría el conteo
+      # del `meta` y la precarga del serializer.
+      SORTS = {
+        'created_at' => 'orders.created_at',
+        'destination' => 'orders.customer_address',
+        'status' => Sortable.lifecycle('orders.status', Order::STATUSES),
+        'courier' => <<~SQL.squish,
+          (SELECT services.service_name FROM shipments
+             JOIN company_integrations
+               ON company_integrations.id = shipments.company_integration_id
+             JOIN services ON services.id = company_integrations.service_id
+           WHERE shipments.order_id = orders.id)
+        SQL
+        'total' => 'orders.total_amount'
+      }.freeze
 
       # Campos sobre los que corre el buscador del listado (TESIS-52). Son las
       # formas en que un operador nombra una venta: el id con el que la conoce el
@@ -46,8 +65,9 @@ module Api
         # TESIS-53, que los piden con `?status=pending&per_page=1` y leen sólo
         # el meta. Si contara de más, los KPIs mentirían.
         orders, meta = paginate(
-          filtered_orders.preload(:order_items, shipment: { company_integration: :service })
-                         .order(created_at: :desc, id: :desc)
+          sort_listing(filtered_orders.preload(:order_items,
+                                               shipment: { company_integration: :service }),
+                       SORTS, default: { created_at: :desc, id: :desc })
         )
 
         render json: { data: OrderListSerializer.render_as_hash(orders), meta: meta }
