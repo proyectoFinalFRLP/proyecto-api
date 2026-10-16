@@ -13,11 +13,16 @@ RSpec.describe Stock, type: :model do
   let(:warehouse) { Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1') }
 
   describe '#stock_status' do
-    it 'applies the product rule to the units of this warehouse', :aggregate_failures do
+    it 'says whether this warehouse holds units', :aggregate_failures do
       expect(described_class.new(quantity: 0).stock_status).to eq('out_of_stock')
-      expect(described_class.new(quantity: Product::LOW_STOCK_THRESHOLD).stock_status).to eq('low')
-      expect(described_class.new(quantity: Product::LOW_STOCK_THRESHOLD + 1).stock_status)
-        .to eq('available')
+      expect(described_class.new(quantity: 1).stock_status).to eq('available')
+    end
+
+    # TESIS-182: el umbral del producto es para su total. Aplicado a cada
+    # depósito, un producto bien abastecido en dos depósitos salía bajo en
+    # los dos.
+    it 'is never low: the threshold of the product is for its total' do
+      expect(described_class.new(quantity: 1).stock_status).not_to eq('low')
     end
   end
 

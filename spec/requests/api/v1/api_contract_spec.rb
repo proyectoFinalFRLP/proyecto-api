@@ -34,9 +34,10 @@ module ContratoDeLaApi
     me: %w[id email company_id company created_at updated_at],
     empresa: %w[id name],
     producto_fila: %w[id sku name description category weight dimensions total_stock stock_status
-                      in_transit_quantity primary_warehouse warehouse_count created_at updated_at],
+                      in_transit_quantity low_stock_threshold primary_warehouse warehouse_count
+                      created_at updated_at],
     producto: %w[id sku name description category packaging technical_standard weight
-                 dimensions total_stock stock_status in_transit_quantity
+                 dimensions total_stock stock_status in_transit_quantity low_stock_threshold
                  in_transit_by_warehouse committed_quantity on_hand_quantity
                  available_to_promise committed_by_warehouse stocks created_at updated_at],
     stock: %w[id quantity warehouse_id warehouse stock_status created_at updated_at],
