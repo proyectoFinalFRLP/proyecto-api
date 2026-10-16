@@ -888,7 +888,7 @@ RSpec.describe 'Products API', type: :request do
     end
     let(:product_attrs) do
       { sku: 'PROD-001', name: 'Widget Alpha', description: 'A test product',
-        weight: 0.5, dimensions: '10x15x20' }
+        weight: 0.5, length_cm: 10, width_cm: 15, height_cm: 20.5 }
     end
 
     it 'returns 401 without a token' do
@@ -902,6 +902,39 @@ RSpec.describe 'Products API', type: :request do
       end.to change(Product, :count).by(1)
 
       expect(response).to have_http_status(:created)
+    end
+
+    # TESIS-185: las medidas viajan como tres números, en centímetros.
+    it 'takes the measures of the product as numbers', :aggregate_failures do
+      post '/api/v1/products', params: { product: product_attrs }, headers: headers, as: :json
+
+      expect(response.parsed_body.slice('length_cm', 'width_cm', 'height_cm'))
+        .to eq('length_cm' => 10.0, 'width_cm' => 15.0, 'height_cm' => 20.5)
+      expect(Product.last.height_cm).to eq(BigDecimal('20.5'))
+    end
+
+    it 'answers null measures when the body does not bring them' do
+      post '/api/v1/products', params: { product: product_attrs.except(:length_cm) },
+                               headers: headers, as: :json
+
+      expect(response.parsed_body['length_cm']).to be_nil
+    end
+
+    it 'refuses a measure that is not positive, with 422', :aggregate_failures do
+      post '/api/v1/products', params: { product: product_attrs.merge(width_cm: 0) },
+                               headers: headers, as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to include('Width cm')
+    end
+
+    # El texto libre ya no existe: llega y se ignora, como cualquier clave que
+    # el endpoint no permite.
+    it 'ignores the old free text dimensions' do
+      post '/api/v1/products', params: { product: product_attrs.merge(dimensions: '1x2x3') },
+                               headers: headers, as: :json
+
+      expect(response.parsed_body).not_to have_key('dimensions')
     end
 
     it 'takes the low stock threshold of the product (TESIS-182)', :aggregate_failures do
@@ -1043,6 +1076,25 @@ RSpec.describe 'Products API', type: :request do
           headers: headers, as: :json
       expect(response).to have_http_status(:ok)
       expect(product.reload.name).to eq('Updated Name')
+    end
+
+    it 'changes the measures one by one (TESIS-185)', :aggregate_failures do
+      product.update!(length_cm: 10, width_cm: 10, height_cm: 10)
+
+      put "/api/v1/products/#{product.id}", params: { product: { height_cm: 4.25 } },
+                                            headers: headers, as: :json
+
+      expect(product.reload.height_cm).to eq(BigDecimal('4.25'))
+      expect(product.length_cm).to eq(10)
+    end
+
+    it 'clears a measure sent as null (TESIS-185)' do
+      product.update!(length_cm: 10)
+
+      put "/api/v1/products/#{product.id}", params: { product: { length_cm: nil } },
+                                            headers: headers, as: :json
+
+      expect(product.reload.length_cm).to be_nil
     end
 
     it 'changes the low stock threshold (TESIS-182)' do

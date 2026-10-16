@@ -4,8 +4,7 @@ class ProductSerializer < ApplicationSerializer
   identifier :id
 
   fields :sku, :name, :description, :category, :packaging, :technical_standard,
-         :dimensions, :total_stock, :in_transit_quantity, :low_stock_threshold,
-         :created_at, :updated_at
+         :total_stock, :in_transit_quantity, :low_stock_threshold, :created_at, :updated_at
 
   # Los tres números del stock que muestra el detalle (TESIS-162). Van los tres
   # desde el backend y ninguno se deriva en el cliente: `on_hand` no es
@@ -21,6 +20,14 @@ class ProductSerializer < ApplicationSerializer
   # defecto; exponerlo como número evita que el front tenga que parsear.
   field :weight do |product|
     product.weight.to_f
+  end
+
+  # Las medidas en centímetros (TESIS-185), como número por el mismo motivo que
+  # el peso. null cuando no están cargadas: no es lo mismo que medir cero.
+  Product::MEASURES.each do |measure|
+    field measure do |product|
+      product.public_send(measure)&.to_f
+    end
   end
 
   # La disponibilidad, con la misma regla que el listado: antes el detalle no la

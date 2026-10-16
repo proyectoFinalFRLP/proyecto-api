@@ -40,7 +40,8 @@ module Catalog
     def edited_fields
       [@product.name.to_s, @product.description.to_s, @product.category.to_s,
        @product.packaging.to_s, @product.technical_standard.to_s,
-       @product.weight.to_s, @product.dimensions.to_s, @product.low_stock_threshold.to_s]
+       @product.weight.to_s, @product.length_cm.to_s, @product.width_cm.to_s,
+       @product.height_cm.to_s, @product.low_stock_threshold.to_s]
     end
 
     # Los depositos se ordenan antes de digerir: `product.stocks` no garantiza

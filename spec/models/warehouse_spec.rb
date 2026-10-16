@@ -23,6 +23,34 @@ RSpec.describe Warehouse, type: :model do
     end
   end
 
+  # TESIS-185: el origen del envío, desglosado para los couriers.
+  describe 'its city and province' do
+    it 'are optional' do
+      warehouse.assign_attributes(city: nil, province: nil)
+      expect(warehouse).to be_valid
+    end
+
+    it 'accepts a province of the same list as the orders' do
+      warehouse.assign_attributes(city: 'La Plata', province: 'Buenos Aires')
+      expect(warehouse).to be_valid
+    end
+
+    it 'rejects a province that is not on the list', :aggregate_failures do
+      warehouse.province = 'Bs. As.'
+
+      expect(warehouse).not_to be_valid
+      expect(warehouse.errors[:province]).to include('is not included in the list')
+    end
+
+    # Un campo vacío del formulario es «sin dato», no una provincia inválida.
+    it 'stores a blank value as null', :aggregate_failures do
+      warehouse.assign_attributes(city: '  ', province: '')
+
+      expect(warehouse).to be_valid
+      expect([warehouse.city, warehouse.province]).to eq([nil, nil])
+    end
+  end
+
   it 'belongs to a company' do
     expect(described_class.reflect_on_association(:company).macro).to eq(:belongs_to)
   end

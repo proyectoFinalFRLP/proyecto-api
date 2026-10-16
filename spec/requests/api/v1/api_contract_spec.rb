@@ -33,17 +33,18 @@ module ContratoDeLaApi
   CLAVES = {
     me: %w[id email company_id company created_at updated_at],
     empresa: %w[id name],
-    producto_fila: %w[id sku name description category weight dimensions total_stock stock_status
-                      in_transit_quantity low_stock_threshold primary_warehouse warehouse_count
-                      created_at updated_at],
+    producto_fila: %w[id sku name description category weight length_cm width_cm height_cm
+                      total_stock stock_status in_transit_quantity low_stock_threshold
+                      primary_warehouse warehouse_count created_at updated_at],
     producto: %w[id sku name description category packaging technical_standard weight
-                 dimensions total_stock stock_status in_transit_quantity low_stock_threshold
+                 length_cm width_cm height_cm total_stock stock_status in_transit_quantity
+                 low_stock_threshold
                  in_transit_by_warehouse committed_quantity on_hand_quantity
                  available_to_promise committed_by_warehouse stocks created_at updated_at],
     stock: %w[id quantity warehouse_id warehouse stock_status created_at updated_at],
-    deposito_referencia: %w[id name address zip_code capacity],
+    deposito_referencia: %w[id name address zip_code city province capacity],
     transito: %w[warehouse_id name quantity],
-    deposito: %w[id name address zip_code capacity stored_units],
+    deposito: %w[id name address zip_code city province capacity stored_units],
     orden_fila: %w[id external_order_id customer_name customer_document customer_address
                    customer_zip_code customer_city customer_province status requires_shipping
                    courier total_amount item_count created_at updated_at],
@@ -86,7 +87,8 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
   def product
     @product ||= begin
-      producto = Product.create!(company: company, sku: 'NOR-001', name: 'Servomotor', weight: 2.5)
+      producto = Product.create!(company: company, sku: 'NOR-001', name: 'Servomotor', weight: 2.5,
+                                 length_cm: 20, width_cm: 15.5, height_cm: 10)
       Stock.create!(product: producto, warehouse: warehouse, quantity: 10)
       producto
     end
@@ -361,6 +363,23 @@ RSpec.describe 'API contract with the frontend', type: :request do
       get "/api/v1/products/#{product.id}", headers: headers
 
       expect(response.parsed_body['weight']).to be_a(Numeric)
+    end
+
+    # TESIS-185: las medidas son decimales, con el mismo riesgo que el peso.
+    it 'sends the measures of a product as numbers' do
+      get "/api/v1/products/#{product.id}", headers: headers
+
+      expect(response.parsed_body.values_at('length_cm', 'width_cm', 'height_cm'))
+        .to all(be_a(Numeric))
+    end
+
+    it 'sends the measures of a row of the listing as numbers' do
+      product
+
+      get '/api/v1/products', headers: headers
+
+      expect(response.parsed_body['data'].first.values_at('length_cm', 'width_cm', 'height_cm'))
+        .to all(be_a(Numeric))
     end
 
     it 'sends the cost of a shipment as a number' do

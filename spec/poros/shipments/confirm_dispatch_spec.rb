@@ -85,6 +85,52 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
     end
   end
 
+  # TESIS-185: el despacho habla el mismo vocabulario que la cotización, con
+  # el destino desglosado, el bulto y el valor declarado de la orden.
+  describe 'the data a detailed courier asks for' do
+    let(:integration) do
+      service = courier_service('OCA', uri: 'https://oca.test/ordenes',
+                                       request_mapper: {
+                                         'calle' => 'destination_street',
+                                         'numero' => 'destination_street_number',
+                                         'cp' => 'destination_postal_code',
+                                         'localidad' => 'destination_city',
+                                         'provincia' => 'destination_province',
+                                         'origen.localidad' => 'origin_city',
+                                         'alto' => 'package_height_cm',
+                                         'valor' => 'declared_value'
+                                       },
+                                       response_mapper: { 'numero' => 'tracking_number' })
+      CompanyIntegration.create!(company: company, service: service,
+                                 credentials: { 'access_token' => 'T' })
+    end
+
+    before do
+      warehouse.update!(city: 'La Plata', province: 'Buenos Aires')
+      order.update!(customer_zip_code: 'X5000ABC', customer_city: 'Córdoba',
+                    customer_province: 'Córdoba', total_amount: 1500)
+      caja = Product.create!(company: company, sku: 'CJ-1', name: 'Caja',
+                             length_cm: 10, width_cm: 10, height_cm: 10)
+      order.order_items.create!(product: caja, quantity: 1, unit_price: 1500)
+      stub_request(:post, 'https://oca.test/ordenes')
+        .to_return(status: 200, body: { numero: 'OCA-1' }.to_json,
+                   headers: { 'Content-Type' => 'application/json' })
+    end
+
+    def expected_body
+      { 'calle' => 'Av. Siempreviva', 'numero' => '742', 'cp' => '5000',
+        'localidad' => 'Córdoba', 'provincia' => 'Córdoba',
+        'origen' => { 'localidad' => 'La Plata' }, 'alto' => 10.0, 'valor' => 1500.0 }
+    end
+
+    it 'sends them in the body' do
+      dispatch
+
+      expect(a_request(:post, 'https://oca.test/ordenes').with(body: expected_body))
+        .to have_been_made
+    end
+  end
+
   describe 'when the courier rejects the request' do
     before { stub_courier(status: 422, body: { error: 'codigo postal invalido' }) }
 

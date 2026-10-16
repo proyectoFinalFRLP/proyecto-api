@@ -17,12 +17,14 @@ module Shipments
     # request y el usuario está esperando. La card pide 3-5s.
     TIMEOUTS = { open: 4, read: 4 }.freeze
 
-    # La cotización de una orden que ya existe (TESIS-46): el destino y las
-    # líneas salen de la orden.
+    # La cotización de una orden que ya existe (TESIS-46): el destino, las
+    # líneas y el valor declarado salen de la orden.
     def self.for_order(order:, origin_warehouse:)
       new(origin_warehouse: origin_warehouse,
-          destination: { zip_code: order.customer_zip_code, address: order.customer_address },
-          lines: order.order_items.includes(:product).map { |item| [item.product, item.quantity] })
+          destination: { zip_code: order.customer_zip_code, address: order.customer_address,
+                         city: order.customer_city, province: order.customer_province },
+          lines: order.order_items.includes(:product).map { |item| [item.product, item.quantity] },
+          declared_value: order.total_amount)
     end
 
     # Lo que se cotiza es el paquete, no la orden: de dónde sale, a dónde va y
@@ -31,12 +33,14 @@ module Shipments
     # cuánto cuesta enviarla.
     #
     # `lines` son pares `[producto, cantidad]`, y `destination` lleva
-    # `:zip_code` y `:address`.
-    def initialize(origin_warehouse:, destination:, lines:)
+    # `:zip_code` y `:address`, y opcionalmente `:city` y `:province`.
+    # `declared_value` también es opcional: un alta sin confirmar no tiene total.
+    def initialize(origin_warehouse:, destination:, lines:, declared_value: nil)
       super()
       @origin = origin_warehouse
       @destination = destination
       @lines = lines
+      @declared_value = declared_value
     end
 
     def call
@@ -140,23 +144,11 @@ module Shipments
       nil
     end
 
-    # Contexto del envío, en las claves internas que las plantillas mapean.
+    # Contexto del envío, en las claves internas que las plantillas mapean. El
+    # vocabulario es el de CourierPayload, compartido con el despacho.
     def payload
-      {
-        'origin_zip_code' => @origin.zip_code,
-        'origin_address' => @origin.address,
-        'destination_zip_code' => @destination[:zip_code],
-        'destination_address' => @destination[:address],
-        'total_weight' => total_weight,
-        'total_items' => @lines.sum { |_product, quantity| quantity }
-      }
-    end
-
-    # Peso del paquete: la suma de peso × cantidad de cada línea. `products.weight`
-    # es decimal y arranca en 0, así que un producto sin peso cargado no rompe la
-    # cotización — suma cero.
-    def total_weight
-      @lines.sum { |product, quantity| product.weight * quantity }
+      CourierPayload.call(origin: @origin, destination: @destination, lines: @lines,
+                          declared_value: @declared_value)
     end
   end
 end

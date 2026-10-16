@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_16_012300) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_16_115618) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -138,7 +138,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_012300) do
     t.bigint "company_id", null: false
     t.datetime "created_at", null: false
     t.text "description"
-    t.string "dimensions"
+    t.decimal "height_cm", precision: 10, scale: 2
+    t.decimal "length_cm", precision: 10, scale: 2
     t.integer "low_stock_threshold", default: 100, null: false
     t.string "name", null: false
     t.string "packaging"
@@ -146,10 +147,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_012300) do
     t.string "technical_standard"
     t.datetime "updated_at", null: false
     t.decimal "weight", precision: 10, scale: 2, default: "0.0"
+    t.decimal "width_cm", precision: 10, scale: 2
     t.index ["company_id", "category"], name: "index_products_on_company_id_and_category"
     t.index ["company_id", "sku"], name: "index_products_on_company_id_and_sku", unique: true
     t.index ["company_id"], name: "index_products_on_company_id"
+    t.check_constraint "height_cm > 0::numeric", name: "products_height_cm_positive"
+    t.check_constraint "length_cm > 0::numeric", name: "products_length_cm_positive"
     t.check_constraint "low_stock_threshold >= 0", name: "products_low_stock_threshold_non_negative"
+    t.check_constraint "width_cm > 0::numeric", name: "products_width_cm_positive"
   end
 
   create_table "services", force: :cascade do |t|
@@ -265,9 +270,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_012300) do
   create_table "warehouses", force: :cascade do |t|
     t.string "address", null: false
     t.integer "capacity"
+    t.string "city"
     t.bigint "company_id", null: false
     t.datetime "created_at", null: false
     t.string "name", null: false
+    t.string "province"
     t.datetime "updated_at", null: false
     t.string "zip_code", null: false
     t.index ["company_id"], name: "index_warehouses_on_company_id"
