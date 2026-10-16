@@ -18,9 +18,9 @@ module Api
 
       # Los datos del cliente que acepta el body. `items` queda afuera: se arma
       # aparte, línea por línea, en `items_params`.
-      ORDER_FIELDS = %i[customer_name customer_document customer_address
-                        customer_zip_code customer_city customer_province
-                        requires_shipping].freeze
+      ORDER_FIELDS = %i[customer_name customer_document customer_email customer_phone
+                        customer_address customer_zip_code customer_city
+                        customer_province requires_shipping].freeze
 
       # Columnas por las que se puede ordenar el listado (TESIS-184), con la
       # expresión de cada una. El courier sale del envío de la orden con una

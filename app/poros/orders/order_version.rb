@@ -17,9 +17,9 @@ module Orders
     # Un campo editable fuera de esta lista no mueve la versión, así que dos
     # operadores que lo cambian a la vez no reciben el 412 y el segundo revierte
     # al primero en silencio.
-    HEADER_FIELDS = %i[customer_name customer_document customer_address
-                       customer_zip_code customer_city customer_province
-                       requires_shipping status].freeze
+    HEADER_FIELDS = %i[customer_name customer_document customer_email customer_phone
+                       customer_address customer_zip_code customer_city
+                       customer_province requires_shipping status].freeze
 
     def initialize(order:)
       super()

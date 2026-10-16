@@ -82,6 +82,15 @@ RSpec.describe Order, type: :model do
       expect(order.customer_zip_code).to be_nil
     end
 
+    # TESIS-179: el contacto sigue la misma regla que el domicilio.
+    it 'stores a blank email or phone as nil', :aggregate_failures do
+      order.assign_attributes(customer_email: '', customer_phone: '   ')
+      order.save!
+
+      expect(order.reload.customer_email).to be_nil
+      expect(order.customer_phone).to be_nil
+    end
+
     it 'trims the surrounding spaces of a filled field' do
       order.customer_city = '  La Plata '
       expect(order.customer_city).to eq('La Plata')

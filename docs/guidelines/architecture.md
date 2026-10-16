@@ -12,29 +12,39 @@ Backend del trabajo final de la carrera de Ingeniería en Sistemas de Informaci�
 
 ## 2. Stack tecnológico
 
+Versiones de `Gemfile.lock` al cierre del proyecto (2026-10-10). Dependabot las actualiza: ante una duda, manda el lockfile.
+
 | Tecnología      | Versión | Rol                                   |
 | --------------- | ------- | ------------------------------------- |
 | Ruby            | 4.0.2   | Lenguaje                              |
-| Rails           | 8.1.2.1 | Framework (API-only)                  |
-| PostgreSQL      | —       | Base de datos principal               |
-| Puma            | 7.2.0   | Servidor web                          |
-| Devise          | 5.0.3   | Autenticación                         |
+| Rails           | 8.1.4   | Framework (API-only)                  |
+| PostgreSQL      | 16      | Datos, cola de jobs, caché y locks    |
+| Puma            | 8.0.2   | Servidor web (+ Thruster en la imagen) |
+| Devise          | 5.0.4   | Autenticación                         |
 | devise-jwt      | 0.13.0  | Tokens JWT                            |
 | Pundit          | 2.5.2   | Autorización por políticas            |
-| Blueprinter     | 1.2.1   | Serialización JSON                    |
-| Solid Queue     | 1.4.0   | Background jobs (DB-backed)           |
-| Solid Cache     | 1.0.10  | Caché (DB-backed)                     |
-| Solid Cable     | 3.0.12  | Action Cable (DB-backed)              |
-| RuboCop         | 1.86.0  | Linter (+ rails, performance, rspec)  |
-| RSpec           | 8.0.4   | Testing                               |
-| Lefthook        | 2.1.4   | Git hooks                             |
-| Kamal           | 2.11.0  | Despliegue Docker                     |
+| Blueprinter     | 1.3.0   | Serialización JSON                    |
+| Solid Queue     | 1.7.0   | Background jobs y cronjobs (DB-backed) |
+| Solid Cache     | 1.0.10  | Caché de producción (DB-backed)       |
+| Solid Cable     | 4.1.0   | Action Cable (DB-backed, sin uso funcional) |
+| Avo             | 4.2.10  | Backoffice (`/admin`, ADR-017)        |
+| RuboCop         | 1.91.0  | Linter (+ rails, performance, rspec)  |
+| RSpec           | 8.0.4   | Testing (+ WebMock, SimpleCov)        |
+| Lefthook        | 2.1.17  | Git hooks                             |
+| Kamal           | 2.12.0  | Despliegue Docker                     |
 
-### Variable de entorno
+No hay Redis ni un broker de mensajes aparte: la cola, la caché y los locks distribuidos viven en PostgreSQL ([ADR-020](../adr/ADR-020-decisiones-tardias-broker-dlq-identity-mapping.md)).
+
+### Variables de entorno
+
+En desarrollo y test ninguna es obligatoria: todas tienen default. Rails no lee `.env` (no hay `dotenv`), así que se exportan en la terminal. La lista completa, con los defaults, está en la [guía de setup](../guides/setup-local.md#5-variables-de-entorno).
 
 ```bash
-DEVISE_JWT_SECRET_KEY=<rails secret>   # Clave para firmar los tokens JWT
-PROYECTO_API_DATABASE_PASSWORD=admin  # Contraseña de PostgreSQL (producción)
+DEVISE_JWT_SECRET_KEY=<rails secret>        # Firma de los JWT (default: secret_key_base)
+PROYECTO_API_DATABASE_HOST/USER/PASSWORD    # Conexión a PostgreSQL (127.0.0.1 / postgres / admin)
+ENCRYPTION_KEY, ENCRYPTION_KEY_DERIVATION_SALT   # Cifrado de credenciales de integraciones
+SOLID_QUEUE_IN_PUMA=1                       # Workers dentro de Puma (así corre el deploy)
+PUBLIC_WEBHOOK_BASE_URL=<url https>         # URL pública con la que se registran los webhooks
 ```
 
 En producción, además, la API no arranca sin `DEVISE_JWT_SECRET_KEY`, `CORS_ALLOWED_ORIGINS` y `RAILS_ALLOWED_HOSTS`, y `db:seed` pide `SEED_USER_PASSWORD` y `SEED_ADMIN_PASSWORD`. Qué define cada una y por qué está en [ADR-021](../adr/ADR-021-seguridad-del-despliegue.md) y en `.env.example`.
@@ -180,6 +190,8 @@ Orders::ProcessWebhookOrder
 (si falló) FailedEvent direction: 'inbound' → motor de reintentos (ADR-008)
 ```
 
+El recorrido completo, con la firma, la idempotencia, la transacción, el sync saliente que dispara y el ciclo de la DLQ, está en [`docs/guides/flujo-de-un-webhook.md`](../guides/flujo-de-un-webhook.md).
+
 ### 4.2 Flujo de un webhook de courier (push tracking)
 
 Los eventos de courier tampoco siguen el flujo de arriba: no hay JWT, no hay usuario, y el proveedor no espera detrás de la lógica de negocio — el gateway persiste el evento crudo y suelta la conexión; la traducción y la actualización del envío corren en un worker aparte (ver [ADR-011](../adr/ADR-011-push-tracking-de-couriers.md)).
@@ -304,6 +316,8 @@ t.references :company, null: false, foreign_key: true
 ```
 
 Las tablas de configuración del sistema (sin datos de tenant) como `services` (plantillas de APIs) no llevan `company_id`.
+
+Tampoco lo llevan las **tablas hijas** que sólo existen bajo un padre aislado: `stocks` y `product_mappings` (bajo `products`), `order_items` (bajo `orders`) y `shipment_events` (bajo `shipments`). Heredan el tenant del padre y no incluyen `CompanyScoped`, así que **nunca se consultan sueltas**: siempre a través del padre o filtrando por su id. Si una tabla hija tiene dos padres (`product_mappings`: producto e integración), valida que sean de la misma empresa. Ver [ADR-020 §3](../adr/ADR-020-decisiones-tardias-broker-dlq-identity-mapping.md).
 
 ### 5.4 Workers y cronjobs
 
@@ -504,7 +518,9 @@ Cada job declara la suya con `queue_as :realtime`.
 
 ### 8.2 Reintentos
 
-`ApplicationJob` reintenta con espera creciente (`wait: :polynomially_longer`, 5 intentos) **solo** los fallos de APIs externas (`Integrations::AdapterExecutionError`), que son transitorios. Cualquier otra excepción sube y el job queda fallido — no se reintenta un bug. La cola de reintentos persistente y el barrido de eventos atascados corresponden a TESIS-39 (DLQ).
+`ApplicationJob` reintenta con espera creciente (`wait: :polynomially_longer`, 5 intentos) **solo** los fallos de APIs externas (`Integrations::AdapterExecutionError`), que son transitorios. Cualquier otra excepción sube y el job queda fallido — no se reintenta un bug.
+
+Los eventos entrantes no usan este reintento: sus jobs capturan el fallo y lo registran en la Dead Letter Queue (`failed_events`), que reintenta con su propio backoff y lo deja visible en `/api/v1/failed-events` ([ADR-008](../adr/ADR-008-dead-letter-queue.md)). Qué flujo usa cada mecanismo, y por qué, está en [ADR-020 §2](../adr/ADR-020-decisiones-tardias-broker-dlq-identity-mapping.md).
 
 `discard_on ActiveJob::DeserializationError`: si el registro asociado ya no existe, el job perdió sentido.
 
