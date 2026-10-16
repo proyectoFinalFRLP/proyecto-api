@@ -1059,6 +1059,18 @@ if norte_company
   end
   breaker.update!(category: 'Power') if breaker.category.nil?
 
+  # Umbral de stock bajo por producto (TESIS-182). Con el único de 100 para
+  # todos, casi todo el catálogo de la demo caía en «Stock bajo» y la pestaña
+  # no decía nada. Son números de un distribuidor: pocas notebooks y UPS
+  # alcanzan, de cable se necesita más. Sólo si sigue en el default, para no
+  # pisar un umbral cargado a mano.
+  { celular => 30, notebook => 25, mouse => 50, switch => 20, cable => 60, ups => 15,
+    breaker => 30 }.each do |product, threshold|
+    next unless product.low_stock_threshold == Product::LOW_STOCK_THRESHOLD
+
+    product.update!(low_stock_threshold: threshold)
+  end
+
   # Stock de los productos nuevos
   if central
     Stock.find_or_create_by!(product: switch, warehouse: central) { |s| s.quantity = 40 }

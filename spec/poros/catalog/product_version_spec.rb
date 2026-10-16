@@ -45,6 +45,11 @@ RSpec.describe Catalog::ProductVersion, type: :poro do
     expect { product.update!(technical_standard: 'IRAM 2178') }.to(change { version })
   end
 
+  # TESIS-182: el umbral se edita en el mismo modal que el resto.
+  it 'changes when the low stock threshold changes' do
+    expect { product.update!(low_stock_threshold: 25) }.to(change { version })
+  end
+
   it 'changes when the stock of a warehouse moves' do
     stock = Stock.create!(product: product, warehouse: central, quantity: 10)
     before_change = version

@@ -4,7 +4,7 @@ class ProductListSerializer < ApplicationSerializer
   identifier :id
 
   fields :sku, :name, :description, :category, :dimensions, :total_stock,
-         :in_transit_quantity, :created_at, :updated_at
+         :in_transit_quantity, :low_stock_threshold, :created_at, :updated_at
 
   # Disponibilidad ya resuelta, para que la fila no tenga que reimplementar el
   # umbral. Es el mismo valor por el que filtran las pestañas del catálogo.

@@ -242,6 +242,15 @@ RSpec.describe 'Shipments API', type: :request do
         expect(ids_for('9920')).to eq(['AND-9920-X8829-Z'])
       end
 
+      # TESIS-181: el número que se buscó tiene que verse en la fila. Antes la
+      # fila mostraba la orden con su id interno, y el número buscado no
+      # aparecía en ningún lado. Una venta manual no lo tiene: `null`.
+      it 'shows the channel number of the order in each row' do
+        get '/api/v1/shipments', headers: headers
+        numbers = response.parsed_body['data'].pluck('external_order_id')
+        expect(numbers).to contain_exactly('ML-1001', 'TN-2002', nil)
+      end
+
       # El envío todavía no tiene seguimiento hasta que se despacha, así que el
       # id del canal es la única forma de llegar a uno recién abierto.
       it 'matches by the external order id of its order' do
@@ -490,6 +499,13 @@ RSpec.describe 'Shipments API', type: :request do
 
     # 404 y no 403: confirmar la existencia del recurso ya sería filtrar
     # información de otro tenant.
+    it 'returns the number the channel gives to its order (TESIS-181)' do
+      shipment.order.update!(external_order_id: '18948032757993')
+      get "/api/v1/shipments/#{shipment.id}", headers: headers
+
+      expect(response.parsed_body['external_order_id']).to eq('18948032757993')
+    end
+
     it 'returns 404 for a shipment of another company' do
       get "/api/v1/shipments/#{foreign_shipment.id}", headers: headers
 

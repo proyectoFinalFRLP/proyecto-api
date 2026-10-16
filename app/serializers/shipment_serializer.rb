@@ -10,6 +10,11 @@ class ShipmentSerializer < ApplicationSerializer
   fields :order_id, :status, :tracking_number, :shipping_label_url,
          :created_at, :updated_at
 
+  # Mismo motivo que en ShipmentListSerializer (TESIS-181).
+  field :external_order_id do |shipment|
+    shipment.order.external_order_id
+  end
+
   # Mismo motivo que en ShipmentListSerializer: BigDecimal saldría como string.
   field :shipping_cost do |shipment|
     shipment.shipping_cost&.to_f

@@ -34,6 +34,11 @@ RSpec.describe 'Orders API', type: :request do
                items: items || [default_item] } }
   end
 
+  def blank_pickup_destination
+    { customer_address: '', customer_city: '', customer_province: '', customer_zip_code: '',
+      requires_shipping: false }
+  end
+
   def post_order(payload = build_payload)
     post '/api/v1/orders', params: payload, headers: headers, as: :json
   end
@@ -429,6 +434,22 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:created)
         expect(response.parsed_body['requires_shipping']).to be(false)
         expect(Order.last.requires_shipping).to be(false)
+      end
+
+      # TESIS-178: con retiro el domicilio es opcional, y el front manda en
+      # blanco los campos que no se completaron. La provincia vacía se rechazaba
+      # por no estar en la lista.
+      it 'records a pickup with a blank destination', :aggregate_failures do
+        post_order(build_payload.deep_merge(order: blank_pickup_destination))
+
+        expect(response).to have_http_status(:created)
+        expect(Order.last).to have_attributes(customer_address: nil, customer_city: nil,
+                                              customer_province: nil, customer_zip_code: nil)
+      end
+
+      it 'still rejects a province outside the list' do
+        post_order(build_payload.deep_merge(order: { customer_province: 'Capital Federal' }))
+        expect(response).to have_http_status(:unprocessable_content)
       end
 
       # Pasaba la validación (0,5 > 0), la columna integer la guardaba en 0 y

@@ -140,6 +140,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_023736) do
     t.datetime "created_at", null: false
     t.text "description"
     t.string "dimensions"
+    t.integer "low_stock_threshold", default: 100, null: false
     t.string "name", null: false
     t.string "packaging"
     t.string "sku", null: false
@@ -149,6 +150,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_023736) do
     t.index ["company_id", "category"], name: "index_products_on_company_id_and_category"
     t.index ["company_id", "sku"], name: "index_products_on_company_id_and_sku", unique: true
     t.index ["company_id"], name: "index_products_on_company_id"
+    t.check_constraint "low_stock_threshold >= 0", name: "products_low_stock_threshold_non_negative"
   end
 
   create_table "services", force: :cascade do |t|

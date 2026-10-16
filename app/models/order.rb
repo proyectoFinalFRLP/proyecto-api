@@ -39,6 +39,16 @@ class Order < ApplicationRecord
   # único sobre order_id en shipments.
   has_one :shipment, dependent: :destroy
 
+  # Un domicilio vacío es «sin domicilio», llegue como `nil` o como `""`
+  # (TESIS-178). El alta manual de un retiro en el local manda en blanco los
+  # campos que el operador no completó, y `""` no es `nil` para el `allow_nil`
+  # de la provincia: la venta se rechazaba con 422 y la única salida era elegir
+  # una provincia cualquiera. Normalizarlo acá lo resuelve para cualquier
+  # cliente —el front, Avo, un canal futuro— y deja NULL en la base en vez de
+  # texto vacío. Unos espacios sueltos tampoco son un domicilio.
+  normalizes :customer_address, :customer_city, :customer_province, :customer_zip_code,
+             with: ->(value) { value.strip.presence }
+
   validates :customer_name, presence: true
   validates :status, presence: true, inclusion: { in: STATUSES }
   # Único por canal y no por empresa: dos canales de la misma empresa pueden
