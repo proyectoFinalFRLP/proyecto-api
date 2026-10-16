@@ -35,6 +35,8 @@ El formato es validado localmente en el hook `pre-push` (Lefthook) y en el CI de
 | `test`     | Agregar o modificar tests                           |
 | `perf`     | Mejoras de rendimiento                              |
 
+> El hook `commit-msg` y el check del título del PR aceptan sólo `feat`, `fix`, `chore`, `refactor`, `test` y `docs`. Un commit `style:` o `perf:` pasa si los hooks no están instalados, pero un **PR** con esos tipos queda en rojo: para el título del PR usá uno de los seis.
+
 **Reglas:**
 
 - Descripción en **inglés**
@@ -106,20 +108,21 @@ El hook `pre-push` corre `bundle exec rspec` completo: asegura que ningún push 
 
 ## 6. CI/CD (GitHub Actions)
 
-Pipeline en `.github/workflows/ci.yml`. Se dispara en push y pull_request sobre `main`, `master` y `develop`.
+Pipeline en `.github/workflows/ci.yml`. Se dispara en todo pull request y en push a `master` y `develop`.
 
-| Job        | Acción                                           | Dependencia |
-| ---------- | ------------------------------------------------ | ----------- |
-| `security` | Brakeman + Bundler-audit                         | —           |
-| `lint`     | RuboCop                                          | —           |
-| `test`     | RSpec con servicio PostgreSQL efímero            | —           |
+| Job         | Acción                                           | Dependencia |
+| ----------- | ------------------------------------------------ | ----------- |
+| `scan_ruby` | Brakeman + Bundler-audit                         | —           |
+| `lint`      | RuboCop                                          | —           |
+| `test`      | RSpec con servicio PostgreSQL efímero            | —           |
 
 Los tres jobs corren en paralelo. Un PR no puede mergearse hasta que los tres estén en verde.
 
-**Workflow adicionales:**
+**Además:**
 
-- `auto-assign-reviewer.yml`: asigna reviewers automáticamente al abrir un PR
-- `pr-title.yml`: valida el formato del título del PR
+- `pr-title.yml`: valida el formato del título del PR (salvo los de Dependabot)
+- `CODEOWNERS`: GitHub pide review al team `@proyectoFinalFRLP/team` en cada PR
+- `dependabot.yml`: actualizaciones de gemas mensuales y agrupadas; los majors llegan en un PR propio
 
 ---
 

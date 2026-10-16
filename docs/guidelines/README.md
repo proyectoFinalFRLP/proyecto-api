@@ -10,3 +10,10 @@ Documentación de referencia del proyecto: arquitectura, convenciones de código
 | [git-workflow.md](./git-workflow.md)                 | Ramas, commits, pull requests, hooks de Git (Lefthook), CI/CD                                  |
 | [pr-guidelines.md](./pr-guidelines.md)               | Cómo redactar PRs: descripción, cambios, cómo probar, impacto                                  |
 | [testing.md](./testing.md)                           | Filosofía de testing, estructura de specs, factories, templates por tipo (model/policy/PORO/request/job) |
+
+Guías de uso, en [`../guides/`](../guides/):
+
+| Documento                                                        | Contenido                                                                 |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [setup-local.md](../guides/setup-local.md)                       | Levantar el sistema desde cero (nativo o Docker), cuentas de los seeds, demo |
+| [flujo-de-un-webhook.md](../guides/flujo-de-un-webhook.md)       | Recorrido de punta a punta de una venta que entra por webhook             |
