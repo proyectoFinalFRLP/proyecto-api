@@ -31,7 +31,8 @@ module Api
         authorize Order, :create?
 
         quotes = Shipments::QuoteShipment.new(
-          origin_warehouse: origin_warehouse, destination: destination, lines: lines
+          origin_warehouse: origin_warehouse, destination: destination, lines: lines,
+          declared_value: declared_value
         ).call
 
         # 200 y una lista vacía cuando nadie contestó, igual que la cotización de
@@ -43,6 +44,7 @@ module Api
 
       def quote_params
         params.expect(quote: [:origin_warehouse_id, :destination_zip_code, :destination_address,
+                              :destination_city, :destination_province, :declared_value,
                               { items: [%i[product_id quantity]] }])
       end
 
@@ -53,10 +55,31 @@ module Api
       end
 
       # El código postal es lo que cotizan todas las plantillas: sin él no hay
-      # tarifa posible. La dirección viaja si está, porque algunas la piden.
+      # tarifa posible. La dirección, la localidad y la provincia viajan si
+      # están, porque algunas las piden (TESIS-186).
       def destination
         { zip_code: required(:destination_zip_code).to_s.strip,
-          address: quote_params[:destination_address].to_s.strip.presence }
+          address: optional_text(:destination_address),
+          city: optional_text(:destination_city),
+          province: optional_text(:destination_province) }
+      end
+
+      def optional_text(name)
+        quote_params[name].to_s.strip.presence
+      end
+
+      # El valor declarado del paquete (TESIS-186): un alta sin confirmar no
+      # tiene total, pero el asistente ya conoce las líneas y sus precios. Es
+      # opcional; si viene, tiene que ser un número no negativo. OCA lo usa para
+      # el seguro y, sin él, cotiza con 0.
+      def declared_value
+        raw = quote_params[:declared_value]
+        return nil if raw.blank?
+
+        value = BigDecimal(raw.to_s, exception: false)
+        return value if value&.finite? && !value.negative?
+
+        raise MalformedParameterError, 'declared_value must be a non-negative number'
       end
 
       # Pares [producto, cantidad]. Los productos se buscan dentro del tenant: uno
