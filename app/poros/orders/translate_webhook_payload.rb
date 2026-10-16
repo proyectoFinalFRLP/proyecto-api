@@ -13,6 +13,7 @@ module Orders
     # ignora: el mapper de un Service puede mapear campos que sirven para otros
     # flujos (ej. tracking_number en la respuesta de un courier).
     ORDER_KEYS = %w[external_order_id external_order_number customer_name customer_document
+                    customer_email customer_phone
                     customer_address customer_zip_code customer_city
                     customer_province status requires_shipping].freeze
     ITEM_KEYS = %w[external_product_id quantity unit_price].freeze

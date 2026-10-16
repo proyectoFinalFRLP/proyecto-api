@@ -82,7 +82,7 @@ Se registra:
 
 ### Los reintentos no duplican la venta
 
-Shopify reintenta una entrega que no recibió un 2xx (8 veces en 4 horas). La idempotencia de órdenes (TESIS-44, índice único `company_id + external_order_id`) ya lo cubre: el segundo evento se persiste y se marca `processed` sin crear otra orden ni descontar stock. No se agrega dedupe por `X-Shopify-Webhook-Id`.
+Shopify reintenta una entrega que no recibió un 2xx (8 veces en 4 horas). La idempotencia de órdenes (TESIS-44, índice único `company_id + external_order_id`; desde TESIS-154, `company_integration_id + external_order_id`) ya lo cubre: el segundo evento se persiste y se marca `processed` sin crear otra orden ni descontar stock. No se agrega dedupe por `X-Shopify-Webhook-Id`.
 
 ## Alternativas consideradas
 

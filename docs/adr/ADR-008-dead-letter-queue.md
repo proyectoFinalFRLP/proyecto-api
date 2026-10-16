@@ -73,6 +73,8 @@ El motor no conoce ningún dominio: busca en `ReplayRegistry` el PORO correspond
 
 La ingesta de órdenes entrantes (TESIS-43) fue el primer caso que lo ejercitó: registró el `event_type` `webhooks.order_ingestion` con su replayer y estrenó la dirección `inbound`, sin cambiar una línea del motor. Ver [ADR-010](ADR-010-ingesta-de-ordenes-de-webhooks.md).
 
+_(Actualización, ADR-020: al cierre del proyecto la DLQ la usan los dos flujos entrantes, ventas y tracking. El sync de stock nunca se conectó: `ExecuteIntegrationRequest` existe pero ningún flujo lo llama, y un push fallido sigue en el `retry_on` de Active Job. Qué mecanismo usa cada flujo, y por qué, está en [ADR-020 §2](ADR-020-decisiones-tardias-broker-dlq-identity-mapping.md).)_
+
 ## Alternativas consideradas
 
 ### `retry_on` de Active Job

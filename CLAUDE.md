@@ -32,6 +32,7 @@ bundle install              # Instalar dependencias
 bin/setup                   # Setup completo (requiere PostgreSQL corriendo)
 
 bin/rails server            # Servidor de desarrollo en localhost:3000
+SOLID_QUEUE_IN_PUMA=1 bin/rails server   # API + workers + cronjobs en un proceso (como el deploy)
 
 bin/jobs                    # Workers de Solid Queue (no arranca en Windows: ver docs/guidelines/architecture.md §8.3)
 
@@ -45,33 +46,46 @@ bundle exec brakeman -q     # Escaneo de seguridad
 bundle exec bundle-audit check --update  # Gems con vulnerabilidades
 ```
 
+Setup desde cero (incluido Docker sin Ruby instalado, cuentas de los seeds y una demo de punta a punta): [`docs/guides/setup-local.md`](docs/guides/setup-local.md).
+
 ### Variables de entorno
 
-Copiar `.env.example` a `.env` y completar:
+**En desarrollo y test no hace falta ninguna**: todas tienen default. Rails **no lee `.env`** (no hay `dotenv`): se exportan en la terminal. `.env.example` lista las que existen; el único que lee `.env` es `lib/tasks/integrations.rake`.
 
 ```bash
-DEVISE_JWT_SECRET_KEY=   # Generar con: rails secret
-PROYECTO_API_DATABASE_PASSWORD=admin
+PROYECTO_API_DATABASE_HOST=127.0.0.1      # default; USER=postgres, PASSWORD=admin
+DEVISE_JWT_SECRET_KEY=                    # default: secret_key_base (generar con rails secret)
+ENCRYPTION_KEY= / ENCRYPTION_KEY_DERIVATION_SALT=   # cifrado de credenciales; default: secret_key_base
+SOLID_QUEUE_IN_PUMA=1                     # Puma levanta también los workers
+PUBLIC_WEBHOOK_BASE_URL=https://xxxx.ngrok-free.app   # sólo para recibir webhooks de un proveedor real
 ```
 
 ---
 
 ## Stack tecnológico
 
-| Tecnología  | Versión | Rol                                   |
-| ----------- | ------- | ------------------------------------- |
-| Ruby        | 4.0.2   | Lenguaje                              |
-| Rails       | 8.1.2.1 | Framework (API-only)                  |
-| PostgreSQL  | —       | Base de datos principal               |
-| Devise      | 5.0.3   | Autenticación de usuarios             |
-| devise-jwt  | 0.13.0  | Tokens JWT para la API                |
-| Pundit      | 2.5.2   | Autorización por políticas            |
-| Blueprinter | 1.2.1   | Serialización JSON                    |
-| Solid Queue | 1.4.0   | Cola de trabajos en background (DB)   |
-| RuboCop     | 1.86.0  | Linter (+ rails, performance, rspec)  |
-| RSpec       | 8.0.4   | Framework de testing                  |
-| Lefthook    | 2.1.4   | Git hooks                             |
-| Kamal       | 2.11.0  | Despliegue con Docker                 |
+Versiones resueltas en `Gemfile.lock` al cierre del proyecto (2026-10-10). Dependabot las actualiza: ante una duda, manda el lockfile.
+
+| Tecnología    | Versión | Rol                                                  |
+| ------------- | ------- | ---------------------------------------------------- |
+| Ruby          | 4.0.2   | Lenguaje                                             |
+| Rails         | 8.1.4   | Framework (API-only)                                 |
+| PostgreSQL    | 16      | Datos, cola de jobs, caché y locks (no hay Redis)    |
+| Puma          | 8.0.2   | Servidor web (+ Thruster 0.1.26 en la imagen)        |
+| Devise        | 5.0.4   | Autenticación (usuarios de empresa y administradores) |
+| devise-jwt    | 0.13.0  | Tokens JWT para la API                               |
+| Pundit        | 2.5.2   | Autorización por políticas                           |
+| Blueprinter   | 1.3.0   | Serialización JSON                                   |
+| Solid Queue   | 1.7.0   | Cola de jobs y cronjobs sobre PostgreSQL             |
+| Solid Cache   | 1.0.10  | Caché de producción sobre PostgreSQL (límite de intentos de login) |
+| Solid Cable   | 4.1.0   | Action Cable sobre PostgreSQL (sin uso funcional)    |
+| Avo           | 4.2.10  | Backoffice de la plataforma (`/admin`, ADR-017)      |
+| rack-cors     | 3.0.0   | CORS para el front                                   |
+| RuboCop       | 1.91.0  | Linter (+ rails, performance, rspec)                 |
+| RSpec (rails) | 8.0.4   | Testing (+ WebMock 3.26, SimpleCov 1.3)              |
+| Brakeman      | 8.1.0   | Análisis estático de seguridad                       |
+| Lefthook      | 2.1.17  | Git hooks                                            |
+| Kamal         | 2.12.0  | Despliegue con Docker                                |
 
 ---
 
@@ -118,9 +132,9 @@ El sistema implementa **row-level multi-tenancy**: todas las empresas comparten 
 4. Resultado: `Order.all` devuelve solo las órdenes de la empresa del usuario autenticado, sin código adicional en cada controller.
 
 **Reglas:**
-- Toda tabla de dominio debe tener `company_id NOT NULL` con FK a `companies`.
+- Toda tabla de dominio debe tener `company_id NOT NULL` con FK a `companies`. **Excepción:** las tablas hijas que sólo existen bajo un padre aislado heredan el tenant de él y no llevan la columna (`stocks` y `product_mappings` bajo `products`, `order_items` bajo `orders`, `shipment_events` bajo `shipments`). Se leen siempre a través del padre, nunca sueltas; si tienen dos padres, validan que sean de la misma empresa (ADR-020).
 - **Todo modelo nuevo con `company_id` debe incluir `CompanyScoped`** (las tablas globales como `services` no lo incluyen).
-- Los workers de background deben setear `Current.company_id` manualmente al inicio de cada job.
+- Los workers de background reciben el `company_id` como argumento y lo activan con `with_tenant(company_id)` de `ApplicationJob`, que además limpia `Current` al terminar.
 - Un usuario que intenta acceder a un recurso de otro tenant recibe **404** (no 403), para no confirmar la existencia del recurso.
 
 ---
@@ -323,13 +337,15 @@ bundle exec rspec spec/policies/
 
 ## CI/CD
 
-Pipeline en `.github/workflows/ci.yml`, se ejecuta en push y PR a `master`/`develop`:
+Pipeline en `.github/workflows/ci.yml`, se ejecuta en todo PR y en push a `master`/`develop`:
 
-| Job        | Acción                                       |
-| ---------- | -------------------------------------------- |
-| `security` | Brakeman + Bundler-audit                     |
-| `lint`     | RuboCop                                      |
-| `test`     | RSpec con servicio PostgreSQL efímero        |
+| Job         | Acción                                       |
+| ----------- | -------------------------------------------- |
+| `scan_ruby` | Brakeman + Bundler-audit                     |
+| `lint`      | RuboCop                                      |
+| `test`      | RSpec con servicio PostgreSQL efímero        |
+
+`pr-title.yml` valida el título del PR (`feat|fix|chore|refactor|test|docs: [TESIS-XXX] ...`). Los revisores se asignan por `CODEOWNERS` y las gemas las actualiza Dependabot (mensual, agrupado).
 
 ---
 
@@ -342,4 +358,7 @@ Pipeline en `.github/workflows/ci.yml`, se ejecuta en push y PR a `master`/`deve
 | [docs/guidelines/feature-structure.md](docs/guidelines/feature-structure.md) | Dominios de negocio, cómo agregar features  |
 | [docs/guidelines/git-workflow.md](docs/guidelines/git-workflow.md) | Ramas, commits, PRs, hooks, CI              |
 | [docs/guidelines/pr-guidelines.md](docs/guidelines/pr-guidelines.md) | Cómo redactar PRs                           |
+| [docs/guidelines/testing.md](docs/guidelines/testing.md)       | Filosofía de testing, estructura de specs, factories |
+| [docs/guides/setup-local.md](docs/guides/setup-local.md)       | Setup local desde cero (nativo o Docker), cuentas de los seeds, demo |
+| [docs/guides/flujo-de-un-webhook.md](docs/guides/flujo-de-un-webhook.md) | Recorrido de punta a punta de una venta por webhook |
 | [docs/adr/](docs/adr/)                                         | Decisiones arquitectónicas (ADRs)                   |
