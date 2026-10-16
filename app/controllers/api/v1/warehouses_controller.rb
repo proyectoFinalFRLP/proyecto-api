@@ -11,6 +11,9 @@ module Api
 
       # Columnas por las que se puede ordenar el listado (TESIS-184). Las
       # unidades guardadas son el alias del agregado de `with_stored_units`.
+      # OJO: Postgres acepta un alias del SELECT en el ORDER BY sólo como nombre
+      # suelto. Envuelto en una expresión (`COALESCE(stored_units, 0)`, por
+      # ejemplo) deja de reconocerlo; ahí hay que repetir la expresión entera.
       SORTS = {
         'name' => 'warehouses.name',
         'zip_code' => 'warehouses.zip_code',

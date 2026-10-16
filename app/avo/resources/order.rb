@@ -5,6 +5,16 @@ module Avo
     class Order < Avo::BaseResource
       self.title = :display_name
       self.includes = %i[company company_integration order_items]
+      # Las formas en que el equipo nombra una venta: el cliente, el id del canal
+      # y el número que muestra la tienda (TESIS-180). Avo 4 pasa el texto como
+      # `q` (ver el recurso Product).
+      self.search = {
+        query: lambda {
+          query.where('customer_name ILIKE :q OR external_order_id ILIKE :q ' \
+                      'OR external_order_number ILIKE :q',
+                      q: "%#{::Order.sanitize_sql_like(q.to_s)}%")
+        }
+      }
 
       def fields
         field :id, as: :id

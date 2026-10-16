@@ -41,4 +41,12 @@ RSpec.describe 'Search in the backoffice lists (Avo)', type: :request do
 
     expect_search('/admin/resources/products', 'acm-', found: 'Router', left_out: 'Switch')
   end
+
+  # TESIS-180: el número que muestra la tienda es el que el equipo tiene a mano.
+  it 'finds orders by the number the store gives them' do
+    Order.create!(company: acme, customer_name: 'Ana Pérez', external_order_number: '#1001')
+    Order.create!(company: globex, customer_name: 'Beto Gómez', external_order_number: '#2002')
+
+    expect_search('/admin/resources/orders', '1001', found: 'Ana Pérez', left_out: 'Beto Gómez')
+  end
 end

@@ -26,6 +26,12 @@ module Api
       # expresión de cada una. El courier sale del envío de la orden con una
       # subconsulta y no con un join: sumar tablas al FROM cambiaría el conteo
       # del `meta` y la precarga del serializer.
+      #
+      # La subconsulta es escalar y asume **un envío por orden** (MVP, TESIS-45:
+      # `has_one :shipment` y el índice único `index_shipments_on_order_id`).
+      # Si una orden pasa a tener varios envíos, devuelve más de una fila y
+      # Postgres corta la consulta: hay que elegir cuál ordena (el último, por
+      # ejemplo) antes de levantar esa restricción.
       SORTS = {
         'created_at' => 'orders.created_at',
         'destination' => 'orders.customer_address',
