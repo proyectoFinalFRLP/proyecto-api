@@ -21,7 +21,13 @@ module Integrations
       @force_refresh = force_refresh
     end
 
+    # `none`: el proveedor recibe la cuenta como parámetros del request
+    # (`credentials.<clave>` en el request_mapper, TESIS-186). Mandarla además
+    # como headers literales, que es lo que haría `bearer`, sería repartir el
+    # secreto en un lugar donde nadie lo pidió.
     def call
+      return {} if service.no_auth?
+
       service.oauth_client_credentials? ? oauth_headers : bearer_headers
     end
 

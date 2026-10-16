@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DataSet xmlns="#Oca_e_Pak">
+  <xs:schema id="Resultado" xmlns="" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xs:element name="Resultado" msdata:IsDataSet="true" msdata:Locale="">
+      <xs:complexType>
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+          <xs:element name="Resumen">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="CodigoOperacion" type="xs:int" minOccurs="0" />
+                <xs:element name="FechaIngreso" type="xs:dateTime" minOccurs="0" />
+                <xs:element name="mailUsuario" type="xs:string" minOccurs="0" />
+                <xs:element name="origen" type="xs:string" minOccurs="0" />
+                <xs:element name="CantidadRegistros" type="xs:int" minOccurs="0" />
+                <xs:element name="CantidadIngresados" type="xs:int" minOccurs="0" />
+                <xs:element name="CantidadRechazados" type="xs:int" minOccurs="0" />
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="DetalleIngresos">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="Operativa" type="xs:int" minOccurs="0" />
+                <xs:element name="OrdenRetiro" type="xs:int" minOccurs="0" />
+                <xs:element name="NumeroEnvio" type="xs:string" minOccurs="0" />
+                <xs:element name="Remito" type="xs:string" minOccurs="0" />
+                <xs:element name="Estado" type="xs:string" minOccurs="0" />
+                <xs:element name="SucursalDestino" type="xs:string" minOccurs="0" />
+                <xs:element name="QR" type="xs:string" minOccurs="0" />
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="DetalleRechazos">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="Operativa" type="xs:int" minOccurs="0" />
+                <xs:element name="Remito" type="xs:string" minOccurs="0" />
+                <xs:element name="Motivo" type="xs:string" minOccurs="0" />
+                <xs:element name="Cantidad" type="xs:int" minOccurs="0" />
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+        </xs:choice>
+      </xs:complexType>
+    </xs:element>
+  </xs:schema>
+  <diffgr:diffgram xmlns:msdata="urn:schemas-microsoft-com:xml-msdata" xmlns:diffgr="urn:schemas-microsoft-com:xml-diffgram-v1">
+    <Resultado xmlns="">
+      <Resumen diffgr:id="Resumen1" msdata:rowOrder="0">
+        <CodigoOperacion>12361894</CodigoOperacion>
+        <FechaIngreso>2026-10-16T09:25:47.787-03:00</FechaIngreso>
+        <mailUsuario>test@oca.com.ar</mailUsuario>
+        <origen />
+        <CantidadRegistros>1</CantidadRegistros>
+        <CantidadIngresados>1</CantidadIngresados>
+        <CantidadRechazados>0</CantidadRechazados>
+      </Resumen>
+      <DetalleIngresos diffgr:id="DetalleIngresos1" msdata:rowOrder="0">
+        <Operativa>64665</Operativa>
+        <OrdenRetiro>20914118</OrdenRetiro>
+        <NumeroEnvio>1217400000000340668</NumeroEnvio>
+        <Remito>TEST-186-1</Remito>
+        <Estado>OR Pendiente de Impresion</Estado>
+        <SucursalDestino>B-LPG-D02P</SucursalDestino>
+        <QR>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</QR>
+      </DetalleIngresos>
+    </Resultado>
+  </diffgr:diffgram>
+</DataSet>
