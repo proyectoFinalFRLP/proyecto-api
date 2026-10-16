@@ -297,14 +297,16 @@ La integración con Shopify funciona contra una tienda de prueba (*dev store*) d
 
 ### OCA e-Pak (entorno de prueba)
 
-Los seeds cargan las plantillas de **OCA e-Pak**, pero no conectan ninguna empresa. La cuenta se conecta con una tarea, igual que Shopify: lee `OCA_<SLUG>_*` del entorno o de `.env`. `.env.example` trae los valores de la **cuenta de prueba pública** de OCA, así que alcanza con descomentarlos y tener internet:
+**No hace falta configurar nada.** En desarrollo, `db:seed` carga las plantillas de **OCA e-Pak** y deja a Norte conectada con la **cuenta de prueba pública** de OCA (la que publica la propia OCA en developers.oca.com.ar, sólo válida en su entorno de prueba). Con internet, alcanza con levantar la API y la web: el alta manual cotiza con OCA, despacha, imprime la etiqueta y sigue el envío.
+
+Para probar la cuenta o recorrer el flujo sin la web:
 
 ```bash
-cp .env.example .env          # y descomentar las líneas OCA_NORTE_*
-bin/rails "integrations:oca:connect[norte]"   # crea la integración que despacha y la que cotiza
 bin/rails "integrations:oca:test[norte]"      # prueba la cuenta (GetOperativasByUsuario)
 bin/rails "integrations:oca:smoke[norte]"     # cotiza, despacha, baja la etiqueta a tmp/ y pregunta el estado
 ```
+
+Para usar **otra cuenta** (una propia de OCA), se cargan `OCA_<SLUG>_*` en el entorno o en `.env` (ver `.env.example`) y se corre `bin/rails "integrations:oca:connect[norte]"`, igual que Shopify: reemplaza la cuenta de demo. En producción los seeds sólo cargan las plantillas y cada empresa conecta la suya.
 
 Con Norte conectada, cotizar un envío o un alta manual le pide tarifa al entorno de prueba de OCA; despachar con OCA crea una orden de retiro de prueba, y la etiqueta se baja desde `GET /api/v1/shipments/:id/label`. Sin internet, OCA simplemente no aparece entre las opciones. Las tareas sólo corren en desarrollo, y la smoke se niega a correr si la plantilla no apunta al entorno de prueba.
 

@@ -2,7 +2,9 @@
 
 # Tareas de desarrollo para conectar una empresa de los seeds con OCA e-Pak
 # (TESIS-186), con el mismo patrón que las de Shopify (lib/tasks/integrations.rake).
-# Las plantillas de OCA las siembra `db/seeds.rb`; la cuenta no: se carga acá.
+# Las plantillas de OCA las siembra `db/seeds.rb`, y en desarrollo también deja
+# a Norte con la cuenta de prueba pública de OCA. Estas tareas sirven para
+# conectar otra cuenta (reemplaza la de demo), probarla y recorrer el flujo.
 #
 # Lee del entorno, o de `.env` si no están seteadas (ver DevEnv):
 #   OCA_<SLUG>_USR, OCA_<SLUG>_PSW                 usuario y contraseña de e-Pak

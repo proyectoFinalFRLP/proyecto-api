@@ -12,9 +12,11 @@
 # Apunta al entorno de PRUEBA de OCA (`ocadev`), nunca al productivo: es el que
 # el equipo decidió usar (ADR-018).
 #
-# Sólo las plantillas: ninguna empresa queda conectada. La cuenta se carga con
-# `bin/rails "integrations:oca:connect[norte]"` (lib/tasks/oca.rake), que lee
-# `OCA_<SLUG>_*` del entorno o de `.env`, igual que las tareas de Shopify.
+# En desarrollo, `seeds.rb` conecta a Norte con la cuenta de prueba pública de
+# OCA (`connect_demo!`), así el flujo completo anda apenas se siembra la base.
+# Para usar otra cuenta está `bin/rails "integrations:oca:connect[norte]"`
+# (lib/tasks/oca.rake), que lee `OCA_<SLUG>_*` del entorno o de `.env`, igual
+# que las tareas de Shopify.
 #
 # Va aparte de `seeds.rb` para que el spec de punta a punta use exactamente
 # estas plantillas (spec/integrations/oca_epak_spec.rb), y para que tocarlas no
@@ -233,6 +235,35 @@ module OcaSeeds
                                      .map(&:to_sym)))
     end
     link!
+  end
+
+  # Cuenta de prueba PÚBLICA de OCA: la publica la propia OCA en
+  # developers.oca.com.ar/epak.html y sólo vale en el entorno `ocadev`. No es un
+  # secreto de nadie del equipo, así que, a diferencia de Shopify, puede vivir
+  # en el repo.
+  def self.demo_account
+    { credentials: { 'usr' => 'test@oca.com.ar', 'psw' => '123456' },
+      settings: { 'cuit' => '30-53625919-4', 'nrocuenta' => '111757/001', 'operativa' => '64665',
+                  'centrocosto' => '1', 'idfranjahoraria' => '1' } }
+  end
+
+  # Conecta la empresa con esa cuenta, para que quien levante el proyecto pueda
+  # cotizar, despachar e imprimir la etiqueta con OCA sin cargar nada. Igual que
+  # `integrations:oca:connect`: una integración para despachar y otra para
+  # cotizar. No pisa una integración que ya existe: si alguien conectó su propia
+  # cuenta con la tarea, se respeta.
+  def self.connect_demo!(company)
+    account = demo_account
+    accounts = [[dispatch, account[:settings], account[:credentials]],
+                [quote, account[:settings].slice('cuit', 'operativa'), nil]]
+    accounts.each do |attrs, settings, credentials|
+      service = Service.find_by!(service_name: attrs[:service_name])
+      next if CompanyIntegration.exists?(company: company, service: service)
+
+      # El mismo camino que la tarea: valida los campos que declara la plantilla.
+      Integrations::UpsertIntegration.new(company: company, service_id: service.id, is_active: true,
+                                          settings: settings, credentials: credentials).call
+    end
   end
 
   def self.link!

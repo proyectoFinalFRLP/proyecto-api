@@ -582,10 +582,15 @@ andreani_quote = Service.find_by(service_name: 'Andreani - Cotización')
 andreani_dispatch&.update!(quote_service: andreani_quote) if andreani_quote
 
 # OCA e-Pak (TESIS-186): cotiza, despacha, emite la etiqueta y se sigue sólo con
-# plantillas, contra el entorno de prueba de OCA (ver el archivo). Sólo las
-# plantillas: la cuenta se conecta con `bin/rails "integrations:oca:connect[norte]"`.
+# plantillas, contra el entorno de prueba de OCA (ver el archivo). En desarrollo
+# Norte queda conectada con la cuenta de prueba pública de OCA, para que el flujo
+# completo ande sin configurar nada; en producción sólo se siembran las
+# plantillas y cada empresa carga su propia cuenta.
 load Rails.root.join('db/seeds/oca.rb')
 OcaSeeds.install!
+if Rails.env.development? && (oca_company = Company.find_by(slug: 'norte'))
+  OcaSeeds.connect_demo!(oca_company)
+end
 
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
 # La variable ml_integration la consume la orden de webhook de la sección TESIS-40

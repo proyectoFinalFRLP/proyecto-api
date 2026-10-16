@@ -14,19 +14,11 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
   let(:headers) { auth_headers(user) }
   let(:oca) { company.company_integrations.joins(:service).find_by!(services: { service_name: 'OCA e-Pak' }) }
 
-  # Lo que deja `integrations:oca:connect` con la cuenta de prueba pública de
-  # OCA: la integración que despacha y la que cotiza.
+  # Lo que dejan los seeds en desarrollo: Norte conectada con la cuenta de
+  # prueba pública de OCA, una integración que despacha y otra que cotiza.
   before do
     OcaSeeds.install!
-    settings = { 'cuit' => '30-53625919-4', 'nrocuenta' => '111757/001', 'operativa' => '64665',
-                 'centrocosto' => '1' }
-    connect('OCA e-Pak', settings: settings, credentials: { 'usr' => 'test@oca.com.ar', 'psw' => '123456' })
-    connect('OCA e-Pak - Cotización', settings: settings.slice('cuit', 'operativa'))
-  end
-
-  def connect(service_name, **account)
-    Integrations::UpsertIntegration.new(company: company, service_id: Service.find_by!(service_name: service_name).id,
-                                        is_active: true, **account).call
+    OcaSeeds.connect_demo!(company)
   end
 
   def endpoint(method) = "#{OcaSeeds.base_uri}/#{method}"
