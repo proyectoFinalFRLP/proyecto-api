@@ -51,8 +51,8 @@ module ContratoDeLaApi
               total_amount order_items created_at updated_at],
     linea: %w[id product_id warehouse_id quantity unit_price product created_at updated_at],
     courier: %w[id service_id name],
-    envio: %w[id order_id status tracking_number shipping_label_url shipping_cost courier events
-              created_at updated_at],
+    envio: %w[id order_id external_order_id status tracking_number shipping_label_url
+              shipping_cost courier events created_at updated_at],
     evento: %w[id internal_status external_status description occurred_at created_at],
     meta: %w[page per_page total],
     reporte: %w[period from to granularity kpis curve carriers],
