@@ -2,7 +2,7 @@
 
 ## 1. RuboCop
 
-El proyecto usa **RuboCop 1.86** con los plugins `rubocop-rails`, `rubocop-performance` y `rubocop-rspec`. La configuración está en `.rubocop.yml`.
+El proyecto usa **RuboCop 1.91** con los plugins `rubocop-rails`, `rubocop-performance` y `rubocop-rspec`. La configuración está en `.rubocop.yml`.
 
 ```bash
 bundle exec rubocop         # Verificar

@@ -72,7 +72,7 @@ Catalog::SyncStockJob.perform_later(product.id, Current.company_id)
 ## Consecuencias
 
 - ✅ Sin dependencias adicionales: PostgreSQL ya es parte del stack
-- ✅ Las jobs son transaccionales con el mismo commit que las dispara (Solid Queue soporta esto)
+- ✅ Las jobs son transaccionales con el mismo commit que las dispara (Solid Queue soporta esto) _(Actualización, ADR-020: no aplica con la cola en su base propia (`queue`), que es como quedó configurada. El encolado no es atómico con la escritura que lo dispara; lo que se garantiza es el orden, encolando después del commit.)_
 - ✅ Cronjobs declarativos en configuración YAML sin herramientas externas (cron del SO)
 - ✅ Fácil de operar: la cola y los jobs son visibles en la misma DB que los datos
 - ⚠️ Para volúmenes muy altos (> miles de jobs/seg), Redis-backed Sidekiq sería más performante
