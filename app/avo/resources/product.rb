@@ -21,6 +21,7 @@ module Avo
         field :category, as: :select, options: ::Product::CATEGORIES.index_with(&:itself)
         field :weight, as: :number
         field :dimensions, as: :text
+        field :low_stock_threshold, as: :number, name: 'Low stock threshold'
         field :company, as: :belongs_to
 
         field :stocks, as: :has_many

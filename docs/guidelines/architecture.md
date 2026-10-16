@@ -47,6 +47,8 @@ SOLID_QUEUE_IN_PUMA=1                       # Workers dentro de Puma (así corre
 PUBLIC_WEBHOOK_BASE_URL=<url https>         # URL pública con la que se registran los webhooks
 ```
 
+En producción, además, la API no arranca sin `DEVISE_JWT_SECRET_KEY`, `CORS_ALLOWED_ORIGINS` y `RAILS_ALLOWED_HOSTS`, y `db:seed` pide `SEED_USER_PASSWORD` y `SEED_ADMIN_PASSWORD`. Qué define cada una y por qué está en [ADR-021](../adr/ADR-021-seguridad-del-despliegue.md) y en `.env.example`.
+
 ---
 
 ## 3. Estructura de carpetas
@@ -92,7 +94,7 @@ config/
 ├── routes.rb                        # namespace :api > namespace :v1
 ├── database.yml                     # PostgreSQL (dev, test, prod + cache/queue DBs)
 ├── initializers/
-│   ├── cors.rb                      # rack-cors: todos los orígenes (dev)
+│   ├── cors.rb                      # rack-cors: sólo el front (CORS_ALLOWED_ORIGINS; localhost en dev)
 │   └── devise.rb                    # Configuración de Devise
 └── environments/
 

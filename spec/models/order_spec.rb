@@ -63,6 +63,29 @@ RSpec.describe Order, type: :model do
       order.customer_province = nil
       expect(order).to be_valid
     end
+
+    # TESIS-178: el alta de un retiro en el local manda la provincia en blanco.
+    it 'takes a blank province as no province', :aggregate_failures do
+      order.customer_province = ''
+      expect(order).to be_valid
+      expect(order.customer_province).to be_nil
+    end
+  end
+
+  describe 'destination normalization' do
+    it 'stores blank address fields as nil', :aggregate_failures do
+      order.assign_attributes(customer_address: '', customer_city: '  ', customer_zip_code: '')
+      order.save!
+
+      expect(order.reload.customer_address).to be_nil
+      expect(order.customer_city).to be_nil
+      expect(order.customer_zip_code).to be_nil
+    end
+
+    it 'trims the surrounding spaces of a filled field' do
+      order.customer_city = '  La Plata '
+      expect(order.customer_city).to eq('La Plata')
+    end
   end
 
   it 'takes the city as free text' do

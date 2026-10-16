@@ -55,6 +55,46 @@ RSpec.describe Product, type: :model do
       expect(described_class.stock_status_for(nil)).to eq('out_of_stock')
     end
 
+    it 'compares against the threshold it is given', :aggregate_failures do
+      expect(described_class.stock_status_for(20, 20)).to eq('low')
+      expect(described_class.stock_status_for(21, 20)).to eq('available')
+    end
+  end
+
+  # TESIS-182: cada producto tiene su umbral.
+  describe 'low stock threshold' do
+    it 'starts at the threshold the whole catalog used to share' do
+      expect(product.low_stock_threshold).to eq(Product::LOW_STOCK_THRESHOLD)
+    end
+
+    def with_units(quantity, threshold)
+      product.update!(low_stock_threshold: threshold)
+      depot = Warehouse.create!(company: company, name: 'Central', zip_code: '1900',
+                                address: 'Calle 1')
+      Stock.create!(product: product, warehouse: depot, quantity: quantity)
+      product.reload
+    end
+
+    it 'says low for 58 units when the product needs 100' do
+      expect(with_units(58, 100).stock_status).to eq('low')
+    end
+
+    it 'says available for the same 58 units when the product needs 20' do
+      expect(with_units(58, 20).stock_status).to eq('available')
+    end
+
+    it 'accepts zero, a product that only warns when it runs out' do
+      product.low_stock_threshold = 0
+      expect(product).to be_valid
+    end
+
+    it 'rejects a negative or fractional threshold', :aggregate_failures do
+      product.low_stock_threshold = -1
+      expect(product).not_to be_valid
+      product.low_stock_threshold = 2.5
+      expect(product).not_to be_valid
+    end
+
     it 'only answers values of the vocabulary' do
       results = [0, 1, 1_000].map { |quantity| described_class.stock_status_for(quantity) }
 

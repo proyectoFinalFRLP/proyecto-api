@@ -45,12 +45,13 @@ module Api
       def index
         # La precarga es load-bearing: ShipmentListSerializer lee el nombre del
         # courier a través de la plantilla del Service, y sin ella son dos
-        # queries por fila (company_integrations + services).
+        # queries por fila (company_integrations + services). La orden, por el
+        # número del canal que muestra cada fila (TESIS-181).
         #
         # El total lo cuenta el concern sobre el scope filtrado, no sobre el
         # total de la empresa: de acá sale el KPI de envíos activos (TESIS-53).
         shipments, meta = paginate(
-          filtered_shipments.preload(company_integration: :service)
+          filtered_shipments.preload(:order, company_integration: :service)
                             .order(created_at: :desc, id: :desc)
         )
 
@@ -179,7 +180,7 @@ module Api
       # CompanyScoped ya acota, así que un id de otra empresa levanta
       # RecordNotFound -> 404, que es lo que corresponde (no revelar que existe).
       def set_shipment
-        @shipment = Shipment.includes(:shipment_events, company_integration: :service)
+        @shipment = Shipment.includes(:order, :shipment_events, company_integration: :service)
                             .find(params.expect(:id))
         authorize @shipment
       end
