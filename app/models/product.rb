@@ -11,14 +11,15 @@ class Product < ApplicationRecord
   # Sumar una categoría tiene que ser una línea acá, no una migración.
   CATEGORIES = %w[Electronics Machinery Cabling Power].freeze
 
-  # Hasta cuántas unidades un producto se considera en falta. Es un umbral único
-  # y no un punto de reposición por producto: el modelo no tiene esa columna y
-  # agregarla es una decisión de negocio propia, no un detalle de esta pantalla.
+  # El umbral de stock bajo con el que nace un producto si no se le carga uno.
+  # Desde TESIS-182 cada producto tiene el suyo (`low_stock_threshold`): con un
+  # único número para todo el catálogo, 58 disyuntores y 58 metros de cable
+  # quedaban igual de «bajos». Éste era ese número, y es el default de la
+  # columna, así que ningún producto cambió de estado al migrar.
   #
-  # Vive acá y no en el front porque de este número dependen dos cosas que
-  # tienen que coincidir: el filtro del listado y el color del badge de cada
-  # fila. Con el umbral del lado del cliente, pedir «stock bajo» y contar las
-  # filas amarillas podían dar distinto.
+  # El estado se sigue calculando acá y no en el front: de él dependen el
+  # filtro del listado y el color del badge de cada fila, que tienen que
+  # coincidir.
   LOW_STOCK_THRESHOLD = 100
 
   # Los tres estados de disponibilidad, en el vocabulario de la pantalla.
@@ -49,6 +50,9 @@ class Product < ApplicationRecord
   validates :sku, presence: true, uniqueness: { scope: :company_id }
   validates :name, presence: true
   validates :weight, numericality: { greater_than_or_equal_to: 0 }
+  # Entero y no negativo, como el CHECK de la columna: un umbral de 2,5 unidades
+  # no significa nada. Cero es válido: el producto sólo avisa cuando se agota.
+  validates :low_stock_threshold, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   # allow_nil: la categoría es opcional — los productos que ya existían no
   # tienen ninguna y no hay con qué inferirla.
   validates :category, inclusion: { in: CATEGORIES }, allow_nil: true
@@ -77,15 +81,16 @@ class Product < ApplicationRecord
   # no matchea; aca el filtro es una vista derivada del stock, y un tab que no
   # existe no describe ningun subconjunto. Si se unifican, que sea en las dos
   # puntas y no cambiando esta sola.
-  # El umbral viaja como parámetro y no interpolado: aunque sea una constante
-  # nuestra, un HAVING armado con interpolación es indistinguible de uno armado
-  # con un dato del request para cualquiera que lea —o audite— este archivo.
+  # El umbral es la columna del propio producto (TESIS-182), no un parámetro:
+  # cada fila se compara contra el suyo. Postgres la acepta en el HAVING sin
+  # sumarla al GROUP BY porque `with_total_stock` agrupa por la clave primaria,
+  # y el resto de las columnas de `products` dependen de ella.
   scope :by_stock_status, lambda { |status|
     case status
     when 'out_of_stock' then having('COALESCE(SUM(stocks.quantity), 0) = 0')
-    when 'low' then having('COALESCE(SUM(stocks.quantity), 0) BETWEEN 1 AND ?',
-                           LOW_STOCK_THRESHOLD)
-    when 'available' then having('COALESCE(SUM(stocks.quantity), 0) > ?', LOW_STOCK_THRESHOLD)
+    when 'low'
+      having('COALESCE(SUM(stocks.quantity), 0) BETWEEN 1 AND products.low_stock_threshold')
+    when 'available' then having('COALESCE(SUM(stocks.quantity), 0) > products.low_stock_threshold')
     else all
     end
   }
@@ -115,20 +120,16 @@ class Product < ApplicationRecord
   # usa `by_stock_status` para filtrar: si se calculara en el cliente, el filtro
   # y el color de la fila podrían discrepar.
   def stock_status
-    self.class.stock_status_for(total_stock)
+    self.class.stock_status_for(total_stock, low_stock_threshold)
   end
 
-  # La regla de disponibilidad, en un solo lugar. La usan el producto (sobre su
-  # total) y cada fila de `stocks` (sobre lo que guarda ese depósito): si cada
-  # uno tuviera su copia, el badge del detalle y el del catálogo podían volver a
-  # discrepar, que es justo el bug que motivó exponer el estado desde acá.
-  #
-  # Por depósito es una regla provisoria: usa el mismo umbral global porque el
-  # modelo no tiene punto de reposición por depósito. Si aparece, cambia acá.
-  def self.stock_status_for(quantity)
+  # La regla de disponibilidad, en un solo lugar: `by_stock_status` es la misma
+  # en SQL. El umbral es el del producto (TESIS-182) y se compara contra su
+  # stock total; un depósito suelto no tiene «stock bajo» (ver Stock#stock_status).
+  def self.stock_status_for(quantity, threshold = LOW_STOCK_THRESHOLD)
     return 'out_of_stock' if quantity.to_i <= 0
 
-    quantity <= LOW_STOCK_THRESHOLD ? 'low' : 'available'
+    quantity <= threshold ? 'low' : 'available'
   end
 
   # Unidades que salieron de un depósito y todavía no llegaron a otro. No están
