@@ -55,20 +55,21 @@ COPY . .
 # -j 1 disable parallel compilation to avoid a QEMU bug: https://github.com/rails/bootsnap/issues/495
 RUN bundle exec bootsnap precompile -j 1 app/ lib/
 
+# Adjust binfiles to be executable on Linux
+# Tiene que ir antes del primer RUN que ejecute algo de bin/: un contexto que
+# viene de un checkout de Windows (core.autocrlf=true) trae los scripts con CRLF
+# y el shebang busca `ruby\r`. .gitattributes ya los fuerza a LF, pero un clon
+# existente conserva los CRLF hasta que se vuelvan a extraer esos archivos.
+RUN chmod +x bin/* && \
+    sed -i "s/\r$//g" bin/* && \
+    sed -i 's/ruby\.exe$/ruby/' bin/*
+
 # Precompilar los assets (Propshaft) en build y no en runtime: el backoffice de
 # Avo sirve CSS/JS con nombre digest desde public/assets, y sin este paso las
 # páginas del panel piden esos archivos y reciben 404 (panel sin estilos).
 # SECRET_KEY_BASE_DUMMY evita que el boot de Rails pida credenciales reales
 # durante la compilación, cuando no hay base de datos ni secrets disponibles.
 RUN SECRET_KEY_BASE_DUMMY=1 ./bin/rails assets:precompile
-
-# Adjust binfiles to be executable on Linux
-RUN chmod +x bin/* && \
-    sed -i "s/\r$//g" bin/* && \
-    sed -i 's/ruby\.exe$/ruby/' bin/*
-
-
-
 
 # Final stage for app image
 FROM base
