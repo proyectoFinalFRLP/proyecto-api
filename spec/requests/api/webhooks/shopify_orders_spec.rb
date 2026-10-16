@@ -22,12 +22,14 @@ RSpec.describe 'Shopify orders/create', type: :request do
       service_name: 'Shopify', type: 'ecommerce', http_method: 'POST',
       uri: 'https://:shop_domain/admin/api/2026-07/graphql.json', request_format: 'graphql',
       response_mapper: {
-        'id' => 'external_order_id', 'financial_status' => 'status',
+        'id' => 'external_order_id', 'name' => 'external_order_number',
+        'financial_status' => 'status',
         'shipping_address.name' => 'customer_name',
         'shipping_address.address1' => 'customer_address',
         'shipping_address.zip' => 'customer_zip_code',
         'shipping_address.city' => 'customer_city',
         'shipping_address.province' => 'customer_province',
+        'email' => 'customer_email', 'shipping_address.phone' => 'customer_phone',
         'line_items[].variant_id' => 'external_product_id',
         'line_items[].quantity' => 'quantity', 'line_items[].price' => 'unit_price'
       },
@@ -67,6 +69,45 @@ RSpec.describe 'Shopify orders/create', type: :request do
   it 'keeps the city and the province for the courier' do
     deliver
     expect(order).to have_attributes(customer_city: 'Berisso', customer_province: 'Buenos Aires')
+  end
+
+  # TESIS-180: el número que ve el comerciante en el admin de Shopify. El `id`
+  # sigue siendo la identidad de la venta; éste es para mostrar y buscar.
+  it 'keeps the number the store gives the sale' do
+    deliver
+    expect(order.external_order_number).to eq('#1001')
+  end
+
+  # TESIS-179: el contacto del comprador. La venta capturada no trae teléfono.
+  it 'keeps the email of the buyer and enters without a phone' do
+    deliver
+    expect(order).to have_attributes(customer_email: 'cliente@example.com', customer_phone: nil)
+  end
+
+  context 'when the channel sends the email blank' do
+    def body
+      payload = JSON.parse(Rails.root.join('spec/fixtures/shopify/orders_create.json').read)
+      payload['email'] = ''
+      payload.to_json
+    end
+
+    it 'enters without an email instead of with an empty one' do
+      deliver
+      expect(order.customer_email).to be_nil
+    end
+  end
+
+  context 'when the checkout asked for a phone' do
+    def body
+      payload = JSON.parse(Rails.root.join('spec/fixtures/shopify/orders_create.json').read)
+      payload['shipping_address']['phone'] = '+54 11 2342 3456'
+      payload.to_json
+    end
+
+    it 'keeps the phone of the shipping address' do
+      deliver
+      expect(order.customer_phone).to eq('+54 11 2342 3456')
+    end
   end
 
   it 'adds up the lines into the total' do

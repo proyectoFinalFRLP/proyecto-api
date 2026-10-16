@@ -400,12 +400,28 @@ services = [
     # app tiene acceso a los datos protegidos de cliente.
     response_mapper: {
       'id' => 'external_order_id',
+      # El número que la tienda le da a la venta (TESIS-180): «#1001», con el
+      # prefijo y el sufijo que tenga configurados. Es el que ve el comerciante
+      # en el admin de Shopify. El `id` de arriba sigue siendo la identidad de
+      # la venta (no se repite y no cambia), pero no aparece en ninguna
+      # pantalla de Shopify: mostrarlo hacía imposible cruzar una venta entre
+      # los dos sistemas.
+      'name' => 'external_order_number',
       'financial_status' => 'status',
       'shipping_address.name' => 'customer_name',
       'shipping_address.address1' => 'customer_address',
       'shipping_address.zip' => 'customer_zip_code',
       'shipping_address.city' => 'customer_city',
       'shipping_address.province' => 'customer_province',
+      # El contacto del comprador (TESIS-179). `email` es el del checkout; el
+      # teléfono se toma del domicilio de envío, que es donde lo pide el
+      # checkout de Shopify. Un solo camino por dato: el mapper no tiene
+      # «este, y si falta, aquel», y dos rutas a la misma clave dependerían
+      # del orden en que la base guarda el JSON. Los dos son datos protegidos:
+      # si la app no tiene habilitados Email y Phone en el Dev Dashboard,
+      # Shopify los manda en null y la venta entra igual, sin contacto.
+      'email' => 'customer_email',
+      'shipping_address.phone' => 'customer_phone',
       'line_items[].variant_id' => 'external_product_id',
       'line_items[].quantity' => 'quantity',
       'line_items[].price' => 'unit_price'

@@ -161,6 +161,8 @@ cualquier error            → { "error": "..." }
 
 El cálculo vive en un solo lugar, el concern `Api::V1::Paginatable`, con el techo (`MAX_PER_PAGE = 100`) y los dos defaults: 20 para una pantalla paginada y 100 para los listados que el consumidor lee enteros —depósitos, mapeos, integraciones— y usa para llenar un select. `page` y `per_page` fuera de rango se acotan en vez de romper.
 
+El orden por columna (TESIS-184) es el concern `Api::V1::Sortable`: `?sort=<clave>&direction=asc|desc`. Cada listado declara su lista blanca `SORTS` (clave → expresión SQL) y su orden de siempre; el valor del request sólo elige una entrada, nunca se interpola. Cualquier orden, el pedido o el de siempre, desempata por `id` para que una fila no salte entre páginas, y los vacíos van al final (`NULLS LAST`). Una clave o dirección desconocida deja el orden de siempre. Los estados se ordenan por su ciclo de vida (`Sortable.lifecycle`), no alfabéticamente. Lo prueba `spec/requests/api/v1/listing_sort_spec.rb`.
+
 `spec/requests/api/v1/pagination_spec.rb` fija los bordes una vez y recorre los listados que enumera, verificando que cada uno traiga `meta` y respete el techo; `api_contract_spec.rb` fija las formas de los endpoints que enumera. Las dos listas están escritas a mano: **un listado nuevo hay que sumarlo ahí**, o la suite no se entera de que existe.
 
 ### 4.1 Flujo de un webhook entrante

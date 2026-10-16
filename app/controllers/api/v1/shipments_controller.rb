@@ -22,6 +22,7 @@ module Api
       rescue_from Integrations::AdapterExecutionError, with: :render_courier_failure
 
       include Paginatable
+      include Sortable
 
       # Cuánto del cuerpo del courier se propaga en el mensaje de error.
       COURIER_ERROR_LIMIT = 300
@@ -35,14 +36,34 @@ module Api
       # se acuerde de agregarlo.
       SHIPMENT_TABS = { all: nil }.merge(Shipment::STATUSES.index_by(&:to_sym)).freeze
 
-      # Las dos columnas que recorre el buscador del listado (TESIS-164): el
-      # número de seguimiento y el id con el que el canal nombra la venta. Son
-      # los dos códigos que el operador tiene en la mano cuando lo llaman a
-      # preguntar por un paquete.
+      # Lo que recorre el buscador del listado (TESIS-164): el número de
+      # seguimiento y cómo el canal nombra la venta, por su id o por el número
+      # que muestra la tienda (TESIS-180). Son los códigos que el operador tiene
+      # en la mano cuando lo llaman a preguntar por un paquete.
       SEARCH_CONDITION = <<~SQL.squish
         shipments.tracking_number ILIKE :pattern
         OR orders.external_order_id ILIKE :pattern
+        OR orders.external_order_number ILIKE :pattern
       SQL
+
+      # La plantilla y sus hijas: `label_available` pregunta si el courier tiene
+      # plantilla de etiqueta (TESIS-186) sin una query por fila.
+      LISTING_PRELOAD = { service: :operation_services }.freeze
+
+      # Columnas por las que se puede ordenar el listado (TESIS-184). El courier
+      # con una subconsulta y no con un join, por el mismo motivo que en órdenes.
+      SORTS = {
+        'id' => 'shipments.id',
+        'courier' => <<~SQL.squish,
+          (SELECT services.service_name FROM company_integrations
+             JOIN services ON services.id = company_integrations.service_id
+           WHERE company_integrations.id = shipments.company_integration_id)
+        SQL
+        'tracking_number' => 'shipments.tracking_number',
+        'shipping_cost' => 'shipments.shipping_cost',
+        'status' => Sortable.lifecycle('shipments.status', Shipment::STATUSES),
+        'created_at' => 'shipments.created_at'
+      }.freeze
 
       def index
         # La precarga es load-bearing: ShipmentListSerializer lee el nombre del
@@ -53,8 +74,8 @@ module Api
         # El total lo cuenta el concern sobre el scope filtrado, no sobre el
         # total de la empresa: de acá sale el KPI de envíos activos (TESIS-53).
         shipments, meta = paginate(
-          filtered_shipments.preload(:order, company_integration: { service: :operation_services })
-                            .order(created_at: :desc, id: :desc)
+          sort_listing(filtered_shipments.preload(:order, company_integration: LISTING_PRELOAD),
+                       SORTS, default: { created_at: :desc, id: :desc })
         )
 
         render json: { data: ShipmentListSerializer.render_as_hash(shipments), meta: meta }
