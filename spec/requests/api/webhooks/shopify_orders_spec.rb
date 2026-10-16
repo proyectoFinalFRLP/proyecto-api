@@ -28,6 +28,7 @@ RSpec.describe 'Shopify orders/create', type: :request do
         'shipping_address.zip' => 'customer_zip_code',
         'shipping_address.city' => 'customer_city',
         'shipping_address.province' => 'customer_province',
+        'email' => 'customer_email', 'shipping_address.phone' => 'customer_phone',
         'line_items[].variant_id' => 'external_product_id',
         'line_items[].quantity' => 'quantity', 'line_items[].price' => 'unit_price'
       },
@@ -67,6 +68,25 @@ RSpec.describe 'Shopify orders/create', type: :request do
   it 'keeps the city and the province for the courier' do
     deliver
     expect(order).to have_attributes(customer_city: 'Berisso', customer_province: 'Buenos Aires')
+  end
+
+  # TESIS-179: el contacto del comprador. La venta capturada no trae teléfono.
+  it 'keeps the email of the buyer and enters without a phone' do
+    deliver
+    expect(order).to have_attributes(customer_email: 'cliente@example.com', customer_phone: nil)
+  end
+
+  context 'when the checkout asked for a phone' do
+    def body
+      payload = JSON.parse(Rails.root.join('spec/fixtures/shopify/orders_create.json').read)
+      payload['shipping_address']['phone'] = '+54 11 2342 3456'
+      payload.to_json
+    end
+
+    it 'keeps the phone of the shipping address' do
+      deliver
+      expect(order.customer_phone).to eq('+54 11 2342 3456')
+    end
   end
 
   it 'adds up the lines into the total' do

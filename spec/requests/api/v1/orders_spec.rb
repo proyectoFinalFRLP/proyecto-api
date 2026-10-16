@@ -278,6 +278,16 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:ok)
       end
 
+      # TESIS-179: el detalle muestra el contacto del cliente.
+      it 'returns the email and the phone of the customer' do
+        order = make_order
+        order.update!(customer_email: 'juan@example.com', customer_phone: '1123423456')
+        get "/api/v1/orders/#{order.id}", headers: headers
+
+        expect(response.parsed_body)
+          .to include('customer_email' => 'juan@example.com', 'customer_phone' => '1123423456')
+      end
+
       it 'returns the order items' do
         get "/api/v1/orders/#{make_order(items: 2).id}", headers: headers
 
@@ -413,6 +423,14 @@ RSpec.describe 'Orders API', type: :request do
 
         expect(response).to have_http_status(:unprocessable_content)
         expect(response.parsed_body['error']).to include('shipping')
+      end
+
+      it 'records the email and the phone of the customer' do
+        post_order(build_payload.deep_merge(order: { customer_email: 'juan@example.com',
+                                                     customer_phone: '1123423456' }))
+
+        expect(Order.last).to have_attributes(customer_email: 'juan@example.com',
+                                              customer_phone: '1123423456')
       end
 
       it 'records a pickup when the body asks for one', :aggregate_failures do
