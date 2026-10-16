@@ -9,7 +9,7 @@ module Api
       # Qué acepta el body del producto. `stocks` no entra: se arma aparte en
       # `stock_params`, línea por línea.
       PRODUCT_FIELDS = %i[sku name description category packaging technical_standard
-                          weight dimensions].freeze
+                          weight dimensions low_stock_threshold].freeze
 
       # Las pestañas del catálogo: cómo se llama cada una en la respuesta y con
       # qué estado se filtra. «Todos» no filtra, por eso su estado es nil. El
