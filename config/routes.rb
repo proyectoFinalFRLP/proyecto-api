@@ -83,6 +83,9 @@ Rails.application.routes.draw do
         # llama `confirm` porque `dispatch` es un método de ActionController
         # (ver ShipmentsController#confirm).
         post :dispatch, on: :member, action: :confirm
+
+        # El PDF de la etiqueta (TESIS-186): lo emite el courier a pedido.
+        get :label, on: :member
       end
 
       # Actividad reciente de la empresa (TESIS-162): la lista que abre la

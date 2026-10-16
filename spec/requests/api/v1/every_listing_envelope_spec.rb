@@ -36,8 +36,10 @@ module FormaDeCadaRuta
   # devuelve los cuatro contadores de las pestañas del catálogo, no una colección.
   # `shipments#counts` (TESIS-165) es el mismo caso para las pestañas del
   # listado de envíos.
+  # `shipments#label` no es JSON: es el PDF de la etiqueta (TESIS-186).
   RECURSOS = %w[me#show tenant_config#show warehouses#show products#show orders#show
-                shipments#show reports#overview products#counts shipments#counts].freeze
+                shipments#show reports#overview products#counts shipments#counts
+                shipments#label].freeze
 end
 
 RSpec.describe 'Every listing keeps the response envelope (ADR-015)', type: :request do

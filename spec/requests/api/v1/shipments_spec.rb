@@ -308,6 +308,8 @@ RSpec.describe 'Shipments API', type: :request do
 
     # La precarga de company_integration: :service es lo único que sostiene la
     # columna Carrier: sin ella, el nombre del courier cuesta dos queries por fila.
+    # La segunda query a `services` es la de sus plantillas hijas, de las que
+    # sale `label_available` (TESIS-186): una para todas las filas, no una por fila.
     describe 'query count' do
       before do
         3.times { |i| shipment_for("Cliente #{i}", integration: courier("Courier#{i}")) }
@@ -320,7 +322,7 @@ RSpec.describe 'Shipments API', type: :request do
 
       it 'resolves the courier name without N+1', :aggregate_failures do
         expect(queries_against('company_integrations')).to eq(1)
-        expect(queries_against('services')).to eq(1)
+        expect(queries_against('services')).to eq(2)
         expect(response).to have_http_status(:ok)
       end
     end
@@ -516,6 +518,51 @@ RSpec.describe 'Shipments API', type: :request do
       get '/api/v1/shipments/0', headers: headers
 
       expect(response).to have_http_status(:not_found)
+    end
+  end
+
+  # TESIS-186. El caso del courier que emite la etiqueta a pedido (OCA) está en
+  # spec/requests/api/v1/oca_epak_spec.rb; acá, el de los que no.
+  describe 'GET /api/v1/shipments/:id/label' do
+    def dispatched(label_url: nil, customer: 'Ana')
+      shipment_for(customer, status: 'ready_to_ship', integration: courier("Courier #{customer}"),
+                             tracking_number: 'AND-1').tap do |shipment|
+        shipment.update!(shipping_label_url: label_url)
+      end
+    end
+
+    it 'returns 401 without a token' do
+      get "/api/v1/shipments/#{dispatched.id}/label"
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'redirects to the label the courier left at dispatch', :aggregate_failures do
+      get "/api/v1/shipments/#{dispatched(label_url: 'https://l.test/AND-1.pdf').id}/label",
+          headers: headers
+
+      expect(response).to have_http_status(:found)
+      expect(response.location).to eq('https://l.test/AND-1.pdf')
+    end
+
+    it 'answers 404 when the courier has no label for it', :aggregate_failures do
+      get "/api/v1/shipments/#{dispatched.id}/label", headers: headers
+
+      expect(response).to have_http_status(:not_found)
+      expect(response.parsed_body['error']).to eq('the shipment has no label')
+    end
+
+    it 'answers 404 for a shipment of another company' do
+      get "/api/v1/shipments/#{foreign_shipment.id}/label", headers: headers
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'tells in the detail whether there is a label to ask for', :aggregate_failures do
+      get "/api/v1/shipments/#{dispatched.id}", headers: headers
+      expect(response.parsed_body['label_available']).to be(false)
+
+      with_url = dispatched(label_url: 'https://l.test/x.pdf', customer: 'Beto')
+      get "/api/v1/shipments/#{with_url.id}", headers: headers
+      expect(response.parsed_body['label_available']).to be(true)
     end
   end
 

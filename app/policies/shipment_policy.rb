@@ -22,6 +22,9 @@ class ShipmentPolicy < ApplicationPolicy
   # Shipments::ConfirmDispatch, no acá.
   def dispatch? = show?
 
+  # Ver la etiqueta (TESIS-186) es leer el envío: el mismo permiso.
+  def label? = show?
+
   class Scope < ApplicationPolicy::Scope
     def resolve
       scope.where(company_id: user.company_id)

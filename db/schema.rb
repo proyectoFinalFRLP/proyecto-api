@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_16_122917) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_16_122922) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -209,6 +209,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_122917) do
     t.bigint "company_id", null: false
     t.bigint "company_integration_id"
     t.datetime "created_at", null: false
+    t.string "external_reference"
     t.bigint "order_id", null: false
     t.decimal "shipping_cost", precision: 10, scale: 2
     t.string "shipping_label_url"
