@@ -392,6 +392,13 @@ services = [
     # app tiene acceso a los datos protegidos de cliente.
     response_mapper: {
       'id' => 'external_order_id',
+      # El número que la tienda le da a la venta (TESIS-180): «#1001», con el
+      # prefijo y el sufijo que tenga configurados. Es el que ve el comerciante
+      # en el admin de Shopify. El `id` de arriba sigue siendo la identidad de
+      # la venta (no se repite y no cambia), pero no aparece en ninguna
+      # pantalla de Shopify: mostrarlo hacía imposible cruzar una venta entre
+      # los dos sistemas.
+      'name' => 'external_order_number',
       'financial_status' => 'status',
       'shipping_address.name' => 'customer_name',
       'shipping_address.address1' => 'customer_address',

@@ -15,6 +15,8 @@ module Avo
         field :customer_address, as: :text
         field :customer_zip_code, as: :text
         field :external_order_id, as: :text
+        # El número que muestra la tienda (TESIS-180), el que el comerciante busca.
+        field :external_order_number, as: :text
         field :status, as: :select, options: ::Order::STATUSES.index_with(&:itself)
         field :company, as: :belongs_to
         field :company_integration, as: :belongs_to, name: 'Integration'

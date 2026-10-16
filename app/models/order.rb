@@ -75,9 +75,11 @@ class Order < ApplicationRecord
   validates :requires_shipping, inclusion: { in: [true, false] }
   validate :company_integration_belongs_to_company
 
+  # El número que muestra la tienda (TESIS-180) y, si no lo hay, el id del canal.
   def display_name
+    reference = external_order_number || external_order_id
     label = customer_name || "Order ##{id}"
-    external_order_id ? "#{label} (#{external_order_id})" : label
+    reference ? "#{label} (#{reference})" : label
   end
 
   # Lo que suman las líneas. Es el valor que los dos caminos de alta

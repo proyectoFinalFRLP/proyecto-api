@@ -247,6 +247,14 @@ RSpec.describe 'Orders API', type: :request do
           .to eq(['TN-2002'])
       end
 
+      # TESIS-180: el número que muestra la tienda es el que el operador tipea.
+      it 'matches by the number the store gives the sale' do
+        Order.find_by(external_order_id: 'TN-2002').update!(external_order_number: '#7731')
+        get '/api/v1/orders', params: { search: '7731' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('external_order_number')).to eq(['#7731'])
+      end
+
       it 'ignores case' do
         get '/api/v1/orders', params: { search: 'FERRET' }, headers: headers
 

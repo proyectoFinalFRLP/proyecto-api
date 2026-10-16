@@ -34,13 +34,14 @@ module Api
       # se acuerde de agregarlo.
       SHIPMENT_TABS = { all: nil }.merge(Shipment::STATUSES.index_by(&:to_sym)).freeze
 
-      # Las dos columnas que recorre el buscador del listado (TESIS-164): el
-      # número de seguimiento y el id con el que el canal nombra la venta. Son
-      # los dos códigos que el operador tiene en la mano cuando lo llaman a
-      # preguntar por un paquete.
+      # Lo que recorre el buscador del listado (TESIS-164): el número de
+      # seguimiento y cómo el canal nombra la venta, por su id o por el número
+      # que muestra la tienda (TESIS-180). Son los códigos que el operador tiene
+      # en la mano cuando lo llaman a preguntar por un paquete.
       SEARCH_CONDITION = <<~SQL.squish
         shipments.tracking_number ILIKE :pattern
         OR orders.external_order_id ILIKE :pattern
+        OR orders.external_order_number ILIKE :pattern
       SQL
 
       # Columnas por las que se puede ordenar el listado (TESIS-184). El courier

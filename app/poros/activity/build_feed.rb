@@ -67,6 +67,7 @@ module Activity
           id: "order-#{order.id}", type: 'order_created', occurred_at: order.created_at,
           order_id: order.id, customer_name: order.customer_name,
           external_order_id: order.external_order_id,
+          external_order_number: order.external_order_number,
           total_amount: order.total_amount&.to_f
         }
       end

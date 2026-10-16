@@ -97,6 +97,18 @@ RSpec.describe Order, type: :model do
     end
   end
 
+  describe '#display_name' do
+    it 'names the order with the number the store shows (TESIS-180)' do
+      order.assign_attributes(external_order_id: '18948032757993', external_order_number: '#1001')
+      expect(order.display_name).to eq('Cliente ACME (#1001)')
+    end
+
+    it 'falls back to the id of the channel' do
+      order.external_order_id = '18948032757993'
+      expect(order.display_name).to eq('Cliente ACME (18948032757993)')
+    end
+  end
+
   it 'takes the city as free text' do
     order.customer_city = 'Villa Carlos Paz'
     expect(order).to be_valid

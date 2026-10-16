@@ -48,8 +48,11 @@ module Api
       # o destino» y muestra la dirección con el código postal debajo, como una
       # sola celda; buscar sólo por la dirección dejaba afuera al operador que
       # tipea «1406», que es la mitad de lo que está viendo.
+      # El número que muestra la tienda (TESIS-180) entra junto al id del canal:
+      # es el que el operador ve en el admin del canal y el que va a tipear.
       SEARCH_FIELDS = %w[
-        customer_name external_order_id customer_address customer_zip_code
+        customer_name external_order_id external_order_number customer_address
+        customer_zip_code
       ].freeze
 
       def index

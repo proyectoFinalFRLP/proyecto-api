@@ -22,7 +22,8 @@ RSpec.describe 'Shopify orders/create', type: :request do
       service_name: 'Shopify', type: 'ecommerce', http_method: 'POST',
       uri: 'https://:shop_domain/admin/api/2026-07/graphql.json', request_format: 'graphql',
       response_mapper: {
-        'id' => 'external_order_id', 'financial_status' => 'status',
+        'id' => 'external_order_id', 'name' => 'external_order_number',
+        'financial_status' => 'status',
         'shipping_address.name' => 'customer_name',
         'shipping_address.address1' => 'customer_address',
         'shipping_address.zip' => 'customer_zip_code',
@@ -68,6 +69,13 @@ RSpec.describe 'Shopify orders/create', type: :request do
   it 'keeps the city and the province for the courier' do
     deliver
     expect(order).to have_attributes(customer_city: 'Berisso', customer_province: 'Buenos Aires')
+  end
+
+  # TESIS-180: el número que ve el comerciante en el admin de Shopify. El `id`
+  # sigue siendo la identidad de la venta; éste es para mostrar y buscar.
+  it 'keeps the number the store gives the sale' do
+    deliver
+    expect(order.external_order_number).to eq('#1001')
   end
 
   # TESIS-179: el contacto del comprador. La venta capturada no trae teléfono.

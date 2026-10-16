@@ -13,6 +13,11 @@ class ShipmentListSerializer < ApplicationSerializer
     shipment.order.external_order_id
   end
 
+  # El número que muestra la tienda (TESIS-180), que el front prefiere al id.
+  field :external_order_number do |shipment|
+    shipment.order.external_order_number
+  end
+
   # shipping_cost es decimal en la DB y BigDecimal se serializa como string por
   # defecto; exponerlo como número evita que el front tenga que parsear. Nil se
   # conserva: un envío sin cotizar no cuesta 0.
