@@ -4,7 +4,8 @@ class OrderSerializer < ApplicationSerializer
   identifier :id
 
   fields :customer_name, :customer_document, :customer_address, :customer_zip_code,
-         :customer_city, :customer_province, :external_order_id, :status, :requires_shipping,
+         :customer_city, :customer_province, :external_order_id, :external_order_number,
+         :status, :requires_shipping,
          :created_at, :updated_at
 
   # Mismo criterio que unit_price: decimal en la DB, número en el JSON. Puede

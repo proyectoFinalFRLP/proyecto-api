@@ -43,12 +43,12 @@ module ContratoDeLaApi
     deposito_referencia: %w[id name address zip_code capacity],
     transito: %w[warehouse_id name quantity],
     deposito: %w[id name address zip_code capacity stored_units],
-    orden_fila: %w[id external_order_id customer_name customer_document customer_address
-                   customer_zip_code customer_city customer_province status requires_shipping
-                   courier total_amount item_count created_at updated_at],
-    orden: %w[id external_order_id customer_name customer_document customer_address
-              customer_zip_code customer_city customer_province status requires_shipping
-              total_amount order_items created_at updated_at],
+    orden_fila: %w[id external_order_id external_order_number customer_name customer_document
+                   customer_address customer_zip_code customer_city customer_province status
+                   requires_shipping courier total_amount item_count created_at updated_at],
+    orden: %w[id external_order_id external_order_number customer_name customer_document
+              customer_address customer_zip_code customer_city customer_province status
+              requires_shipping total_amount order_items created_at updated_at],
     linea: %w[id product_id warehouse_id quantity unit_price product created_at updated_at],
     courier: %w[id service_id name],
     envio: %w[id order_id status tracking_number shipping_label_url shipping_cost courier events

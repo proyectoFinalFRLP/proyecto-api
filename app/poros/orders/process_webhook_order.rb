@@ -148,7 +148,7 @@ module Orders
 
     def order_attributes
       translated[:order]
-        .slice(:external_order_id, :customer_name, :customer_document,
+        .slice(:external_order_id, :external_order_number, :customer_name, :customer_document,
                :customer_address, :customer_zip_code, :customer_city)
         .merge(company_id: @log.company_id, company_integration: @log.company_integration,
                status: status, customer_province: province,
