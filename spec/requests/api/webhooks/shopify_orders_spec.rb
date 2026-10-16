@@ -76,6 +76,19 @@ RSpec.describe 'Shopify orders/create', type: :request do
     expect(order).to have_attributes(customer_email: 'cliente@example.com', customer_phone: nil)
   end
 
+  context 'when the channel sends the email blank' do
+    def body
+      payload = JSON.parse(Rails.root.join('spec/fixtures/shopify/orders_create.json').read)
+      payload['email'] = ''
+      payload.to_json
+    end
+
+    it 'enters without an email instead of with an empty one' do
+      deliver
+      expect(order.customer_email).to be_nil
+    end
+  end
+
   context 'when the checkout asked for a phone' do
     def body
       payload = JSON.parse(Rails.root.join('spec/fixtures/shopify/orders_create.json').read)
