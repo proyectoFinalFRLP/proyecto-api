@@ -398,6 +398,15 @@ services = [
       'shipping_address.zip' => 'customer_zip_code',
       'shipping_address.city' => 'customer_city',
       'shipping_address.province' => 'customer_province',
+      # El contacto del comprador (TESIS-179). `email` es el del checkout; el
+      # teléfono se toma del domicilio de envío, que es donde lo pide el
+      # checkout de Shopify. Un solo camino por dato: el mapper no tiene
+      # «este, y si falta, aquel», y dos rutas a la misma clave dependerían
+      # del orden en que la base guarda el JSON. Los dos son datos protegidos:
+      # si la app no tiene habilitados Email y Phone en el Dev Dashboard,
+      # Shopify los manda en null y la venta entra igual, sin contacto.
+      'email' => 'customer_email',
+      'shipping_address.phone' => 'customer_phone',
       'line_items[].variant_id' => 'external_product_id',
       'line_items[].quantity' => 'quantity',
       'line_items[].price' => 'unit_price'

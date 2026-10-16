@@ -38,6 +38,15 @@ RSpec.describe Orders::OrderVersion, type: :poro do
     expect { order.update!(customer_province: 'Santa Fe') }.to(change { version })
   end
 
+  # TESIS-179: el contacto del cliente también se edita por el PUT.
+  it 'changes when the email changes' do
+    expect { order.update!(customer_email: 'juan@example.com') }.to(change { version })
+  end
+
+  it 'changes when the phone changes' do
+    expect { order.update!(customer_phone: '1123423456') }.to(change { version })
+  end
+
   # TESIS-162: `requires_shipping` se edita por el mismo PUT. Sin esto, cambiar
   # una venta de envío a retiro no movía la versión, y el que guardó con el
   # If-Match viejo la devolvía a envío sin recibir el 412.
