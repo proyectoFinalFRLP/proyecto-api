@@ -10,6 +10,8 @@ module Avo
         field :id, as: :id
         field :customer_name, as: :text, required: true
         field :customer_document, as: :text
+        field :customer_email, as: :text
+        field :customer_phone, as: :text
         field :customer_address, as: :text
         field :customer_zip_code, as: :text
         field :external_order_id, as: :text
