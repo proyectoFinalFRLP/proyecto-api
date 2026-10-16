@@ -506,6 +506,20 @@ RSpec.describe 'Shipments API', type: :request do
       expect(response.parsed_body['external_order_id']).to eq('18948032757993')
     end
 
+    it 'returns the number the store gives its order (TESIS-180)' do
+      shipment.order.update!(external_order_number: '#1001')
+      get "/api/v1/shipments/#{shipment.id}", headers: headers
+
+      expect(response.parsed_body['external_order_number']).to eq('#1001')
+    end
+
+    it 'finds the shipment by the number the store gives its order (TESIS-180)' do
+      shipment.order.update!(external_order_number: '#7731')
+      get '/api/v1/shipments', params: { search: '7731' }, headers: headers
+
+      expect(response.parsed_body['data'].pluck('id')).to eq([shipment.id])
+    end
+
     it 'returns 404 for a shipment of another company' do
       get "/api/v1/shipments/#{foreign_shipment.id}", headers: headers
 

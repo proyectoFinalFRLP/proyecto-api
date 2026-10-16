@@ -83,6 +83,12 @@ RSpec.describe 'Activity API', type: :request do
                                'external_order_id' => 'SHOP-99')
     end
 
+    it 'reports the number the store gives the sale (TESIS-180)' do
+      create_order(external: 'SHOP-99').update!(external_order_number: '#1001')
+
+      expect(feed.first['external_order_number']).to eq('#1001')
+    end
+
     # Una venta cargada a mano no tiene id externo, y eso es lo que la distingue
     # de una de canal en la pantalla.
     it 'tells a manual sale apart by its missing external id' do

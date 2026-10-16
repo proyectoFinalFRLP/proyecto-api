@@ -247,6 +247,14 @@ RSpec.describe 'Orders API', type: :request do
           .to eq(['TN-2002'])
       end
 
+      # TESIS-180: el número que muestra la tienda es el que el operador tipea.
+      it 'matches by the number the store gives the sale' do
+        Order.find_by(external_order_id: 'TN-2002').update!(external_order_number: '#7731')
+        get '/api/v1/orders', params: { search: '7731' }, headers: headers
+
+        expect(response.parsed_body['data'].pluck('external_order_number')).to eq(['#7731'])
+      end
+
       it 'ignores case' do
         get '/api/v1/orders', params: { search: 'FERRET' }, headers: headers
 
@@ -281,6 +289,16 @@ RSpec.describe 'Orders API', type: :request do
         get "/api/v1/orders/#{make_order.id}", headers: headers
 
         expect(response).to have_http_status(:ok)
+      end
+
+      # TESIS-179: el detalle muestra el contacto del cliente.
+      it 'returns the email and the phone of the customer' do
+        order = make_order
+        order.update!(customer_email: 'juan@example.com', customer_phone: '1123423456')
+        get "/api/v1/orders/#{order.id}", headers: headers
+
+        expect(response.parsed_body)
+          .to include('customer_email' => 'juan@example.com', 'customer_phone' => '1123423456')
       end
 
       it 'returns the order items' do
@@ -418,6 +436,14 @@ RSpec.describe 'Orders API', type: :request do
 
         expect(response).to have_http_status(:unprocessable_content)
         expect(response.parsed_body['error']).to include('shipping')
+      end
+
+      it 'records the email and the phone of the customer' do
+        post_order(build_payload.deep_merge(order: { customer_email: 'juan@example.com',
+                                                     customer_phone: '1123423456' }))
+
+        expect(Order.last).to have_attributes(customer_email: 'juan@example.com',
+                                              customer_phone: '1123423456')
       end
 
       it 'records a pickup when the body asks for one', :aggregate_failures do

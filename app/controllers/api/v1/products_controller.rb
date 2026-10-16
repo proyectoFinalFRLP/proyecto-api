@@ -5,6 +5,7 @@ module Api
     class ProductsController < ApplicationController
       include OptimisticLocking
       include Paginatable
+      include Sortable
 
       # Qué acepta el body del producto. `stocks` no entra: se arma aparte en
       # `stock_params`, línea por línea.
@@ -22,6 +23,16 @@ module Api
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
       rescue_from Catalog::StaleProductError, with: :render_precondition_failed
 
+      # Columnas por las que se puede ordenar el catálogo (TESIS-184).
+      # «Disponible» es el agregado de `with_total_stock`, que agrupa por
+      # products.id: se ordena por la misma expresión, no por una columna.
+      SORTS = {
+        'sku' => 'products.sku',
+        'name' => 'products.name',
+        'category' => 'products.category',
+        'total_stock' => 'COALESCE(SUM(stocks.quantity), 0)'
+      }.freeze
+
       def index
         # La precarga es load-bearing: ProductListSerializer lee el depósito
         # principal de cada fila, y sin ella son dos queries por producto
@@ -36,7 +47,8 @@ module Api
         # `total:` explícito: el scope viene agrupado por products.id, así que
         # su `.count` devolvería un Hash y no un entero (ver `count_of`).
         products, meta = paginate(
-          filtered_products.preload(stocks: :warehouse).order(created_at: :desc),
+          sort_listing(filtered_products.preload(stocks: :warehouse), SORTS,
+                       default: { created_at: :desc, id: :desc }),
           total: count_of(filtered_products)
         )
 

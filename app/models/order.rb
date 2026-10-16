@@ -46,8 +46,12 @@ class Order < ApplicationRecord
   # una provincia cualquiera. Normalizarlo acá lo resuelve para cualquier
   # cliente —el front, Avo, un canal futuro— y deja NULL en la base en vez de
   # texto vacío. Unos espacios sueltos tampoco son un domicilio.
+  #
+  # Lo mismo el contacto (TESIS-179): un canal puede mandar `"email": ""`, y un
+  # texto vacío contaba como dato —el detalle mostraba la celda en blanco en
+  # vez de «—» y escondía la nota de que la orden no registra contacto.
   normalizes :customer_address, :customer_city, :customer_province, :customer_zip_code,
-             with: ->(value) { value.strip.presence }
+             :customer_email, :customer_phone, with: ->(value) { value.strip.presence }
 
   validates :customer_name, presence: true
   validates :status, presence: true, inclusion: { in: STATUSES }
@@ -71,9 +75,11 @@ class Order < ApplicationRecord
   validates :requires_shipping, inclusion: { in: [true, false] }
   validate :company_integration_belongs_to_company
 
+  # El número que muestra la tienda (TESIS-180) y, si no lo hay, el id del canal.
   def display_name
+    reference = external_order_number || external_order_id
     label = customer_name || "Order ##{id}"
-    external_order_id ? "#{label} (#{external_order_id})" : label
+    reference ? "#{label} (#{reference})" : label
   end
 
   # Lo que suman las líneas. Es el valor que los dos caminos de alta

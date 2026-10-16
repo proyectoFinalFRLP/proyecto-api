@@ -104,10 +104,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_115618) do
     t.string "customer_address"
     t.string "customer_city"
     t.string "customer_document"
+    t.string "customer_email"
     t.string "customer_name", null: false
+    t.string "customer_phone"
     t.string "customer_province"
     t.string "customer_zip_code"
     t.string "external_order_id"
+    t.string "external_order_number"
     t.boolean "requires_shipping", default: true, null: false
     t.string "status", default: "pending", null: false
     t.decimal "total_amount", precision: 10, scale: 2
