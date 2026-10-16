@@ -178,7 +178,7 @@ Para ver el aislamiento multi-tenant: con el token de Norte, pedir un recurso de
 
 **En desarrollo no hace falta ninguna.** Todas tienen un valor por defecto pensado para una máquina local.
 
-Rails **no lee el archivo `.env`** (el proyecto no usa `dotenv`). Las variables se exportan en la terminal o se pasan con `-e` a Docker. `.env.example` documenta cuáles existen. El único que lee `.env` es la tarea de Shopify de §9.
+Rails **no lee el archivo `.env`** (el proyecto no usa `dotenv`). Las variables se exportan en la terminal o se pasan con `-e` a Docker. `.env.example` documenta cuáles existen. Los únicos que lo leen son las tareas de Shopify y OCA de §9.
 
 | Variable | Default en desarrollo | Para qué |
 | --- | --- | --- |
@@ -294,6 +294,21 @@ En el camino A, con `docker exec -e RAILS_ENV=test onestock-api bundle exec rspe
 ## 9. Opcional: Shopify real
 
 La integración con Shopify funciona contra una tienda de prueba (*dev store*) del Partner Program: publica el stock, vincula productos por SKU y recibe las ventas con firma HMAC. Necesita una app propia en el Dev Dashboard de Shopify y un túnel público (`ngrok http 3000`) para que la tienda alcance el gateway. El paso a paso y las tareas `bin/rails "integrations:shopify:*"` están en `lib/tasks/integrations.rake`. Las decisiones, en [ADR-018](../adr/ADR-018-conexion-con-proveedores-reales.md) y [ADR-019](../adr/ADR-019-ventas-entrantes-de-shopify.md).
+
+### OCA e-Pak (entorno de prueba)
+
+Los seeds cargan las plantillas de **OCA e-Pak**, pero no conectan ninguna empresa. La cuenta se conecta con una tarea, igual que Shopify: lee `OCA_<SLUG>_*` del entorno o de `.env`. `.env.example` trae los valores de la **cuenta de prueba pública** de OCA, así que alcanza con descomentarlos y tener internet:
+
+```bash
+cp .env.example .env          # y descomentar las líneas OCA_NORTE_*
+bin/rails "integrations:oca:connect[norte]"   # crea la integración que despacha y la que cotiza
+bin/rails "integrations:oca:test[norte]"      # prueba la cuenta (GetOperativasByUsuario)
+bin/rails "integrations:oca:smoke[norte]"     # cotiza, despacha, baja la etiqueta a tmp/ y pregunta el estado
+```
+
+Con Norte conectada, cotizar un envío o un alta manual le pide tarifa al entorno de prueba de OCA; despachar con OCA crea una orden de retiro de prueba, y la etiqueta se baja desde `GET /api/v1/shipments/:id/label`. Sin internet, OCA simplemente no aparece entre las opciones. Las tareas sólo corren en desarrollo, y la smoke se niega a correr si la plantilla no apunta al entorno de prueba.
+
+Las decisiones están en [ADR-022](../adr/ADR-022-oca-epak-con-el-adaptador-generico.md).
 
 ---
 
