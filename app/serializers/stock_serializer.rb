@@ -5,8 +5,9 @@ class StockSerializer < ApplicationSerializer
 
   fields :quantity, :warehouse_id, :created_at, :updated_at
 
-  # Calculado acá y no en el front: es la misma regla que el badge del producto
-  # (`Product.stock_status_for`), aplicada a lo que guarda este depósito.
+  # Calculado acá y no en el front: si este depósito guarda unidades o no
+  # (`Stock#stock_status`). No hay «stock bajo» por depósito desde TESIS-182:
+  # el mínimo del producto es para su total.
   field :stock_status
 
   # Vista `reference`: el depósito como referencia, sin `stored_units`. Ese

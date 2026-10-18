@@ -50,6 +50,14 @@ RSpec.describe 'Listing sort', type: :request do
         .to eq(%w[Cora Ana Beto])
     end
 
+    it 'sorts by destination, the order without one last' do
+      Order.find_by(customer_name: 'Ana').update!(customer_address: 'Calle B 2')
+      Order.find_by(customer_name: 'Beto').update!(customer_address: 'Calle A 1')
+
+      expect(listed('/api/v1/orders', 'customer_name', sort: 'destination', direction: 'asc'))
+        .to eq(%w[Beto Ana Cora])
+    end
+
     def ship(name, courier)
       Shipment.create!(company: company, order: Order.find_by(customer_name: name),
                        company_integration: courier_integration(company: company, name: courier))
@@ -114,6 +122,30 @@ RSpec.describe 'Listing sort', type: :request do
     it 'sorts the status by the lifecycle of a shipment' do
       expect(listed('/api/v1/shipments', 'status', sort: 'status', direction: 'asc'))
         .to eq(%w[pending in_transit delivered])
+    end
+
+    def shipment_of(name) = Shipment.joins(:order).find_by(orders: { customer_name: name })
+
+    def assign_courier(name, courier)
+      shipment_of(name).update!(company_integration: courier_integration(company: company,
+                                                                         name: courier))
+    end
+
+    it 'sorts by courier, the shipment without one last' do
+      assign_courier('Ana', 'OCA')
+      assign_courier('Cora', 'Andreani')
+
+      expect(listed('/api/v1/shipments', 'shipping_cost', sort: 'courier', direction: 'asc'))
+        .to eq([500.0, 2000.0, nil])
+    end
+
+    it 'sorts by tracking number, the shipment without one last' do
+      shipment_of('Ana').update!(tracking_number: 'B-2')
+      shipment_of('Cora').update!(tracking_number: 'A-1')
+
+      expect(listed('/api/v1/shipments', 'tracking_number', sort: 'tracking_number',
+                                                            direction: 'desc'))
+        .to eq(['B-2', 'A-1', nil])
     end
   end
 
@@ -198,6 +230,14 @@ RSpec.describe 'Listing sort', type: :request do
     it 'sorts the status by its lifecycle' do
       expect(listed('/api/v1/failed-events', 'status', sort: 'status', direction: 'asc'))
         .to eq(%w[pending processing dead])
+    end
+
+    it 'sorts by the next retry, the event without one last' do
+      FailedEvent.find_by(attempts: 1).update!(next_retry_at: 2.hours.from_now)
+      FailedEvent.find_by(attempts: 2).update!(next_retry_at: 1.hour.from_now)
+
+      expect(listed('/api/v1/failed-events', 'attempts', sort: 'next_retry_at', direction: 'asc'))
+        .to eq([2, 1, 3])
     end
   end
 end
