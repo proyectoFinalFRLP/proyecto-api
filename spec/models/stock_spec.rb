@@ -30,6 +30,11 @@ RSpec.describe Stock, type: :model do
     expect(stock).to be_valid
   end
 
+  it 'rejects a quantity that does not fit the column' do
+    stock.quantity = ApplicationRecord::MAX_INTEGER + 1
+    expect(stock).not_to be_valid
+  end
+
   it 'defaults quantity to 0' do
     expect(described_class.new.quantity).to eq(0)
   end

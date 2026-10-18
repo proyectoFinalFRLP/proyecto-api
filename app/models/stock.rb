@@ -4,7 +4,8 @@ class Stock < ApplicationRecord
   belongs_to :product
   belongs_to :warehouse
 
-  validates :quantity, numericality: { greater_than_or_equal_to: 0 }
+  validates :quantity, numericality: { greater_than_or_equal_to: 0,
+                                       less_than_or_equal_to: MAX_INTEGER }
 
   # Filas que guardan unidades. Una fila en cero es una asignación sin stock:
   # el modal de producto la deja así al «quitar» un depósito, porque

@@ -36,6 +36,11 @@ RSpec.describe StockTransfer, type: :model do
     expect(transfer).not_to be_valid
   end
 
+  it 'rejects a quantity that does not fit the column' do
+    transfer.quantity = ApplicationRecord::MAX_INTEGER + 1
+    expect(transfer).not_to be_valid
+  end
+
   it 'rejects the same warehouse on both ends', :aggregate_failures do
     transfer.destination_warehouse = origin
     expect(transfer).not_to be_valid

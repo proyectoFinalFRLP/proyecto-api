@@ -125,6 +125,12 @@ RSpec.describe Product, type: :model do
       expect(product).to be_valid
     end
 
+    # Más que un int4 la base lo rechaza al escribir: sin el tope salía un 500.
+    it 'rejects a threshold that does not fit the column' do
+      product.low_stock_threshold = ApplicationRecord::MAX_INTEGER + 1
+      expect(product).not_to be_valid
+    end
+
     it 'rejects a negative or fractional threshold', :aggregate_failures do
       product.low_stock_threshold = -1
       expect(product).not_to be_valid

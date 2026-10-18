@@ -62,7 +62,8 @@ class Product < ApplicationRecord
   validates :weight, numericality: { greater_than_or_equal_to: 0 }
   # Entero y no negativo, como el CHECK de la columna: un umbral de 2,5 unidades
   # no significa nada. Cero es válido: el producto sólo avisa cuando se agota.
-  validates :low_stock_threshold, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
+  validates :low_stock_threshold, numericality: { only_integer: true, greater_than_or_equal_to: 0,
+                                                  less_than_or_equal_to: MAX_INTEGER }
   # allow_nil: la categoría es opcional — los productos que ya existían no
   # tienen ninguna y no hay con qué inferirla.
   validates :category, inclusion: { in: CATEGORIES }, allow_nil: true

@@ -62,6 +62,13 @@ RSpec.describe 'Stock transfers API', type: :request do
       expect(response).to have_http_status(:unprocessable_content)
     end
 
+    it 'returns 422, not 500, for a quantity that does not fit the column' do
+      post '/api/v1/stock-transfers', params: body_for(ApplicationRecord::MAX_INTEGER + 1),
+                                      headers: headers, as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+    end
+
     it 'returns 422 when both ends are the same warehouse' do
       params = body_for(1).deep_merge(stock_transfer: { destination_warehouse_id: origin.id })
       post '/api/v1/stock-transfers', params: params, headers: headers, as: :json

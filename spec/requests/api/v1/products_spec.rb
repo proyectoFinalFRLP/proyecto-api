@@ -155,6 +155,22 @@ RSpec.describe 'Products API', type: :request do
           .to eq(Product::LOW_STOCK_THRESHOLD)
       end
 
+      # El borde en SQL (la regla de Ruby ya tiene el suyo): con exactamente su
+      # mínimo, el producto está en «stock bajo»; con mínimo 0, nunca lo está.
+      it 'puts a product at exactly its own threshold in the low tab', :aggregate_failures do
+        stocked('JUSTO', 20).update!(low_stock_threshold: 20)
+
+        expect(skus(status: 'low')).to include('JUSTO')
+        expect(skus(status: 'available')).not_to include('JUSTO')
+      end
+
+      it 'never puts a product with threshold 0 in the low tab', :aggregate_failures do
+        stocked('SIN-MINIMO', 1).update!(low_stock_threshold: 0)
+
+        expect(skus(status: 'low')).not_to include('SIN-MINIMO')
+        expect(skus(status: 'available')).to include('SIN-MINIMO')
+      end
+
       # TESIS-182: cada producto se compara contra su propio umbral. Las mismas
       # 58 unidades son pocas para uno y alcanzan para otro.
       it 'compares each product against its own threshold', :aggregate_failures do

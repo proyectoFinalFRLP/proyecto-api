@@ -209,6 +209,9 @@ services = [
     http_method: 'GET',
     request_mapper: { 'destination.street' => 'customer_address' },
     response_mapper: {
+      # En Mercado Libre el id de la venta es también el número que ve el
+      # vendedor, así que no hay un `external_order_number` aparte que mapear
+      # (TESIS-180): sin él, el front muestra este id.
       'id' => 'external_order_id',
       'status' => 'status',
       'buyer.nickname' => 'customer_name',

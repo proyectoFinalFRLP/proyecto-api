@@ -55,7 +55,8 @@ class OrderItem < ApplicationRecord
       .where(shipments: { status: UNDISPATCHED_SHIPMENT_STATUSES })
   }
 
-  validates :quantity, numericality: { only_integer: true, greater_than: 0 }
+  validates :quantity, numericality: { only_integer: true, greater_than: 0,
+                                       less_than_or_equal_to: MAX_INTEGER }
   validates :unit_price, numericality: { greater_than_or_equal_to: 0 }
   validate :product_belongs_to_same_company_as_order
   validate :warehouse_belongs_to_same_company_as_order
