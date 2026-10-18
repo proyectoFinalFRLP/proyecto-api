@@ -40,6 +40,11 @@ RSpec.describe OrderItem, type: :model do
     expect(order_item).not_to be_valid
   end
 
+  it 'rejects a quantity that does not fit the column' do
+    order_item.quantity = ApplicationRecord::MAX_INTEGER + 1
+    expect(order_item).not_to be_valid
+  end
+
   # La columna es integer: 0,5 se guardaba como 0 y 2,7 como 2.
   it 'refuses a fractional quantity', :aggregate_failures do
     [0.5, 2.7, '1.5'].each do |quantity|

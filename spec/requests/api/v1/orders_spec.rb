@@ -485,6 +485,14 @@ RSpec.describe 'Orders API', type: :request do
         expect(response).to have_http_status(:unprocessable_content)
       end
 
+      # La columna es int4: sin tope, el cast tiraba ActiveModel::RangeError -> 500.
+      it 'rejects a quantity that does not fit the column with 422, not 500' do
+        quantity = ApplicationRecord::MAX_INTEGER + 1
+        post_order(build_payload(items: [default_item.merge(quantity: quantity)]))
+
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+
       it 'rejects when warehouse belongs to another company' do
         other_wh = other_company_warehouse
         post_order(build_payload(items: [default_item.merge(warehouse_id: other_wh.id)]))
