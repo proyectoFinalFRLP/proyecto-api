@@ -133,7 +133,8 @@ RSpec.describe Shipments::PollTrackingStatus, type: :poro do
       reply('CA-002')
       allow(Shipments::RegisterTrackingEvent).to receive(:new).and_call_original
       allow(Shipments::RegisterTrackingEvent).to receive(:new)
-        .with(shipment: shipment, translated: anything).and_raise(ActiveRecord::StatementInvalid)
+        .with(shipment: shipment, translated: anything, current_state: true)
+        .and_raise(ActiveRecord::StatementInvalid)
     end
 
     it 'keeps registering the other shipments' do

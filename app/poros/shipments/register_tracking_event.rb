@@ -12,11 +12,16 @@ module Shipments
   #
   # Devuelve el ShipmentEvent creado, o nil si el movimiento ya estaba
   # registrado o llegó desordenado.
+  #
+  # `current_state:` dice que lo que llega es el estado ACTUAL del envío, como
+  # en la consulta periódica, y no un movimiento suelto como el push. Sólo
+  # importa cuando el courier da el día sin la hora (ver #day_precision_time).
   class RegisterTrackingEvent < ApplicationPoro
-    def initialize(shipment:, translated:)
+    def initialize(shipment:, translated:, current_state: false)
       super()
       @shipment = shipment
       @translated = translated
+      @current_state = current_state
     end
 
     def call
@@ -58,17 +63,21 @@ module Shipments
 
     # El courier dijo el día y no la hora (`occurred_on`, TESIS-186: OCA informa
     # el estado actual con `dd/MM/yyyy`). Se registra al final de ese día, o
-    # ahora si el día es hoy, y nunca antes del último evento: sin hora no hay
-    # cómo ordenar dos eventos del mismo día, y la consulta es por el estado
-    # ACTUAL, así que lo que llega es lo más nuevo. Sin esto el primer estado
-    # del día quedaba antes de «Etiqueta generada» y se descartaba como
-    # desordenado. Como no hay hora, el duplicado se mira por el último estado
-    # (ver #duplicate?).
+    # ahora si el día es hoy. Como no hay hora, el duplicado se mira por el
+    # último estado (ver #duplicate?).
+    #
+    # Si lo que llega es el estado actual (la consulta periódica), además nunca
+    # queda antes del último evento: sin hora no hay cómo ordenar dos eventos
+    # del mismo día, y lo que contesta la consulta es lo más nuevo. Sin esto el
+    # primer estado del día quedaba antes de «Etiqueta generada» y se
+    # descartaba como desordenado. Un push, en cambio, puede llegar tarde: un
+    # día anterior al del último evento se descarta como desordenado.
     def day_precision_time
       day = @translated[:occurred_on]
       return nil if day.nil?
 
-      [[day.end_of_day, Time.current].min, last_occurred_at].compact.max
+      time = [day.end_of_day, Time.current].min
+      @current_state ? [time, last_occurred_at].compact.max : time
     end
 
     def last_occurred_at
@@ -79,14 +88,24 @@ module Shipments
     # response_value_mapper, o el valor traducido no pertenece a
     # Shipment::STATUSES), el evento igual se registra, pero como puramente
     # informativo: conserva el último estado conocido del envío en vez de
-    # perder el movimiento o inventar un estado.
+    # perder el movimiento o inventar un estado. Lo mismo si el estado
+    # traducido es anterior al del envío (ver #advances_status?).
     def internal_status
-      @translated[:internal_status] || @shipment.status
+      advances_status? ? @translated[:internal_status] : @shipment.status
     end
 
+    # El envío sólo avanza en el orden de Shipment::STATUSES. Un courier puede
+    # informar un estado que traducido queda atrás —OCA dice «En proceso de
+    # Admision» después de «Retirado»—, y con fechas sin hora el orden de los
+    # eventos no alcanza para descartarlo: un envío en camino volvía a «listo
+    # para despachar», o uno entregado a «en camino». Ese movimiento queda en la
+    # bitácora como informativo.
     def advances_status?
-      @translated[:internal_status].present? &&
-        @translated[:internal_status] != @shipment.status
+      status_rank(@translated[:internal_status]) > status_rank(@shipment.status)
+    end
+
+    def status_rank(status)
+      Shipment::STATUSES.index(status) || -1
     end
 
     def duplicate?

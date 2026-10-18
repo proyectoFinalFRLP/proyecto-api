@@ -78,8 +78,9 @@ RSpec.describe Shipments::RegisterTrackingEvent, type: :poro do
 
     around { |example| travel_to(Time.zone.local(2026, 10, 16, 15, 0)) { example.run } }
 
-    def register_on(day, external_status: 'Retirado')
-      described_class.new(shipment: shipment,
+    # La consulta periódica: lo que llega es el estado actual del envío.
+    def register_on(day, external_status: 'Retirado', current_state: true)
+      described_class.new(shipment: shipment, current_state: current_state,
                           translated: translated(external_status: external_status,
                                                  occurred_at: nil).merge(occurred_on: day)).call
     end
@@ -105,11 +106,38 @@ RSpec.describe Shipments::RegisterTrackingEvent, type: :poro do
         .to eq(Time.zone.local(2026, 10, 16, 9, 25))
     end
 
+    # Un push puede llegar tarde: no es el estado actual.
+    it 'discards a pushed movement of a day before the last one' do
+      expect(register_on(Date.new(2026, 10, 10), current_state: false)).to be_nil
+    end
+
     it 'does not repeat the same status on the next query', :aggregate_failures do
       register_on(Date.new(2026, 10, 16))
       travel 1.day
       expect(register_on(Date.new(2026, 10, 16))).to be_nil
       expect(shipment.shipment_events.where(external_status: 'Retirado').count).to eq(1)
+    end
+  end
+
+  # TESIS-186: OCA informa «En proceso de Admision» (ready_to_ship) después de
+  # «Retirado» (in_transit), y con el día sin hora el orden no lo descarta.
+  context 'when the translated status is behind the one of the shipment' do
+    before { register(external_status: 'Retirado', internal_status: 'in_transit') }
+
+    it 'keeps the movement as informative without moving the shipment back', :aggregate_failures do
+      event = register(external_status: 'En proceso de Admision', internal_status: 'ready_to_ship',
+                       occurred_at: Time.zone.parse('2026-09-20T15:00:00Z'))
+
+      expect(event.internal_status).to eq('in_transit')
+      expect(shipment.reload.status).to eq('in_transit')
+    end
+
+    it 'never takes a delivered shipment back on the road' do
+      register(external_status: 'Entregado', internal_status: 'delivered',
+               occurred_at: Time.zone.parse('2026-09-20T12:00:00Z'))
+      register(external_status: 'En camino', occurred_at: Time.zone.parse('2026-09-20T13:00:00Z'))
+
+      expect(shipment.reload.status).to eq('delivered')
     end
   end
 

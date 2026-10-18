@@ -157,7 +157,8 @@ module Shipments
     # Un movimiento que no se puede guardar no voltea a los demás envíos de la
     # misma consulta: se loguea como error —acá sí puede haber un bug— y se sigue.
     def register(shipment, translated)
-      RegisterTrackingEvent.new(shipment: shipment, translated: translated).call
+      RegisterTrackingEvent.new(shipment: shipment, translated: translated,
+                                current_state: true).call
     rescue StandardError => e
       Rails.logger.error("#{LOG_TAG} could not register the tracking of shipment " \
                          "#{shipment.id}: #{e.class}: #{e.message}")
