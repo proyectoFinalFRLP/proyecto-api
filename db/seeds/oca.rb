@@ -213,7 +213,10 @@ module OcaSeeds
       'Envío Pendiente de Pago*' => 'ready_to_ship',
       'OR Pendiente*' => 'ready_to_ship',
       'En proceso de Retiro*' => 'ready_to_ship',
-      'En proceso de Admision*' => 'ready_to_ship',
+      # La admisión es después del retiro: el paquete ya está en OCA. Si la
+      # primera consulta que lo ve en camino ya dice esto, es «en camino»
+      # (TESIS-188).
+      'En proceso de Admision*' => 'in_transit',
       'Retirado*' => 'in_transit',
       'Admitido*' => 'in_transit',
       'En Proceso en OCA*' => 'in_transit',

@@ -177,7 +177,7 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
       product.update!(length_cm: nil)
       dispatch_with_oca
       expect(response).to have_http_status(:unprocessable_content)
-      expect(response.parsed_body['error']).to eq('OCA e-Pak needs package_height_cm, which this shipment does not have')
+      expect(response.parsed_body['error']).to eq("Para despachar con OCA e-Pak falta el largo de “#{product.name}”.")
       expect(WebMock).not_to have_requested(:post, endpoint('IngresoORMultiplesRetiros_v2'))
     end
 
@@ -254,6 +254,7 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
     {
       'En proceso de Retiro' => 'ready_to_ship',
       'Retirado' => 'in_transit',
+      'En proceso de Admision' => 'in_transit',
       'En Tránsito a Sucursal Destino' => 'in_transit',
       'Visita - Domicilio Cerrado' => 'in_transit',
       'Entregado' => 'delivered',

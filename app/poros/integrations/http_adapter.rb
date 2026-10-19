@@ -143,14 +143,14 @@ module Integrations
     # una plantilla rota: falla como cualquier otro error del proveedor, sin
     # tirar un 500 ni voltear el job que la usa.
     def template_error(error)
-      missing = error.is_a?(RenderTemplate::MissingValueError)
       name = @service.service_name
-      message = if missing
-                  "#{name} needs #{error.variable}, which this shipment does not have"
-                else
-                  "#{name} has a broken template: #{error.message}"
-                end
-      AdapterExecutionError.new(message, payload: @payload, rejected: missing)
+      if error.is_a?(RenderTemplate::MissingValueError)
+        message = "#{name} needs #{error.variable}, which this shipment does not have"
+        return MissingValueError.new(message, missing_value: error.variable, payload: @payload)
+      end
+
+      AdapterExecutionError.new("#{name} has a broken template: #{error.message}",
+                                payload: @payload)
     end
 
     def raise_http_error(response)
