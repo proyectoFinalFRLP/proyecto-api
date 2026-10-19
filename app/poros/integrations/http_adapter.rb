@@ -59,13 +59,15 @@ module Integrations
       response = execute_with_token_renewal
       raise_http_error(response) unless response.is_a?(Net::HTTPSuccess)
 
-      parse_json(response.body).tap do |body|
+      parse_body(response.body).tap do |body|
         DetectResponseErrors.new(service: @service, body: body, payload: @payload).call
       end
     rescue *NETWORK_ERRORS => e
       raise AdapterExecutionError.new(
         "#{@service.service_name} request failed: #{e.class}: #{e.message}", payload: @payload
       )
+    rescue RenderTemplate::Error => e
+      raise template_error(e)
     end
 
     private
@@ -85,20 +87,37 @@ module Integrations
 
     def build_request(force_refresh: false)
       uri = URI(interpolated_uri)
+      bodyless = BODYLESS_METHODS.include?(@service.http_method)
+      uri.query = [uri.query, form_params].compact_blank.join('&') if @service.form? && bodyless
       request = request_class.new(uri)
       headers(force_refresh).each { |key, value| request[key] = value }
-      request.body = request_body unless BODYLESS_METHODS.include?(@service.http_method)
+      request.body = request_body unless bodyless
       [uri, request]
     end
 
     # GraphQL manda el documento tal cual y los valores dinámicos siempre como
     # variables, nunca interpolados en el documento.
     def request_body
-      mapped = BuildExternalPayload.new(service: @service, payload: @payload,
-                                        settings: @integration.settings).call
-      return mapped.to_json unless @service.graphql?
+      return form_params if @service.form?
+      return mapped_payload.to_json unless @service.graphql?
 
-      { query: @service.body_template, variables: mapped }.to_json
+      { query: @service.body_template, variables: mapped_payload }.to_json
+    end
+
+    # Las credenciales entran acá y no antes: lo que viaja en los errores y en
+    # la DLQ es `@payload`, el interno, que no las tiene.
+    def mapped_payload
+      BuildExternalPayload.new(service: @service, payload: @payload,
+                               settings: @integration.settings,
+                               credentials: @integration.credentials).call
+    end
+
+    # `application/x-www-form-urlencoded`, con los números en el formato que
+    # espera un servicio .NET (punto decimal, sin notación científica).
+    def form_params
+      URI.encode_www_form(
+        mapped_payload.map { |key, value| [key, RenderTemplate.format_scalar(value)] }
+      )
     end
 
     def request_class
@@ -118,11 +137,31 @@ module Integrations
       http.request(request)
     end
 
+    # El pedido no se pudo armar, y no salió. Le falta un dato que la plantilla
+    # exige (`required`): es un rechazo, como el de un courier que no cubre el
+    # destino, y quien despacha lo ve con el motivo. Un filtro que no existe es
+    # una plantilla rota: falla como cualquier otro error del proveedor, sin
+    # tirar un 500 ni voltear el job que la usa.
+    def template_error(error)
+      missing = error.is_a?(RenderTemplate::MissingValueError)
+      name = @service.service_name
+      message = if missing
+                  "#{name} needs #{error.variable}, which this shipment does not have"
+                else
+                  "#{name} has a broken template: #{error.message}"
+                end
+      AdapterExecutionError.new(message, payload: @payload, rejected: missing)
+    end
+
     def raise_http_error(response)
       raise AdapterExecutionError.new(
         "#{@service.service_name} responded with HTTP #{response.code}",
         payload: @payload, response_status: response.code.to_i, response_body: response.body
       )
+    end
+
+    def parse_body(body)
+      @service.xml_response? ? parse_xml(body) : parse_json(body)
     end
 
     def parse_json(body)
@@ -134,10 +173,25 @@ module Integrations
       )
     end
 
+    def parse_xml(body)
+      ParseXmlResponse.new(body).call
+    rescue ParseXmlResponse::MalformedXmlError
+      raise AdapterExecutionError.new(
+        "#{@service.service_name} returned a non-XML response",
+        payload: @payload, response_body: body
+      )
+    end
+
     def headers(force_refresh)
-      { 'Content-Type' => 'application/json', 'Accept' => 'application/json' }.merge(
+      format_headers.merge(
         AuthHeaders.new(company_integration: @integration, force_refresh: force_refresh).call
       )
+    end
+
+    def format_headers
+      content_type = @service.form? ? 'application/x-www-form-urlencoded' : 'application/json'
+      accept = @service.xml_response? ? 'application/xml, text/xml' : 'application/json'
+      { 'Content-Type' => content_type, 'Accept' => accept }
     end
 
     # Los settings de la cuenta completan la URI (`https://:shop_domain/...`);

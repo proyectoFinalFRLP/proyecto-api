@@ -127,6 +127,49 @@ RSpec.describe Shipments::TranslateTrackingPayload, type: :poro do
       result = described_class.new(service: service, payload: {}).call
       expect(result[:occurred_at]).to be_nil
     end
+
+    # TESIS-186: OCA fecha el estado con `dd/MM/yyyy`, sin hora.
+    it 'reads a day/month/year date as a day, without inventing a time', :aggregate_failures do
+      payload = { 'evento' => { 'fecha' => '05/10/2026' } }
+      result = described_class.new(service: service, payload: payload).call
+      expect(result[:occurred_at]).to be_nil
+      expect(result[:occurred_on]).to eq(Date.new(2026, 10, 5))
+    end
+
+    it 'reads a day/month/year date with a time as a moment' do
+      payload = { 'evento' => { 'fecha' => '05/10/2026 14:30' } }
+      result = described_class.new(service: service, payload: payload).call
+      expect(result[:occurred_at]).to eq(Time.zone.local(2026, 10, 5, 14, 30))
+    end
+
+    it 'returns nil for an impossible day/month/year date' do
+      payload = { 'evento' => { 'fecha' => '31/02/2026' } }
+      result = described_class.new(service: service, payload: payload).call
+      expect(result.values_at(:occurred_at, :occurred_on)).to eq([nil, nil])
+    end
+  end
+
+  # TESIS-186: el estado de OCA, tal cual lo contesta su entorno de prueba.
+  describe 'a real OCA e-Pak answer' do
+    let(:service) do
+      Service.create!(service_name: 'OCA e-Pak - Seguimiento', type: 'courier',
+                      uri: 'https://oca.test/GetEnvioEstadoActual', http_method: 'POST',
+                      response_mapper: { 'Table.0.NumeroEnvio' => 'tracking_number',
+                                         'Table.0.Estado' => 'external_status',
+                                         'Table.0.FechaEstado' => 'occurred_at',
+                                         'Table.0.SucursalActual' => 'description' },
+                      response_value_mapper: { 'En proceso de retiro*' => 'ready_to_ship',
+                                               'Entregado*' => 'delivered' })
+    end
+    let(:payload) { Integrations::ParseXmlResponse.new(oca_fixture('tracking.xml')).call }
+
+    it 'translates the status by prefix and keeps the raw one', :aggregate_failures do
+      expect(result).to include(tracking_number: '1217400000000340668',
+                                external_status: 'En proceso de Retiro',
+                                internal_status: 'ready_to_ship',
+                                occurred_on: Date.new(2026, 10, 16),
+                                description: 'PLANTA VELEZ SARSFIELD')
+    end
   end
 
   context 'when the template does not map a key' do

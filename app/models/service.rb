@@ -9,23 +9,14 @@ class Service < ApplicationRecord
   MAPPER_FIELDS = %w[request_mapper response_mapper request_value_mapper
                      response_value_mapper].freeze
 
-  # Cómo se autentica la plantilla (ver Integrations::AuthHeaders). `bearer` es
-  # el comportamiento de siempre: `access_token` como Bearer y el resto de las
-  # credenciales como headers literales.
-  BEARER = 'bearer'
-  OAUTH_CLIENT_CREDENTIALS = 'oauth_client_credentials'
-  AUTH_STRATEGIES = [BEARER, OAUTH_CLIENT_CREDENTIALS].freeze
-
-  # Cómo viaja el body. GraphQL manda `{ query: body_template, variables }`,
-  # donde las variables son el resultado del request_mapper.
-  JSON_FORMAT = 'json'
-  GRAPHQL_FORMAT = 'graphql'
-  REQUEST_FORMATS = [JSON_FORMAT, GRAPHQL_FORMAT].freeze
+  # Cómo se autentica y en qué formato habla (TESIS-138, TESIS-186).
+  include ServiceTransport
 
   # Lo que define cómo se conecta una plantilla, además de sus mappers. Los
   # seeds lo reaplican sobre las plantillas que ya existen.
   CONNECTION_FIELDS = %w[auth_strategy auth_config credential_fields setting_fields
-                         request_format body_template error_path operation webhook_config].freeze
+                         request_format response_format body_template error_path operation
+                         webhook_config].freeze
 
   # La clave interna con la que el sync saliente manda la cantidad a publicar.
   STOCK_KEY = 'available_quantity'
@@ -33,6 +24,9 @@ class Service < ApplicationRecord
   # Vocabulario de una plantilla de consulta de tracking (ver #answers_tracking?).
   TRACKING_STATUS_KEY = 'external_status'
   TRACKING_URI_PARAM = ':tracking_number'
+  # Una entrada del request_mapper que manda el número de seguimiento, tal cual
+  # o armado (`{{tracking_number|...}}`).
+  TRACKING_NUMBER_SOURCE = /\A(tracking_number|\{\{\s*tracking_number\s*(\|[^}]*)?\}\})\z/
 
   has_many :company_integrations, dependent: :restrict_with_error
 
@@ -70,8 +64,6 @@ class Service < ApplicationRecord
   validates :uri, presence: true
   validates :http_method, presence: true
   validates :type, presence: true, inclusion: { in: TYPES }
-  validates :auth_strategy, inclusion: { in: AUTH_STRATEGIES }
-  validates :request_format, inclusion: { in: REQUEST_FORMATS }
   validates :operation, presence: true, uniqueness: { scope: :parent_service_id },
                         if: :parent_service_id
   validate :mappers_are_valid_json
@@ -83,6 +75,9 @@ class Service < ApplicationRecord
   end
   validate :tracking_service_answers_tracking
   validate :quote_service_quotes_shipping
+  # Un filtro mal escrito (`{{x|upper}}`) se rechaza al guardar: si no, la
+  # plantilla recién falla en el primer despacho o en la consulta periódica.
+  validate { Integrations::RenderTemplate.filter_problems(self).each { errors.add(*it) } }
 
   # Sólo los canales de e-commerce generan ventas: el gateway lo usa para decidir
   # si un webhook entrante va al procesador de órdenes (TESIS-43) o queda a la
@@ -91,10 +86,6 @@ class Service < ApplicationRecord
   def ecommerce? = type == ECOMMERCE
 
   def courier? = type == COURIER
-
-  def graphql? = request_format == GRAPHQL_FORMAT
-
-  def oauth_client_credentials? = auth_strategy == OAUTH_CLIENT_CREDENTIALS
 
   # Si el gateway tiene que verificar la firma de los webhooks de esta plantilla
   # (`webhook_config`, ver Webhooks::VerifySignature). Sin `signature`, el
@@ -179,13 +170,22 @@ class Service < ApplicationRecord
   end
 
   # La plantilla sabe contestar por el estado de un envío si mapea el estado
-  # externo Y dice cómo preguntar: interpolando un número de seguimiento en la
-  # URI (una consulta por envío) o devolviendo una lista de envíos (consulta
-  # masiva). La plantilla de despacho de un courier con push también mapea el
-  # estado —para leer el webhook, ADR-011—, pero no cumple lo segundo.
+  # externo Y dice cómo preguntar: con el número de seguimiento en la URI o en
+  # un parámetro del request (una consulta por envío), o devolviendo una lista
+  # de envíos (consulta masiva). La plantilla de despacho de un courier con
+  # push también mapea el estado —para leer el webhook, ADR-011—, pero no
+  # cumple lo segundo.
+  #
+  # El parámetro del request es de TESIS-186: OCA recibe el número como un
+  # campo del form (`numeroEnvio`), no en la ruta.
   def answers_tracking?
     courier? && response_mapper.value?(TRACKING_STATUS_KEY) &&
-      (uri.to_s.include?(TRACKING_URI_PARAM) || tracks_in_batch?)
+      (asks_by_tracking_number? || tracks_in_batch?)
+  end
+
+  def asks_by_tracking_number?
+    uri.to_s.include?(TRACKING_URI_PARAM) ||
+      request_mapper.values.any? { |source| source.to_s.match?(TRACKING_NUMBER_SOURCE) }
   end
 
   # Consulta masiva: el número de seguimiento se lee de una colección (`[]`)

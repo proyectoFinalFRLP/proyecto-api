@@ -478,6 +478,14 @@ estaba.
 > (`Catalog::SyncStockToChannelsJob`). Si aparece un cuarto caso, la regla de
 > «encolar y notificar» deja de ser opcional.
 
+> **La etiqueta a pedido (TESIS-186) no es un cuarto caso.**
+> `GET /api/v1/shipments/:id/label` le pide el PDF al courier dentro del request
+> cuando éste la emite aparte del despacho (OCA e-Pak, plantilla hija `label`).
+> Es la **descarga de un documento** que el usuario pidió para imprimir: una sola
+> lectura sin efectos en el proveedor y sin nada que notificar después, así que
+> encolarla no tiene sentido. Corre con su propio timeout (4 s / 8 s). Ver
+> [ADR-022](../adr/ADR-022-oca-epak-con-el-adaptador-generico.md).
+
 Lo que acota el riesgo de sostener un hilo de Puma:
 
 - **Timeout propio y más corto.** El adaptador acepta los timeouts por parámetro;

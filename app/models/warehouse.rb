@@ -58,6 +58,15 @@ class Warehouse < ApplicationRecord
             allow_nil: true
   validates :zip_code, presence: true
   validates :address, presence: true
+  # Localidad y provincia del origen de los envíos (TESIS-185). Opcionales: los
+  # depósitos que ya existían no las tienen. La provincia sale de la misma
+  # lista que la de la orden, para que origen y destino hablen igual ante el
+  # courier.
+  validates :province, inclusion: { in: Order::PROVINCES }, allow_nil: true
+
+  # Un campo vacío del formulario es «sin dato», como en la orden (TESIS-178):
+  # `""` no es `nil` para el `allow_nil` de la provincia.
+  normalizes :city, :province, with: ->(value) { value.strip.presence }
 
   # Unidades guardadas en cada deposito, agregadas por la base en una sola
   # consulta (TESIS-127). Misma mecanica que Product.with_total_stock: el

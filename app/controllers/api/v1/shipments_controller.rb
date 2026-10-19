@@ -17,6 +17,8 @@ module Api
       rescue_from Shipments::InvalidCourierIntegrationError, with: :render_unprocessable
       rescue_from Shipments::DispatchResponseError, with: :render_bad_gateway
       rescue_from Shipments::InvalidShippingCostError, with: :render_bad_request
+      rescue_from Shipments::LabelUnavailableError, with: :render_label_unavailable
+      rescue_from Shipments::LabelResponseError, with: :render_bad_gateway
       rescue_from Integrations::AdapterExecutionError, with: :render_courier_failure
 
       include Paginatable
@@ -44,6 +46,10 @@ module Api
         OR orders.external_order_number ILIKE :pattern
       SQL
 
+      # La plantilla y sus hijas: `label_available` pregunta si el courier tiene
+      # plantilla de etiqueta (TESIS-186) sin una query por fila.
+      LISTING_PRELOAD = { service: :operation_services }.freeze
+
       # Columnas por las que se puede ordenar el listado (TESIS-184). El courier
       # con una subconsulta y no con un join, por el mismo motivo que en órdenes.
       SORTS = {
@@ -68,7 +74,7 @@ module Api
         # El total lo cuenta el concern sobre el scope filtrado, no sobre el
         # total de la empresa: de acá sale el KPI de envíos activos (TESIS-53).
         shipments, meta = paginate(
-          sort_listing(filtered_shipments.preload(:order, company_integration: :service),
+          sort_listing(filtered_shipments.preload(:order, company_integration: LISTING_PRELOAD),
                        SORTS, default: { created_at: :desc, id: :desc })
         )
 
@@ -120,6 +126,21 @@ module Api
         ).call
 
         render json: ShipmentSerializer.render(dispatched), status: :ok
+      end
+
+      # La etiqueta del envío, para imprimir (TESIS-186). Si el courier la
+      # emite aparte (una plantilla `label`, OCA), se le pide y se devuelve el
+      # PDF; si sólo dejó una URL al despachar, se redirige a ella. Un envío sin
+      # etiqueta es 404. Ver Shipments::FetchLabel.
+      def label
+        shipment = Shipment.includes(company_integration: :service).find(params.expect(:id))
+        authorize shipment, :label?
+
+        label = Shipments::FetchLabel.new(shipment: shipment).call
+        return redirect_to(label[:url], allow_other_host: true) if label[:url]
+
+        send_data label[:pdf], type: 'application/pdf', disposition: 'inline',
+                               filename: "etiqueta-#{shipment.tracking_number}.pdf"
       end
 
       private
@@ -197,7 +218,8 @@ module Api
       # CompanyScoped ya acota, así que un id de otra empresa levanta
       # RecordNotFound -> 404, que es lo que corresponde (no revelar que existe).
       def set_shipment
-        @shipment = Shipment.includes(:order, :shipment_events, company_integration: :service)
+        @shipment = Shipment.includes(:order, :shipment_events,
+                                      company_integration: { service: :operation_services })
                             .find(params.expect(:id))
         authorize @shipment
       end
@@ -241,6 +263,10 @@ module Api
         value
       end
 
+      def render_label_unavailable(exception)
+        render json: { error: exception.message }, status: :not_found
+      end
+
       # 409 y no 422: la orden ya tiene su envío —o el envío ya se despachó—, y no
       # hay nada que el cliente pueda corregir en el body para que el mismo
       # request funcione.
@@ -260,9 +286,12 @@ module Api
       # y el usuario puede corregirlo, así que es 422. Un 5xx, un timeout o una
       # respuesta ilegible no son corregibles desde acá: son 502. En los dos casos
       # viaja el mensaje original, que es lo que la card pide propagar.
+      #
+      # Un error de negocio que llega con HTTP 200 (`rejected?`, TESIS-186) es
+      # lo mismo que un 4xx: OCA contesta así un código postal sin cobertura.
       def render_courier_failure(exception)
         status = exception.response_status.to_i
-        upstream_rejected = status.between?(400, 499)
+        upstream_rejected = exception.rejected? || status.between?(400, 499)
 
         render json: { error: courier_message(exception) },
                status: upstream_rejected ? :unprocessable_content : :bad_gateway
@@ -272,6 +301,10 @@ module Api
       # accionable —el código postal fuera de cobertura, el bulto sin peso— viene
       # en el cuerpo de la respuesta del courier, y la card pide propagarlo.
       def courier_message(exception)
+        # El rechazo ya trae el motivo en el mensaje; el body es el documento
+        # entero del proveedor.
+        return exception.message if exception.rejected?
+
         detail = courier_detail(exception.response_body)
         return exception.message if detail.blank?
 

@@ -13,6 +13,10 @@
 #   bin/rails "integrations:shopify:webhook[norte]"   (con PUBLIC_WEBHOOK_BASE_URL)
 #   bin/rails "integrations:shopify:link[norte,NOR-001]"          (busca por SKU)
 #   bin/rails "integrations:shopify:link[norte,NOR-001,4567890]"  (por id de variante)
+#
+# La lectura del entorno y de `.env` es la de DevEnv (lib/tasks/dev_env.rake),
+# compartida con las tareas de OCA e-Pak (lib/tasks/oca.rake).
+
 module ShopifyDevTasks
   module_function
 
@@ -83,20 +87,7 @@ module ShopifyDevTasks
     Company.find_by(slug: slug) || abort("No existe la empresa con slug #{slug}")
   end
 
-  def setting(slug, name)
-    key = "SHOPIFY_#{slug.upcase}_#{name}"
-    ENV.fetch(key) { dotenv[key] }.presence || abort("Falta #{key} en el entorno o en .env")
-  end
-
-  def dotenv
-    path = Rails.root.join('.env')
-    return {} unless path.exist?
-
-    path.each_line.with_object({}) do |line, values|
-      key, value = line.strip.split('=', 2)
-      values[key] = value if key.present? && value && !key.start_with?('#')
-    end
-  end
+  def setting(slug, name) = DevEnv.fetch('SHOPIFY', slug, name)
 end
 
 namespace :integrations do

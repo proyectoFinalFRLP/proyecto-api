@@ -141,7 +141,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_145314) do
     t.bigint "company_id", null: false
     t.datetime "created_at", null: false
     t.text "description"
-    t.string "dimensions"
+    t.decimal "height_cm", precision: 10, scale: 2
+    t.decimal "length_cm", precision: 10, scale: 2
     t.integer "low_stock_threshold", default: 100, null: false
     t.string "name", null: false
     t.string "packaging"
@@ -149,10 +150,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_145314) do
     t.string "technical_standard"
     t.datetime "updated_at", null: false
     t.decimal "weight", precision: 10, scale: 2, default: "0.0"
+    t.decimal "width_cm", precision: 10, scale: 2
     t.index ["company_id", "category"], name: "index_products_on_company_id_and_category"
     t.index ["company_id", "sku"], name: "index_products_on_company_id_and_sku", unique: true
     t.index ["company_id"], name: "index_products_on_company_id"
+    t.check_constraint "height_cm > 0::numeric", name: "products_height_cm_positive"
+    t.check_constraint "length_cm > 0::numeric", name: "products_length_cm_positive"
     t.check_constraint "low_stock_threshold >= 0", name: "products_low_stock_threshold_non_negative"
+    t.check_constraint "width_cm > 0::numeric", name: "products_width_cm_positive"
   end
 
   create_table "services", force: :cascade do |t|
@@ -169,6 +174,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_145314) do
     t.string "request_format", default: "json", null: false
     t.jsonb "request_mapper", default: {}, null: false
     t.jsonb "request_value_mapper", default: {}, null: false
+    t.string "response_format", default: "json", null: false
     t.jsonb "response_mapper", default: {}, null: false
     t.jsonb "response_value_mapper", default: {}, null: false
     t.string "service_name", null: false
@@ -183,8 +189,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_145314) do
     t.index ["quote_service_id"], name: "index_services_on_quote_service_id", unique: true
     t.index ["service_name"], name: "index_services_on_service_name", unique: true
     t.index ["tracking_service_id"], name: "index_services_on_tracking_service_id"
-    t.check_constraint "auth_strategy::text = ANY (ARRAY['bearer'::character varying, 'oauth_client_credentials'::character varying]::text[])", name: "services_auth_strategy_check"
-    t.check_constraint "request_format::text = ANY (ARRAY['json'::character varying, 'graphql'::character varying]::text[])", name: "services_request_format_check"
+    t.check_constraint "auth_strategy::text = ANY (ARRAY['bearer'::character varying, 'oauth_client_credentials'::character varying, 'none'::character varying]::text[])", name: "services_auth_strategy_check"
+    t.check_constraint "request_format::text = ANY (ARRAY['json'::character varying, 'graphql'::character varying, 'form'::character varying]::text[])", name: "services_request_format_check"
+    t.check_constraint "response_format::text = ANY (ARRAY['json'::character varying, 'xml'::character varying]::text[])", name: "services_response_format_check"
     t.check_constraint "type::text = ANY (ARRAY['ecommerce'::character varying, 'courier'::character varying]::text[])", name: "services_type_check"
   end
 
@@ -205,6 +212,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_145314) do
     t.bigint "company_id", null: false
     t.bigint "company_integration_id"
     t.datetime "created_at", null: false
+    t.string "external_reference"
     t.bigint "order_id", null: false
     t.decimal "shipping_cost", precision: 10, scale: 2
     t.string "shipping_label_url"
@@ -268,9 +276,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_145314) do
   create_table "warehouses", force: :cascade do |t|
     t.string "address", null: false
     t.integer "capacity"
+    t.string "city"
     t.bigint "company_id", null: false
     t.datetime "created_at", null: false
     t.string "name", null: false
+    t.string "province"
     t.datetime "updated_at", null: false
     t.string "zip_code", null: false
     t.index ["company_id"], name: "index_warehouses_on_company_id"

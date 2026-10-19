@@ -22,6 +22,16 @@ class Product < ApplicationRecord
   # coincidir.
   LOW_STOCK_THRESHOLD = 100
 
+  # Las tres medidas del producto, en centímetros y en el orden en que se
+  # escriben: largo × ancho × alto (TESIS-185). Reemplazan al texto libre
+  # `dimensions`, que no se podía multiplicar para cotizar por volumen.
+  MEASURES = %i[length_cm width_cm height_cm].freeze
+
+  # Techo de cada medida: 100 metros. No hay producto de catálogo que lo pase,
+  # así que un número mayor es un error de carga —cargar milímetros donde van
+  # centímetros— y no un paquete real.
+  MAX_MEASURE_CM = 10_000
+
   # Los tres estados de disponibilidad, en el vocabulario de la pantalla.
   STOCK_STATUSES = %w[out_of_stock low available].freeze
 
@@ -57,6 +67,11 @@ class Product < ApplicationRecord
   # allow_nil: la categoría es opcional — los productos que ya existían no
   # tienen ninguna y no hay con qué inferirla.
   validates :category, inclusion: { in: CATEGORIES }, allow_nil: true
+  # allow_nil: un producto sin medidas cargadas no es un error —los que ya
+  # existían no las tienen todas—; cotiza sin volumen. Una medida cargada es
+  # positiva, como dice el CHECK de cada columna.
+  validates(*MEASURES, numericality: { greater_than: 0, less_than_or_equal_to: MAX_MEASURE_CM },
+                       allow_nil: true)
 
   # `in_transit:` lo pide quien va a leerlo. Es una subconsulta correlacionada
   # —una por fila— y los contadores de las pestañas no la miran: pedirla ahí

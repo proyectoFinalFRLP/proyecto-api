@@ -263,6 +263,52 @@ RSpec.describe Shipments::QuoteShipment, type: :poro do
     end
   end
 
+  # TESIS-185: lo que piden los couriers que no se conforman con el código
+  # postal (OCA): el domicilio desglosado, el bulto y el valor declarado.
+  context 'when the courier asks for the detailed vocabulary' do
+    let(:rates) { 'https://oca.test/rates' }
+    let(:mapper) do
+      { 'origen.cp' => 'origin_postal_code', 'origen.provincia' => 'origin_province',
+        'destino.calle' => 'destination_street', 'destino.numero' => 'destination_street_number',
+        'destino.localidad' => 'destination_city', 'volumen' => 'package_volume_m3',
+        'valor' => 'declared_value' }
+    end
+
+    before do
+      origin.update!(zip_code: 'B1900ABC', province: 'Buenos Aires')
+      caja = Product.create!(company: company, sku: 'CJ-1', name: 'Caja',
+                             length_cm: 50, width_cm: 40, height_cm: 25)
+      order.update!(customer_city: 'Córdoba', total_amount: 2400)
+      order.order_items.create!(product: caja, quantity: 2, unit_price: 1200)
+
+      courier('OCA', rates, request_mapper: mapper)
+      stub_request(:post, rates).to_return(status: 200, body: { precio: 900 }.to_json)
+    end
+
+    def expected_body
+      { 'origen' => { 'cp' => '1900', 'provincia' => 'Buenos Aires' },
+        'destino' => { 'calle' => 'Av. Siempreviva', 'numero' => '742', 'localidad' => 'Córdoba' },
+        'volumen' => 0.1, 'valor' => 2400.0 }
+    end
+
+    it 'sends it from the order' do
+      quotes
+
+      expect(WebMock).to have_requested(:post, rates).with(body: expected_body)
+    end
+
+    # Un alta sin confirmar no tiene total ni, por ahora, localidad: las claves
+    # viajan en nil y la plantilla las recibe igual.
+    it 'sends nil for what a draft does not have yet' do
+      described_class.new(origin_warehouse: origin, lines: [[Product.last, 1]],
+                          destination: { zip_code: '5000', address: 'Belgrano 1' }).call
+
+      destino = { 'calle' => 'Belgrano', 'numero' => '1', 'localidad' => nil }
+      expect(WebMock).to have_requested(:post, rates)
+        .with(body: hash_including('destino' => destino, 'valor' => nil))
+    end
+  end
+
   context 'with an inactive courier' do
     before do
       integration = courier('Fast', 'https://fast.test/rates')

@@ -74,8 +74,9 @@ companies = [
       # satélite va sin declarar a propósito, para que se vea el caso en que la
       # pantalla no dibuja la barra porque nadie cargó el número.
       { name: 'Depósito Central', zip_code: '1900', address: 'Av. 7 N° 1234, La Plata',
-        capacity: 6_000 },
-      { name: 'Depósito Satélite Norte', zip_code: '1602', address: 'Calle 25 N° 456, Florida' }
+        city: 'La Plata', province: 'Buenos Aires', capacity: 6_000 },
+      { name: 'Depósito Satélite Norte', zip_code: '1602', address: 'Calle 25 N° 456, Florida',
+        city: 'Florida', province: 'Buenos Aires' }
     ]
   },
   {
@@ -102,7 +103,8 @@ companies = [
       { email: 'deposito@sur.com' }
     ],
     warehouses: [
-      { name: 'Depósito Sur', zip_code: '8000', address: 'Av. Colón N° 789, Bahía Blanca' }
+      { name: 'Depósito Sur', zip_code: '8000', address: 'Av. Colón N° 789, Bahía Blanca',
+        city: 'Bahía Blanca', province: 'Buenos Aires' }
     ]
   },
   {
@@ -123,7 +125,8 @@ companies = [
       { email: 'admin@vieja.com' }
     ],
     warehouses: [
-      { name: 'Depósito en Liquidación', zip_code: '5000', address: 'Bv. San Juan N° 100, Córdoba' }
+      { name: 'Depósito en Liquidación', zip_code: '5000', address: 'Bv. San Juan N° 100, Córdoba',
+        city: 'Córdoba', province: 'Córdoba' }
     ]
   }
 ]
@@ -170,6 +173,11 @@ companies.each do |attrs|
     if warehouse.capacity.nil? && warehouse_attrs[:capacity]
       warehouse.update!(capacity: warehouse_attrs[:capacity])
     end
+
+    # Localidad y provincia (TESIS-185), con el mismo criterio: completa las
+    # bases sembradas antes de las columnas sin pisar lo cargado a mano.
+    location = warehouse_attrs.slice(:city, :province).select { |key, _| warehouse[key].nil? }
+    warehouse.update!(location) if location.any?
   end
 end
 
@@ -592,6 +600,17 @@ andreani_dispatch = Service.find_by(service_name: 'Andreani')
 andreani_quote = Service.find_by(service_name: 'Andreani - Cotización')
 andreani_dispatch&.update!(quote_service: andreani_quote) if andreani_quote
 
+# OCA e-Pak (TESIS-186): cotiza, despacha, emite la etiqueta y se sigue sólo con
+# plantillas, contra el entorno de prueba de OCA (ver el archivo). En desarrollo
+# Norte queda conectada con la cuenta de prueba pública de OCA, para que el flujo
+# completo ande sin configurar nada; en producción sólo se siembran las
+# plantillas y cada empresa carga su propia cuenta.
+load Rails.root.join('db/seeds/oca.rb')
+OcaSeeds.install!
+if Rails.env.development? && (oca_company = Company.find_by(slug: 'norte'))
+  OcaSeeds.connect_demo!(oca_company)
+end
+
 # Vincula la primera empresa activa con Mercado Libre (integración de ejemplo).
 # La variable ml_integration la consume la orden de webhook de la sección TESIS-40
 # más abajo (sin ella, `db:seed` cortaba con NameError: undefined ml_integration).
@@ -623,21 +642,27 @@ if norte_company
     p.name = 'Celular Samsung Galaxy A14'
     p.description = 'Smartphone gama media con 128GB de almacenamiento'
     p.weight = 0.200
-    p.dimensions = '16.5x7.8x0.9'
+    p.length_cm = 16.5
+    p.width_cm = 7.8
+    p.height_cm = 0.9
   end
 
   notebook = Product.find_or_create_by!(sku: 'NOR-002', company: norte_company) do |p|
     p.name = 'Notebook Lenovo ThinkPad'
     p.description = 'Notebook empresarial con 16GB RAM y 512GB SSD'
     p.weight = 1.500
-    p.dimensions = '32x22x1.8'
+    p.length_cm = 32
+    p.width_cm = 22
+    p.height_cm = 1.8
   end
 
   mouse = Product.find_or_create_by!(sku: 'NOR-003', company: norte_company) do |p|
     p.name = 'Mouse Inalámbrico Logitech'
     p.description = 'Mouse ergonómico con sensor óptico'
     p.weight = 0.100
-    p.dimensions = '10x6x3'
+    p.length_cm = 10
+    p.width_cm = 6
+    p.height_cm = 3
   end
 
   # Categorías (TESIS-102). Se asignan fuera del bloque de find_or_create_by!
@@ -767,14 +792,18 @@ if sur_company
     p.name = 'Taladro Percutor Inalámbrico'
     p.description = 'Taladro a batería 20V con maletín'
     p.weight = 2.300
-    p.dimensions = '25x20x8'
+    p.length_cm = 25
+    p.width_cm = 20
+    p.height_cm = 8
   end
 
   amoladora = Product.find_or_create_by!(sku: 'SUR-002', company: sur_company) do |p|
     p.name = 'Amoladora Angular 4 1/2"'
     p.description = 'Amoladora 800W con disco de corte'
     p.weight = 1.800
-    p.dimensions = '30x12x10'
+    p.length_cm = 30
+    p.width_cm = 12
+    p.height_cm = 10
   end
 
   { taladro => 'Machinery', amoladora => 'Machinery' }
@@ -1043,7 +1072,9 @@ if norte_company
     p.name = 'Switch Gigabit 8 Puertos TP-Link'
     p.description = 'Switch no administrable con 8 puertos Gigabit'
     p.weight = 0.350
-    p.dimensions = '15x10x3'
+    p.length_cm = 15
+    p.width_cm = 10
+    p.height_cm = 3
   end
   switch.update!(category: 'Cabling') if switch.category.nil?
 
@@ -1051,7 +1082,9 @@ if norte_company
     p.name = 'Cable UTP Cat6 100m'
     p.description = 'Cable de red UTP Cat6 rollo de 100 metros'
     p.weight = 4.500
-    p.dimensions = '30x30x12'
+    p.length_cm = 30
+    p.width_cm = 30
+    p.height_cm = 12
   end
   cable.update!(category: 'Cabling') if cable.category.nil?
 
@@ -1059,7 +1092,9 @@ if norte_company
     p.name = 'UPS APC 1500VA'
     p.description = 'Estabilizador/UPS APC Back-UPS 1500VA'
     p.weight = 12.000
-    p.dimensions = '35x20x25'
+    p.length_cm = 35
+    p.width_cm = 20
+    p.height_cm = 25
   end
   ups.update!(category: 'Power') if ups.category.nil?
 
@@ -1067,7 +1102,9 @@ if norte_company
     p.name = 'Disyuntor Diferencial 2P 25A'
     p.description = 'Disyuntor diferencial unipolar 25 amperios'
     p.weight = 0.200
-    p.dimensions = '8x4x7'
+    p.length_cm = 8
+    p.width_cm = 4
+    p.height_cm = 7
   end
   breaker.update!(category: 'Power') if breaker.category.nil?
 
@@ -1287,7 +1324,9 @@ if sur_company
     p.name = 'Cable Eléctrico 2.5mm x 100m'
     p.description = 'Cable unipolar 2.5mm2 rollo de 100 metros'
     p.weight = 3.200
-    p.dimensions = '25x25x10'
+    p.length_cm = 25
+    p.width_cm = 25
+    p.height_cm = 10
   end
   cable_sur.update!(category: 'Cabling') if cable_sur.category.nil?
 
@@ -1295,7 +1334,9 @@ if sur_company
     p.name = 'Set Destornilladores Industriales'
     p.description = 'Juego de 6 destornilladores aislados'
     p.weight = 0.800
-    p.dimensions = '25x12x3'
+    p.length_cm = 25
+    p.width_cm = 12
+    p.height_cm = 3
   end
   destornillador.update!(category: 'Cabling') if destornillador.nil?
 

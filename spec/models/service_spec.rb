@@ -33,6 +33,27 @@ RSpec.describe Service, type: :model do
     expect(described_class.new(type: 'ecommerce')).to be_an_instance_of(described_class)
   end
 
+  # TESIS-186: un tipeo en un filtro aparece al guardar la plantilla, no en el
+  # primer despacho.
+  describe 'template filters' do
+    it 'rejects a request_mapper with a filter that does not exist' do
+      service.request_mapper = { 'name' => '{{customer_name|upper}}', 'cp' => 'destination_zip_code' }
+      service.valid?
+      expect(service.errors[:request_mapper]).to eq(['usa filtros que no existen: upper'])
+    end
+
+    it 'rejects a body_template with a filter that does not exist' do
+      service.body_template = '<a b="{{customer_name|ascii|shout}}"/>'
+      service.valid?
+      expect(service.errors[:body_template]).to eq(['usa filtros que no existen: shout'])
+    end
+
+    it 'accepts the known filters' do
+      service.request_mapper = { 'peso' => '{{package_weight_kg|required}}', 'f' => '{{today|date:%Y}}' }
+      expect(service).to be_valid
+    end
+  end
+
   describe 'webhook_config' do
     def signed(config)
       service.webhook_config = config
@@ -142,6 +163,22 @@ RSpec.describe Service, type: :model do
 
     it 'is false for a sales channel' do
       service.type = 'ecommerce'
+      expect(service.answers_tracking?).to be false
+    end
+
+    # TESIS-186: OCA recibe el número en un campo del form, no en la ruta.
+    it 'is true when the tracking number travels as a request parameter', :aggregate_failures do
+      service.uri = 'https://oca.test/GetEnvioEstadoActual'
+      service.request_mapper = { 'numeroEnvio' => 'tracking_number' }
+      expect(service.answers_tracking?).to be true
+
+      service.request_mapper = { 'numeroEnvio' => '{{tracking_number|truncate:19}}' }
+      expect(service.answers_tracking?).to be true
+    end
+
+    it 'is false when the request only carries other data' do
+      service.uri = 'https://oca.test/GetEnvioEstadoActual'
+      service.request_mapper = { 'numeroEnvio' => 'tracking_numbers_csv' }
       expect(service.answers_tracking?).to be false
     end
   end
@@ -390,6 +427,41 @@ RSpec.describe Service, type: :model do
     it 'rejects an unknown request format' do
       service.request_format = 'soap'
       expect(service).not_to be_valid
+    end
+
+    # TESIS-186: lo que necesita un servicio ASMX como OCA e-Pak.
+    it 'accepts a form request, an XML response and no auth headers', :aggregate_failures do
+      service.assign_attributes(request_format: 'form', response_format: 'xml',
+                                auth_strategy: 'none')
+      expect(service).to be_valid
+      expect([service.form?, service.xml_response?, service.no_auth?]).to all(be(true))
+    end
+
+    it 'reads JSON responses by default and rejects an unknown response format', :aggregate_failures do
+      expect(service.response_format).to eq('json')
+      service.response_format = 'yaml'
+      expect(service).not_to be_valid
+    end
+
+    # La base respalda la misma lista que el modelo: un formato que el modelo
+    # acepta y la base no rompería al guardar desde el backoffice.
+    def saved_with(request, response, auth)
+      described_class.new(service_name: "#{request} #{response} #{auth}", type: 'courier',
+                          uri: 'https://x.test', http_method: 'POST', request_format: request,
+                          response_format: response, auth_strategy: auth).save!(validate: false)
+    end
+
+    it 'is backed by the database for every format and strategy' do
+      combos = described_class::REQUEST_FORMATS.product(described_class::RESPONSE_FORMATS,
+                                                        described_class::AUTH_STRATEGIES)
+      expect(combos.map { |combo| saved_with(*combo) }).to all(be(true))
+    end
+
+    it 'rejects an unknown response format at the database level' do
+      service.save!
+      expect do
+        described_class.where(id: service.id).update_all(response_format: 'yaml') # rubocop:disable Rails/SkipsModelValidations
+      end.to raise_error(ActiveRecord::CheckViolation)
     end
 
     it 'requires every declared field to have a key' do

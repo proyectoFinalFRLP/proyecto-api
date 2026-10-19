@@ -52,4 +52,31 @@ RSpec.describe Integrations::ParseExternalResponse, type: :poro do
 
     expect(result).to eq('external_product_id' => 'A-1')
   end
+
+  # TESIS-186: un XML no distingue una fila de una lista con una fila.
+  describe '.dig_path over a single row' do
+    let(:one_row) { { 'Table' => { 'Total' => '181.92' } } }
+    let(:rows) { { 'Table' => [{ 'Total' => '1' }, { 'Total' => '2' }] } }
+
+    it 'reads index 0 and -1 of a lone Hash as the Hash itself', :aggregate_failures do
+      expect(described_class.dig_path(one_row, 'Table.0.Total')).to eq('181.92')
+      expect(described_class.dig_path(one_row, 'Table.-1.Total')).to eq('181.92')
+    end
+
+    it 'keeps reading real lists by index', :aggregate_failures do
+      expect(described_class.dig_path(rows, 'Table.0.Total')).to eq('1')
+      expect(described_class.dig_path(rows, 'Table.-1.Total')).to eq('2')
+    end
+
+    it 'does not invent a second row' do
+      expect(described_class.dig_path(one_row, 'Table.1.Total')).to be_nil
+    end
+  end
+
+  it 'translates with prefix keys of the response_value_mapper' do
+    service.update!(response_value_mapper: { 'Entregado*' => 'delivered' })
+    result = described_class.new(service: service,
+                                 response_body: { 'estado' => 'ENTREGADO - Sucursal' }).call
+    expect(result['status']).to eq('delivered')
+  end
 end

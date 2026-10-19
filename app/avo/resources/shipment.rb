@@ -12,6 +12,8 @@ module Avo
         field :status, as: :select, options: ::Shipment::STATUSES.index_with(&:itself)
         field :shipping_cost, as: :number
         field :shipping_label_url, as: :text, only_on: :show
+        # El id del despacho del lado del courier (en OCA, la orden de retiro).
+        field :external_reference, as: :text, only_on: :show
         field :company, as: :belongs_to
         field :order, as: :belongs_to
         field :company_integration, as: :belongs_to, name: 'Courier Integration'

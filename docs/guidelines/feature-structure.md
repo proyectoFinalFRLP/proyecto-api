@@ -48,7 +48,11 @@ app/poros/
 │   └── process_webhook_order.rb # Ingesta orden de un canal externo
 ├── shipments/
 │   ├── quote_shipment.rb        # Cotización concurrente con múltiples couriers
-│   └── confirm_dispatch.rb      # Confirma despacho + obtiene tracking
+│   ├── confirm_dispatch.rb      # Confirma despacho + obtiene tracking
+│   └── courier_payload.rb       # Vocabulario que mapean las plantillas de courier
+├── addresses/
+│   ├── split_street.rb          # «Av. Corrientes 1234» → calle y altura
+│   └── short_postal_code.rb     # «C1414ABC» → «1414»
 └── reports/
     ├── window.rb                # Ventana de N días en hora de Argentina + período anterior
     └── build_overview.rb        # Agregados de S14: ventas, unidades despachadas, couriers
@@ -118,6 +122,11 @@ dependencia de lectura no crea un ciclo ni un acoplamiento de escritura.
 | `reports`  | Los agregados de la pantalla de Reportes                                 | orders, shipments       |
 | `products` | El alta y la edición de producto, que son del dominio `catalog`          | catalog                 |
 | `users`    | Lo que cuelga de `auth` y no entra en el model                           | auth                    |
+
+`addresses` tampoco es un dominio, y ni siquiera lee: son funciones puras que
+normalizan un domicilio para los couriers (separar calle y altura, recortar el
+CPA a cuatro dígitos). No conocen ningún modelo, así que cualquier dominio
+puede usarlas sin crear una dependencia (TESIS-185).
 
 La regla sigue siendo la del párrafo de arriba: si **escribe** algo que cruza
 dominios, va en `app/poros/shared/` o en el model. Si sólo lee para mostrar,

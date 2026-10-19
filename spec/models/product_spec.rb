@@ -43,6 +43,43 @@ RSpec.describe Product, type: :model do
     end
   end
 
+  # TESIS-185: largo, ancho y alto en centímetros, en lugar del texto libre.
+  describe 'the measures' do
+    it 'are optional: a product without them is valid' do
+      expect(product).to be_valid
+    end
+
+    it 'accept a positive decimal', :aggregate_failures do
+      product.assign_attributes(length_cm: 16.5, width_cm: 7.8, height_cm: 0.9)
+      product.save!
+
+      expect(product.reload.length_cm).to eq(BigDecimal('16.5'))
+      expect(product.height_cm).to eq(BigDecimal('0.9'))
+    end
+
+    Product::MEASURES.each do |measure|
+      it "rejects a #{measure} of zero or less", :aggregate_failures do
+        product.public_send("#{measure}=", 0)
+        expect(product).not_to be_valid
+        product.public_send("#{measure}=", -3)
+        expect(product).not_to be_valid
+      end
+
+      it "rejects a #{measure} beyond #{Product::MAX_MEASURE_CM} cm" do
+        product.public_send("#{measure}=", Product::MAX_MEASURE_CM + 1)
+        expect(product).not_to be_valid
+      end
+    end
+
+    # El CHECK es el último garante: lo que se saltea el modelo no llega igual.
+    it 'are refused by the database when the model is skipped' do
+      product.save!
+
+      expect { product.update_columns(width_cm: 0) } # rubocop:disable Rails/SkipsModelValidations
+        .to raise_error(ActiveRecord::StatementInvalid, /products_width_cm_positive/)
+    end
+  end
+
   describe '.stock_status_for' do
     it 'maps a quantity to the three availability states', :aggregate_failures do
       expect(described_class.stock_status_for(0)).to eq('out_of_stock')

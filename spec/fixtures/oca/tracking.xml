@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DataSet xmlns="#Oca_e_Pak">
+  <xs:schema id="NewDataSet" xmlns="" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xs:element name="NewDataSet" msdata:IsDataSet="true" msdata:Locale="">
+      <xs:complexType>
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+          <xs:element name="Table">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="Operativa" type="xs:int" minOccurs="0" />
+                <xs:element name="OrdenRetiro" type="xs:int" minOccurs="0" />
+                <xs:element name="FechaRetiro" type="xs:string" minOccurs="0" />
+                <xs:element name="Remito" type="xs:string" minOccurs="0" />
+                <xs:element name="Destinatarios" type="xs:string" minOccurs="0" />
+                <xs:element name="eMail" type="xs:string" minOccurs="0" />
+                <xs:element name="NumeroEnvio" type="xs:string" minOccurs="0" />
+                <xs:element name="CantidadPaquetes" type="xs:int" minOccurs="0" />
+                <xs:element name="PesoTotal" type="xs:decimal" minOccurs="0" />
+                <xs:element name="PesoAforadoTotal" type="xs:decimal" minOccurs="0" />
+                <xs:element name="VolumenTotal" type="xs:decimal" minOccurs="0" />
+                <xs:element name="PrecioEnvio" type="xs:decimal" minOccurs="0" />
+                <xs:element name="Seguro" type="xs:decimal" minOccurs="0" />
+                <xs:element name="FechaImposicion" type="xs:string" minOccurs="0" />
+                <xs:element name="SucursalActual" type="xs:string" minOccurs="0" />
+                <xs:element name="CIDestino" type="xs:string" minOccurs="0" />
+                <xs:element name="FechaEstado" type="xs:string" minOccurs="0" />
+                <xs:element name="Estado" type="xs:string" minOccurs="0" />
+                <xs:element name="IdEstado" type="xs:int" minOccurs="0" />
+                <xs:element name="Motivo" type="xs:string" minOccurs="0" />
+                <xs:element name="Alto" type="xs:decimal" minOccurs="0" />
+                <xs:element name="Ancho" type="xs:decimal" minOccurs="0" />
+                <xs:element name="Largo" type="xs:decimal" minOccurs="0" />
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+        </xs:choice>
+      </xs:complexType>
+    </xs:element>
+  </xs:schema>
+  <diffgr:diffgram xmlns:msdata="urn:schemas-microsoft-com:xml-msdata" xmlns:diffgr="urn:schemas-microsoft-com:xml-diffgram-v1">
+    <NewDataSet xmlns="">
+      <Table diffgr:id="Table1" msdata:rowOrder="0">
+        <Operativa>64665</Operativa>
+        <OrdenRetiro>20914118</OrdenRetiro>
+        <FechaRetiro>19/10/2026</FechaRetiro>
+        <Remito>TEST-186-1</Remito>
+        <Destinatarios>Prueba Cliente Ficticio</Destinatarios>
+        <eMail>cliente.ficticio@example.com</eMail>
+        <NumeroEnvio>1217400000000340668</NumeroEnvio>
+        <CantidadPaquetes>1</CantidadPaquetes>
+        <Seguro>15000.0000</Seguro>
+        <SucursalActual>PLANTA VELEZ SARSFIELD</SucursalActual>
+        <CIDestino />
+        <FechaEstado>16/10/2026</FechaEstado>
+        <Estado>En proceso de Retiro</Estado>
+        <IdEstado>1</IdEstado>
+        <Motivo>Sin Motivo</Motivo>
+      </Table>
+    </NewDataSet>
+  </diffgr:diffgram>
+</DataSet>
