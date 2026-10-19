@@ -8,11 +8,11 @@ require Rails.root.join('db/seeds/oca').to_s
 # (spec/fixtures/oca/, TESIS-186). Si este archivo pasa, OCA funciona sin una
 # línea de código propia: lo que se prueba son plantillas sobre el motor
 # genérico.
-RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
+RSpec.describe 'OCA through the generic adapter', type: :request do
   let(:company) { Company.create!(name: 'Norte', tax_id: '30-11111111-1') }
   let(:user) { User.create!(email: 'norte@example.com', password: 'password123', company: company) }
   let(:headers) { auth_headers(user) }
-  let(:oca) { company.company_integrations.joins(:service).find_by!(services: { service_name: 'OCA e-Pak' }) }
+  let(:oca) { company.company_integrations.joins(:service).find_by!(services: { service_name: 'OCA' }) }
 
   # Lo que dejan los seeds en desarrollo: Norte conectada con la cuenta de
   # prueba pública de OCA, una integración que despacha y otra que cotiza.
@@ -81,7 +81,7 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
 
       it 'offers OCA with the price and term of its answer' do
         expect(response.parsed_body['data']).to contain_exactly(
-          include('provider_name' => 'OCA e-Pak', 'dispatch_integration_id' => oca.id,
+          include('provider_name' => 'OCA', 'dispatch_integration_id' => oca.id,
                   'shipping_cost' => '181.92', 'estimated_days' => 1)
         )
       end
@@ -169,7 +169,7 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
       stub_oca('IngresoORMultiplesRetiros_v2', 'dispatch_error')
       dispatch_with_oca
       expect(response).to have_http_status(:unprocessable_content)
-      expect(response.parsed_body['error']).to eq('OCA e-Pak returned errors: Usuario o contraseña incorrectos')
+      expect(response.parsed_body['error']).to eq('OCA returned errors: Usuario o contraseña incorrectos')
     end
 
     # Antes pedía el retiro de una caja de 1 cm de lado.
@@ -177,7 +177,7 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
       product.update!(length_cm: nil)
       dispatch_with_oca
       expect(response).to have_http_status(:unprocessable_content)
-      expect(response.parsed_body['error']).to eq("Para despachar con OCA e-Pak falta el largo de “#{product.name}”.")
+      expect(response.parsed_body['error']).to eq("Para despachar con OCA falta el largo de “#{product.name}”.")
       expect(WebMock).not_to have_requested(:post, endpoint('IngresoORMultiplesRetiros_v2'))
     end
 
@@ -272,6 +272,6 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
     stub_request(:post, endpoint('GetOperativasByUsuario'))
       .with(body: { 'usr' => 'test@oca.com.ar', 'psw' => '123456' }).to_return(oca_xml('connection_test'))
     expect(Integrations::TestConnection.new(company_integration: oca).call)
-      .to eq(ok: true, message: 'OCA e-Pak: connection verified')
+      .to eq(ok: true, message: 'OCA: connection verified')
   end
 end

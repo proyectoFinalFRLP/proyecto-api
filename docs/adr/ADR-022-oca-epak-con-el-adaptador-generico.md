@@ -27,11 +27,13 @@ OCA e-Pak se integra con **cinco plantillas** (`db/seeds/oca.rb`) sobre capacida
 
 | Plantilla | Operación de OCA | Rol |
 |---|---|---|
-| `OCA e-Pak - Cotización` | `Tarifar_Envio_Corporativo` | Cotizar (`quote_service` de la de despacho) |
-| `OCA e-Pak` | `IngresoORMultiplesRetiros_v2` | Despachar: la que se conecta |
-| `OCA e-Pak - Etiqueta` | `GetPdfDeEtiquetasPorOrdenOrNumeroEnvio` | Hija `label` |
-| `OCA e-Pak - Conexión` | `GetOperativasByUsuario` | Hija `connection_test` |
-| `OCA e-Pak - Seguimiento` | `GetEnvioEstadoActual` | `tracking_service` de la de despacho (ADR-014) |
+| `OCA - Cotización` | `Tarifar_Envio_Corporativo` | Cotizar (`quote_service` de la de despacho) |
+| `OCA` | `IngresoORMultiplesRetiros_v2` | Despachar: la que se conecta |
+| `OCA - Etiqueta` | `GetPdfDeEtiquetasPorOrdenOrNumeroEnvio` | Hija `label` |
+| `OCA - Conexión` | `GetOperativasByUsuario` | Hija `connection_test` |
+| `OCA - Seguimiento` | `GetEnvioEstadoActual` | `tracking_service` de la de despacho (ADR-014) |
+
+Las plantillas se llaman «OCA», como «Andreani» o «Correo Argentino»: e-Pak es el producto de OCA que se integra, no algo que el operador tenga que leer. Hasta TESIS-188 se llamaban «OCA e-Pak»; la migración `RenameOcaEPakServicesToOca` renombra las de una base ya sembrada sin tocar sus ids ni sus integraciones.
 
 ### `request_format: form`
 

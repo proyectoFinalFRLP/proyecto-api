@@ -25,8 +25,8 @@
 module OcaDevTasks
   module_function
 
-  DISPATCH_SERVICE = 'OCA e-Pak'
-  QUOTE_SERVICE = 'OCA e-Pak - Cotización'
+  DISPATCH_SERVICE = 'OCA'
+  QUOTE_SERVICE = 'OCA - Cotización'
   # Nunca contra el productivo: el alta crea un retiro real.
   TEST_HOST = 'ocadev.com.ar'
   REQUIRED_SETTINGS = %w[CUIT NROCUENTA OPERATIVA CENTROCOSTO].freeze
