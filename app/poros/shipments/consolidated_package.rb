@@ -12,10 +12,11 @@ module Shipments
   #    redondeada hacia arriba a 0,01 cm, para que el cubo nunca quede más
   #    chico que lo que lleva.
   #
-  # Un producto sin las tres medidas cargadas suma cero: no se le inventa un
-  # tamaño. Si nada tiene medidas, el volumen y el lado son nil —no cero—, y la
-  # plantilla que los necesite se entera por el courier en vez de cotizar una
-  # caja vacía.
+  # Si a algún producto le falta una de las tres medidas, no hay bulto: el
+  # volumen y el lado son nil —no cero, ni el volumen de los demás—. Sumarlo
+  # como cero cotizaba una caja más chica que lo que lleva sin que nadie se
+  # enterara. La plantilla que los necesite los pide con `required`, y quien
+  # despacha ve qué falta.
   #
   # El volumen que se informa es el de lo que va adentro, no el del cubo: es el
   # dato real, y el cubo sólo existe porque hay couriers que piden tres lados.
@@ -29,7 +30,7 @@ module Shipments
 
     def call
       volume = total_volume
-      return { side_cm: nil, volume_cm3: nil, volume_m3: nil } unless volume.positive?
+      return { side_cm: nil, volume_cm3: nil, volume_m3: nil } unless volume&.positive?
 
       { side_cm: side_for(volume),
         volume_cm3: volume.round(2).to_f,
@@ -38,13 +39,13 @@ module Shipments
 
     private
 
+    # nil si a alguna línea le falta una medida.
     def total_volume
-      @lines.sum(BigDecimal(0)) do |product, quantity|
+      volumes = @lines.map do |product, quantity|
         measures = Product::MEASURES.map { |measure| product.public_send(measure) }
-        next 0 if measures.any?(&:nil?)
-
-        measures.reduce(:*) * quantity
+        measures.reduce(:*) * quantity unless measures.any?(&:nil?)
       end
+      volumes.sum(BigDecimal(0)) unless volumes.any?(&:nil?)
     end
 
     # El redondeo a 6 decimales antes de subir saca el ruido de la raíz en

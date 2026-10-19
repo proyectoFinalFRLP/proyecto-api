@@ -15,7 +15,11 @@ module Shipments
   #   - `_street` y `_street_number`: calle y altura (Addresses::SplitStreet).
   #     La altura es nil si no se encontró una clara.
   #   - `_city` y `_province`: localidad y provincia (de `Order::PROVINCES`).
-  # - `total_weight`: kilos, peso × cantidad de cada línea.
+  # - `total_weight`: kilos, peso × cantidad de cada línea. Un producto sin
+  #   peso suma cero (es como la mapean Andreani y Correo).
+  # - `package_weight_kg`: lo mismo, pero nil si algún producto no tiene el
+  #   peso cargado. Es la que usa una plantilla que no puede mandar un peso
+  #   inventado (OCA, con `required`).
   # - `total_items`: unidades.
   # - `package_length_cm`, `package_width_cm`, `package_height_cm`: los lados
   #   del bulto consolidado, y `package_volume_cm3` / `package_volume_m3`: el
@@ -84,9 +88,16 @@ module Shipments
       @lines.sum { |product, quantity| product.weight * quantity }
     end
 
+    # nil, y no la suma de los demás, si a un producto le falta el peso: el
+    # bulto pesaría menos de lo que pesa.
+    def package_weight
+      total_weight if @lines.any? && @lines.all? { |product, _quantity| product.weight.positive? }
+    end
+
     def package_keys
       box = ConsolidatedPackage.call(@lines)
-      { 'package_length_cm' => box[:side_cm],
+      { 'package_weight_kg' => package_weight,
+        'package_length_cm' => box[:side_cm],
         'package_width_cm' => box[:side_cm],
         'package_height_cm' => box[:side_cm],
         'package_volume_cm3' => box[:volume_cm3],

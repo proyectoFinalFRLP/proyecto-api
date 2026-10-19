@@ -107,6 +107,15 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
       quote
       expect(response.parsed_body['data']).to eq([])
     end
+
+    # Antes cotizaba un paquete de 0 kg y 0 m³.
+    it 'does not quote a product without its weight', :aggregate_failures do
+      stub_oca('Tarifar_Envio_Corporativo', 'quote')
+      product.update!(weight: 0)
+      quote
+      expect(response.parsed_body['data']).to eq([])
+      expect(WebMock).not_to have_requested(:post, endpoint('Tarifar_Envio_Corporativo'))
+    end
   end
 
   describe 'dispatching (POST /api/v1/shipments/:id/dispatch)' do
@@ -149,7 +158,7 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
       end
 
       it 'sends the recipient and the parcel in the XML', :aggregate_failures do
-        expect(sent_xml.at('envio').to_h).to eq('idoperativa' => '64665', 'nroremito' => "OS-#{shipment.id}")
+        expect(sent_xml.at('envio').to_h).to match('idoperativa' => '64665', 'nroremito' => /\AOS-#{shipment.id}-\d{12}\z/)
         expect(sent_xml.at('destinatario').to_h).to include('apellido' => 'Cliente Ficticio', 'calle' => 'Calle 50',
                                                             'nro' => '742', 'cp' => '1900')
         expect(sent_xml.at('paquete').to_h).to include('alto' => '20', 'peso' => '2.5', 'valor' => '15000')
@@ -161,6 +170,15 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
       dispatch_with_oca
       expect(response).to have_http_status(:unprocessable_content)
       expect(response.parsed_body['error']).to eq('OCA e-Pak returned errors: Usuario o contraseña incorrectos')
+    end
+
+    # Antes pedía el retiro de una caja de 1 cm de lado.
+    it 'answers 422 without calling OCA when a product has no measures', :aggregate_failures do
+      product.update!(length_cm: nil)
+      dispatch_with_oca
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to eq('OCA e-Pak needs package_height_cm, which this shipment does not have')
+      expect(WebMock).not_to have_requested(:post, endpoint('IngresoORMultiplesRetiros_v2'))
     end
 
     it 'answers 502 when OCA fails with a missing parameter', :aggregate_failures do
@@ -222,6 +240,15 @@ RSpec.describe 'OCA e-Pak through the generic adapter', type: :request do
       stub_request(:post, endpoint('GetEnvioEstadoActual'))
         .with(body: { 'numeroEnvio' => '1217400000000340668', 'ordenRetiro' => '20914118' })
         .to_return(status: 200, body: body)
+    end
+
+    # OCA informa la admisión después del retiro, y sólo con el día.
+    it 'does not take a picked up shipment back to ready to ship', :aggregate_failures do
+      stub_state('Retirado')
+      poll
+      stub_state('En proceso de Admision')
+      expect(poll.map(&:internal_status)).to eq(['in_transit'])
+      expect(dispatched_shipment.reload.status).to eq('in_transit')
     end
 
     {

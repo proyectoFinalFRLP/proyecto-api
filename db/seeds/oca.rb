@@ -48,15 +48,18 @@ module OcaSeeds
   # Cotización: `Tarifar_Envio_Corporativo`. Pide peso (kg), volumen (m³), los
   # dos códigos postales de 4 dígitos, el valor declarado, el CUIT y la
   # operativa. Todos son obligatorios para OCA (si falta uno contesta HTTP 500
-  # «Missing parameter»): los que pueden no estar van con un `default`.
+  # «Missing parameter»). El peso y el volumen van con `required`: si a algún
+  # producto le faltan, OCA no se cotiza en vez de cotizar un paquete de 0 kg.
+  # El valor declarado sí tiene un `default`: un alta sin precios todavía no
+  # tiene total.
   def self.quote
     transport.merge(
       service_name: 'OCA e-Pak - Cotización',
       uri: "#{base_uri}/Tarifar_Envio_Corporativo",
       setting_fields: [cuit_field, operativa_field],
       request_mapper: {
-        'PesoTotal' => '{{total_weight|default:0}}',
-        'VolumenTotal' => '{{package_volume_m3|default:0}}',
+        'PesoTotal' => '{{package_weight_kg|required}}',
+        'VolumenTotal' => '{{package_volume_m3|required}}',
         'CodigoPostalOrigen' => 'origin_postal_code',
         'CodigoPostalDestino' => 'destination_postal_code',
         'CantidadPaquetes' => 'literal:1',
@@ -77,7 +80,13 @@ module OcaSeeds
   # localidad y provincia 30, nombre 30): si uno se pasa, rechaza el alta.
   #
   # Un solo bulto (el consolidado de TESIS-185) y puerta a puerta: es lo que
-  # cubre la operativa de la demo.
+  # cubre la operativa de la demo. El bulto va con `required`: sin el peso o las
+  # medidas de algún producto el despacho se rechaza con el motivo, en vez de
+  # pedir un retiro de una caja de 1 cm y 0 kg.
+  #
+  # El remito lleva el momento del alta además del id del envío: la cuenta de
+  # prueba de OCA es una sola para todos, y `OS-1` se repite en cada base que se
+  # siembra.
   def self.dispatch
     transport.merge(
       service_name: 'OCA e-Pak',
@@ -130,7 +139,8 @@ module OcaSeeds
                   idfranjahoraria="{{settings.idfranjahoraria|default:1}}"
                   idcentroimposicionorigen="0" fecha="{{today|date:%Y%m%d}}">
             <envios>
-              <envio idoperativa="{{settings.operativa}}" nroremito="OS-{{shipment_id}}">
+              <envio idoperativa="{{settings.operativa}}"
+                     nroremito="OS-{{shipment_id}}-{{now|date:%y%m%d%H%M%S}}">
                 <destinatario apellido="{{customer_name|ascii|truncate:30}}" nombre=""
                               calle="{{destination_street|ascii|truncate:30}}"
                               nro="{{destination_street_number|default:S/N|truncate:5}}"
@@ -139,10 +149,10 @@ module OcaSeeds
                               cp="{{destination_postal_code}}" telefono="" email="" idci="0"
                               celular="" observaciones=""/>
                 <paquetes>
-                  <paquete alto="{{package_height_cm|default:1}}"
-                           ancho="{{package_width_cm|default:1}}"
-                           largo="{{package_length_cm|default:1}}"
-                           peso="{{total_weight|default:0}}"
+                  <paquete alto="{{package_height_cm|required}}"
+                           ancho="{{package_width_cm|required}}"
+                           largo="{{package_length_cm|required}}"
+                           peso="{{package_weight_kg|required}}"
                            valor="{{declared_value|default:0}}" cant="1"/>
                 </paquetes>
               </envio>

@@ -37,10 +37,11 @@ RSpec.describe Shipments::ConsolidatedPackage, type: :poro do
     expect(package([product('A', 10, 10, 10), 1])[:side_cm]).to eq(10.0)
   end
 
-  it 'counts a product without all its measures as zero' do
+  # Sumarlo como cero cotizaba una caja más chica que lo que lleva.
+  it 'does not estimate the package when a product lacks a measure' do
     box = package([product('A', 10, 10, 10), 1], [product('B', 30, 30), 5])
 
-    expect(box[:volume_cm3]).to eq(1000.0)
+    expect(box).to eq(side_cm: nil, volume_cm3: nil, volume_m3: nil)
   end
 
   # Cero sería una caja vacía: nil dice que no se sabe.

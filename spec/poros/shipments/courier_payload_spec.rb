@@ -55,6 +55,24 @@ RSpec.describe Shipments::CourierPayload, type: :poro do
                                'package_volume_m3' => 0.008)
   end
 
+  it 'weighs the package in kilos' do
+    expect(payload['package_weight_kg']).to eq(BigDecimal(4))
+  end
+
+  # El total sigue sumando cero, como lo mapean Andreani y Correo; el peso del
+  # bulto no se inventa.
+  context 'when a product has no weight' do
+    let(:lines) do
+      [[Product.create!(company: company, sku: 'S-1', name: 'Sensor', weight: 0.5), 2],
+       [Product.create!(company: company, sku: 'C-1', name: 'Cable'), 1]]
+    end
+
+    it 'leaves the package without a weight but keeps the total', :aggregate_failures do
+      expect(payload['package_weight_kg']).to be_nil
+      expect(payload['total_weight']).to eq(BigDecimal(1))
+    end
+  end
+
   it 'declares the value it was given, as a number' do
     expect(payload['declared_value']).to eq(15_999.9)
   end
@@ -73,7 +91,8 @@ RSpec.describe Shipments::CourierPayload, type: :poro do
     it 'sends every key of the vocabulary anyway, in nil' do
       expect(payload.values_at('origin_city', 'origin_province', 'origin_street_number',
                                'destination_address', 'destination_street', 'destination_city',
-                               'package_length_cm', 'package_volume_m3', 'declared_value'))
+                               'package_length_cm', 'package_volume_m3', 'package_weight_kg',
+                               'declared_value'))
         .to all(be_nil)
     end
 
