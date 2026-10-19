@@ -21,6 +21,10 @@ module Integrations
   #   - `ascii`: sin tildes ni eñes (`Muñoz` es `Munoz`). OCA guarda un
   #     nombre con tildes con espacios en su lugar.
   #   - `raw`: no escapar este valor (ver `escape`).
+  #   - `required`: el valor tiene que estar. Si falta, no se arma nada: sale
+  #     `MissingValueError`, y el pedido no viaja. Es para el dato que el
+  #     proveedor necesita y que no se puede inventar con un `default` (el peso
+  #     y las medidas del paquete, por ejemplo).
   #
   # Los números se escriben con punto y sin notación científica (`2.5`, no
   # `0.25e1`), y un decimal entero sin decimales (`15000`, no `15000.0`).
@@ -35,11 +39,45 @@ module Integrations
   class RenderTemplate < ApplicationPoro
     VARIABLE = /\{\{\s*([\w.]+)\s*((?:\|[^|}]*)*)\}\}/
     FILTER = /\A\s*(\w+)\s*(?::(.*))?\z/m
-    FILTERS = %w[default truncate date ascii raw].freeze
+    FILTERS = %w[default truncate date ascii raw required].freeze
 
-    class UnknownFilterError < StandardError; end
+    class Error < StandardError; end
+    class UnknownFilterError < Error; end
+
+    # El dato que pedía `required` y que no estaba. `variable` es su nombre.
+    class MissingValueError < Error
+      attr_reader :variable
+
+      def initialize(variable)
+        @variable = variable
+        super("missing required template value: #{variable}")
+      end
+    end
 
     def self.template?(text) = text.to_s.match?(VARIABLE)
+
+    # Los filtros que el texto usa y que no existen. Es lo que valida `Service`
+    # al guardar: un tipeo en Avo no puede esperar al primer despacho para
+    # aparecer.
+    def self.unknown_filters(text)
+      text.to_s.scan(VARIABLE).flat_map do |_name, chain|
+        chain.split('|').drop(1).filter_map do |filter|
+          name = filter.match(FILTER)&.captures&.first
+          filter.strip unless FILTERS.include?(name)
+        end
+      end.uniq
+    end
+
+    # `[campo, mensaje]` por cada campo de la plantilla que usa un filtro que no
+    # existe: el `request_mapper` y el `body_template`.
+    def self.filter_problems(service)
+      mapper = service.request_mapper
+      { request_mapper: mapper.is_a?(Hash) ? mapper.values : [],
+        body_template: [service.body_template] }.filter_map do |field, texts|
+        unknown = texts.flat_map { unknown_filters(it) }.uniq
+        [field, "usa filtros que no existen: #{unknown.join(', ')}"] if unknown.any?
+      end
+    end
 
     # El texto de un valor suelto (número, fecha, string) como viaja al
     # proveedor. Es público porque el form encoding usa la misma regla.
@@ -84,6 +122,8 @@ module Integrations
       raw = false
       filters(filter_chain).each do |filter, argument|
         raw = true if filter == 'raw'
+        raise MissingValueError, name if filter == 'required' && value.to_s.strip.empty?
+
         value = apply(filter, argument, value)
       end
       [value, raw]

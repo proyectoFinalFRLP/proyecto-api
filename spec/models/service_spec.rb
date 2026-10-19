@@ -33,6 +33,27 @@ RSpec.describe Service, type: :model do
     expect(described_class.new(type: 'ecommerce')).to be_an_instance_of(described_class)
   end
 
+  # TESIS-186: un tipeo en un filtro aparece al guardar la plantilla, no en el
+  # primer despacho.
+  describe 'template filters' do
+    it 'rejects a request_mapper with a filter that does not exist' do
+      service.request_mapper = { 'name' => '{{customer_name|upper}}', 'cp' => 'destination_zip_code' }
+      service.valid?
+      expect(service.errors[:request_mapper]).to eq(['usa filtros que no existen: upper'])
+    end
+
+    it 'rejects a body_template with a filter that does not exist' do
+      service.body_template = '<a b="{{customer_name|ascii|shout}}"/>'
+      service.valid?
+      expect(service.errors[:body_template]).to eq(['usa filtros que no existen: shout'])
+    end
+
+    it 'accepts the known filters' do
+      service.request_mapper = { 'peso' => '{{package_weight_kg|required}}', 'f' => '{{today|date:%Y}}' }
+      expect(service).to be_valid
+    end
+  end
+
   describe 'webhook_config' do
     def signed(config)
       service.webhook_config = config

@@ -66,6 +66,8 @@ module Integrations
       raise AdapterExecutionError.new(
         "#{@service.service_name} request failed: #{e.class}: #{e.message}", payload: @payload
       )
+    rescue RenderTemplate::Error => e
+      raise template_error(e)
     end
 
     private
@@ -133,6 +135,22 @@ module Integrations
       http.open_timeout = @timeouts[:open]
       http.read_timeout = @timeouts[:read]
       http.request(request)
+    end
+
+    # El pedido no se pudo armar, y no salió. Le falta un dato que la plantilla
+    # exige (`required`): es un rechazo, como el de un courier que no cubre el
+    # destino, y quien despacha lo ve con el motivo. Un filtro que no existe es
+    # una plantilla rota: falla como cualquier otro error del proveedor, sin
+    # tirar un 500 ni voltear el job que la usa.
+    def template_error(error)
+      missing = error.is_a?(RenderTemplate::MissingValueError)
+      name = @service.service_name
+      message = if missing
+                  "#{name} needs #{error.variable}, which this shipment does not have"
+                else
+                  "#{name} has a broken template: #{error.message}"
+                end
+      AdapterExecutionError.new(message, payload: @payload, rejected: missing)
     end
 
     def raise_http_error(response)

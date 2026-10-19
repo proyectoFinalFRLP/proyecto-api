@@ -53,6 +53,30 @@ RSpec.describe Integrations::RenderTemplate, type: :poro do
     it 'rejects an unknown filter' do
       expect { render('{{name|shout}}') }.to raise_error(described_class::UnknownFilterError)
     end
+
+    # TESIS-186: el peso y las medidas del paquete no se inventan.
+    it 'stops with the name of a required value that is missing', :aggregate_failures do
+      %w[nothing empty unknown].each do |name|
+        expect { render("{{#{name}|required}}", strict: false) }
+          .to raise_error(described_class::MissingValueError) { expect(it.variable).to eq(name) }
+      end
+    end
+
+    it 'renders a required value that is there' do
+      expect(render('{{weight|required}}').last).to eq('2.5')
+    end
+  end
+
+  describe '.unknown_filters' do
+    it 'lists the filters that do not exist, once each' do
+      expect(described_class.unknown_filters('{{a|upper}} {{b|default:0|upper}} {{c|shout:1}}'))
+        .to eq(%w[upper shout:1])
+    end
+
+    it 'finds nothing wrong in a text with known filters or without variables', :aggregate_failures do
+      expect(described_class.unknown_filters('{{a|default:0|truncate:3|required}}')).to eq([])
+      expect(described_class.unknown_filters(nil)).to eq([])
+    end
   end
 
   describe 'missing variables' do

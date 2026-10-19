@@ -357,8 +357,8 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
       described_class.new(company_integration: form_integration, payload: payload).call
     end
 
-    def failure
-      quote
+    def failure(*payload)
+      quote(*payload)
     rescue Integrations::AdapterExecutionError => e
       e
     end
@@ -387,6 +387,20 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
       query = 'PesoTotal=2.5&CodigoPostalDestino=1900&Cuit=30-53625919-4&usr=test%40oca.com.ar'
       stub_request(:get, "#{url}?#{query}").to_return(oca_xml('quote'))
       expect(quote['shipping_cost']).to eq('181.9200')
+    end
+
+    # TESIS-186: lo que falta no se manda, y no tira un 500.
+    it 'rejects without calling the provider when a required value is missing', :aggregate_failures do
+      form_service.update!(request_mapper: { 'PesoTotal' => '{{total_weight|required}}' })
+      expect(failure({ destination_postal_code: '1900' })).to have_attributes(
+        rejected?: true, message: 'OCA - Cotización needs total_weight, which this shipment does not have'
+      )
+      expect(WebMock).not_to have_requested(:post, url)
+    end
+
+    it 'fails like the provider, not with a 500, when the template has an unknown filter' do
+      form_service.update_columns(request_mapper: { 'PesoTotal' => '{{total_weight|upper}}' }) # rubocop:disable Rails/SkipsModelValidations
+      expect(failure).to have_attributes(rejected?: false, message: include('broken template'))
     end
 
     it 'raises a rejection for a business error that comes with HTTP 200' do

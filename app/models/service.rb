@@ -75,6 +75,9 @@ class Service < ApplicationRecord
   end
   validate :tracking_service_answers_tracking
   validate :quote_service_quotes_shipping
+  # Un filtro mal escrito (`{{x|upper}}`) se rechaza al guardar: si no, la
+  # plantilla recién falla en el primer despacho o en la consulta periódica.
+  validate { Integrations::RenderTemplate.filter_problems(self).each { errors.add(*it) } }
 
   # Sólo los canales de e-commerce generan ventas: el gateway lo usa para decidir
   # si un webhook entrante va al procesador de órdenes (TESIS-43) o queda a la
