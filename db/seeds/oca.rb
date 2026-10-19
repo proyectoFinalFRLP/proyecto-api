@@ -54,7 +54,7 @@ module OcaSeeds
   # tiene total.
   def self.quote
     transport.merge(
-      service_name: 'OCA e-Pak - Cotización',
+      service_name: 'OCA - Cotización',
       uri: "#{base_uri}/Tarifar_Envio_Corporativo",
       setting_fields: [cuit_field, operativa_field],
       request_mapper: {
@@ -89,7 +89,7 @@ module OcaSeeds
   # siembra.
   def self.dispatch
     transport.merge(
-      service_name: 'OCA e-Pak',
+      service_name: 'OCA',
       uri: "#{base_uri}/IngresoORMultiplesRetiros_v2",
       credential_fields: [
         { 'key' => 'usr', 'label' => 'Usuario e-Pak', 'required' => true },
@@ -168,7 +168,7 @@ module OcaSeeds
   # mismo lugar (Shipments::FetchLabel lo distingue).
   def self.label
     transport.merge(
-      service_name: 'OCA e-Pak - Etiqueta', parent_service_name: 'OCA e-Pak', operation: 'label',
+      service_name: 'OCA - Etiqueta', parent_service_name: 'OCA', operation: 'label',
       uri: "#{base_uri}/GetPdfDeEtiquetasPorOrdenOrNumeroEnvio",
       request_mapper: { 'idOrdenRetiro' => 'external_reference', 'nroEnvio' => 'tracking_number',
                         'logisticaInversa' => 'literal:false' },
@@ -182,7 +182,7 @@ module OcaSeeds
   # el setting si la empresa no lo cargó.
   def self.connection_test
     transport.merge(
-      service_name: 'OCA e-Pak - Conexión', parent_service_name: 'OCA e-Pak',
+      service_name: 'OCA - Conexión', parent_service_name: 'OCA',
       operation: 'connection_test',
       uri: "#{base_uri}/GetOperativasByUsuario",
       request_mapper: { 'usr' => 'credentials.usr', 'psw' => 'credentials.psw' },
@@ -197,7 +197,7 @@ module OcaSeeds
   # tildes.
   def self.tracking
     transport.merge(
-      service_name: 'OCA e-Pak - Seguimiento',
+      service_name: 'OCA - Seguimiento',
       uri: "#{base_uri}/GetEnvioEstadoActual",
       request_mapper: { 'numeroEnvio' => 'tracking_number', 'ordenRetiro' => 'external_reference' },
       response_mapper: { 'Table.0.NumeroEnvio' => 'tracking_number',
@@ -213,7 +213,10 @@ module OcaSeeds
       'Envío Pendiente de Pago*' => 'ready_to_ship',
       'OR Pendiente*' => 'ready_to_ship',
       'En proceso de Retiro*' => 'ready_to_ship',
-      'En proceso de Admision*' => 'ready_to_ship',
+      # La admisión es después del retiro: el paquete ya está en OCA. Si la
+      # primera consulta que lo ve en camino ya dice esto, es «en camino»
+      # (TESIS-188).
+      'En proceso de Admision*' => 'in_transit',
       'Retirado*' => 'in_transit',
       'Admitido*' => 'in_transit',
       'En Proceso en OCA*' => 'in_transit',

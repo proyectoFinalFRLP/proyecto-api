@@ -153,6 +153,18 @@ module Shipments
 
     def request_label
       Integrations::HttpAdapter.new(company_integration: @integration, payload: payload).call
+    rescue Integrations::MissingValueError => e
+      raise missing_data_error(e)
+    end
+
+    # La plantilla pidió un dato que el envío no tiene: el mismo rechazo (422),
+    # pero con un motivo que el operador entienda y pueda corregir (TESIS-188).
+    def missing_data_error(error)
+      message = MissingDataMessage.call(courier: @integration.service.service_name,
+                                        key: error.missing_value, products: lines.map(&:first),
+                                        payload: error.payload)
+      Integrations::MissingValueError.new(message, missing_value: error.missing_value,
+                                                   payload: error.payload)
     end
 
     # Contexto del despacho, en las claves internas que las plantillas mapean.

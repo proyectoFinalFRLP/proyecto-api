@@ -27,11 +27,13 @@ OCA e-Pak se integra con **cinco plantillas** (`db/seeds/oca.rb`) sobre capacida
 
 | Plantilla | Operación de OCA | Rol |
 |---|---|---|
-| `OCA e-Pak - Cotización` | `Tarifar_Envio_Corporativo` | Cotizar (`quote_service` de la de despacho) |
-| `OCA e-Pak` | `IngresoORMultiplesRetiros_v2` | Despachar: la que se conecta |
-| `OCA e-Pak - Etiqueta` | `GetPdfDeEtiquetasPorOrdenOrNumeroEnvio` | Hija `label` |
-| `OCA e-Pak - Conexión` | `GetOperativasByUsuario` | Hija `connection_test` |
-| `OCA e-Pak - Seguimiento` | `GetEnvioEstadoActual` | `tracking_service` de la de despacho (ADR-014) |
+| `OCA - Cotización` | `Tarifar_Envio_Corporativo` | Cotizar (`quote_service` de la de despacho) |
+| `OCA` | `IngresoORMultiplesRetiros_v2` | Despachar: la que se conecta |
+| `OCA - Etiqueta` | `GetPdfDeEtiquetasPorOrdenOrNumeroEnvio` | Hija `label` |
+| `OCA - Conexión` | `GetOperativasByUsuario` | Hija `connection_test` |
+| `OCA - Seguimiento` | `GetEnvioEstadoActual` | `tracking_service` de la de despacho (ADR-014) |
+
+Las plantillas se llaman «OCA», como «Andreani» o «Correo Argentino»: e-Pak es el producto de OCA que se integra, no algo que el operador tenga que leer. Hasta TESIS-188 se llamaban «OCA e-Pak»; la migración `RenameOcaEPakServicesToOca` renombra las de una base ya sembrada sin tocar sus ids ni sus integraciones.
 
 ### `request_format: form`
 
@@ -67,7 +69,7 @@ Lo mínimo para construir lo que OCA espera, sin convertirlo en un motor de plan
 
 - `literal:<texto>` es un valor fijo (`literal:true`, `literal:` para un parámetro obligatorio que va vacío).
 - Las variables `{{x}}` aceptan **filtros** encadenados: `default:X`, `truncate:N`, `date:FORMATO` (con `today` y `now`), `ascii` (sin tildes ni eñes), `raw` y `required`. Un filtro desconocido es un error, no se ignora, y `Service` no deja guardar una plantilla que lo use: un tipeo en Avo aparece al guardar, no en el primer despacho.
-- `required` es para el dato que el proveedor necesita y que no se puede inventar con un `default`. Si falta, el pedido no sale: el adaptador lo rechaza (`rejected?`) con el nombre del dato, y el despacho responde 422 con ese motivo.
+- `required` es para el dato que el proveedor necesita y que no se puede inventar con un `default`. Si falta, el pedido no sale: el adaptador lo rechaza con `Integrations::MissingValueError`, que lleva la clave interna que faltó. El despacho la traduce (`Shipments::MissingDataMessage`) y responde 422 con un motivo que el operador puede corregir, nombrando el producto: «Para despachar con OCA falta el largo de “Celular Samsung Galaxy A14”» (TESIS-188). Si lo que falta es el código postal de 4 dígitos pero el código está cargado, el motivo dice que no es válido en vez de pedir que se cargue.
 - `{{template:body}}` en el `request_mapper` arma el `body_template` de la plantilla y lo manda como el valor de ese parámetro: es el `xml_Datos` de OCA. En el body template **cada valor se escapa para XML** (un `&` en un nombre no rompe el documento) y una variable sin valor queda vacía (los atributos opcionales, como el piso). En un valor suelto del `request_mapper`, en cambio, una variable sin valor hace que la entrada no se mande, como hasta ahora.
 - `ascii` existe porque el entorno de prueba de OCA guarda un nombre con tildes con espacios o `?` en su lugar (verificado con `UTF-8` y con referencias numéricas). Las plantillas de OCA lo aplican a nombres, calles y localidades.
 
@@ -106,7 +108,7 @@ Es una llamada **sincrónica** dentro del request, como la cotización y el desp
 - El `response_value_mapper` busca primero la clave exacta (lo de siempre); si no está, **sin distinguir mayúsculas, tildes ni espacios repetidos**; y por último las claves que terminan en `*` como **prefijos**, ganando el más largo (`Estado de Visita ONLINE (Entregado)*` antes que `Estado de Visita ONLINE*`). Es lo que necesita un courier que agrega un detalle al estado (`En proceso de Retiro - Suc: ...`).
 - `answers_tracking?` reconoce también la plantilla que manda el número de seguimiento **como parámetro** (`numeroEnvio` → `tracking_number`), no sólo en la URI.
 - Una fecha `dd/MM/yyyy` se lee explícita (no se deja que `Time.zone.parse` adivine el orden). Con hora, es un momento. **Sin hora**, viaja como `occurred_on`: el evento se registra al final de ese día, o *ahora* si el día es hoy, y el duplicado se mira por el último estado. En la consulta periódica, que contesta el estado **actual**, además nunca queda antes del último evento del envío: sin esto el primer estado del día (`En proceso de Retiro`, mismo día que el despacho) quedaba a las 00:00, antes de «Etiqueta generada», y se descartaba como desordenado. Un push con un día anterior al del último evento, en cambio, se descarta como desordenado.
-- **El estado del envío sólo avanza**, en el orden de `Shipment::STATUSES`. Con fechas sin hora el orden de los eventos no alcanza: OCA informa «En proceso de Admision» (`ready_to_ship`) después de «Retirado» (`in_transit`). Un estado traducido que queda atrás se registra en la bitácora como informativo, con el estado que ya tenía el envío.
+- **El estado del envío sólo avanza**, en el orden de `Shipment::STATUSES`. Con fechas sin hora el orden de los eventos no alcanza: OCA informa estados que, traducidos, pueden quedar atrás del último conocido (por ejemplo, «En proceso de Retiro» después de un «Retirado» que llegó antes). «En proceso de Admision» se traduce a `in_transit`: la admisión es posterior al retiro (TESIS-188). Un estado traducido que queda atrás se registra en la bitácora como informativo, con el estado que ya tenía el envío.
 
 ### Cotización y alta manual
 
