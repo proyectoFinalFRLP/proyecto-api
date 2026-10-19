@@ -19,7 +19,7 @@
 # que las tareas de Shopify.
 #
 # Va aparte de `seeds.rb` para que el spec de punta a punta use exactamente
-# estas plantillas (spec/integrations/oca_epak_spec.rb), y para que tocarlas no
+# estas plantillas (spec/requests/api/v1/oca_epak_spec.rb), y para que tocarlas no
 # choque con el resto de los seeds.
 #
 # Métodos y no constantes: `seeds.rb` hace `load` de este archivo, y el spec de

@@ -66,7 +66,8 @@ El parseo es **estricto** (un body que no es XML es un error del proveedor, como
 Lo mínimo para construir lo que OCA espera, sin convertirlo en un motor de plantillas (no hay condicionales ni bucles):
 
 - `literal:<texto>` es un valor fijo (`literal:true`, `literal:` para un parámetro obligatorio que va vacío).
-- Las variables `{{x}}` aceptan **filtros** encadenados: `default:X`, `truncate:N`, `date:FORMATO` (con `today` y `now`), `ascii` (sin tildes ni eñes) y `raw`. Un filtro desconocido es un error, no se ignora.
+- Las variables `{{x}}` aceptan **filtros** encadenados: `default:X`, `truncate:N`, `date:FORMATO` (con `today` y `now`), `ascii` (sin tildes ni eñes), `raw` y `required`. Un filtro desconocido es un error, no se ignora, y `Service` no deja guardar una plantilla que lo use: un tipeo en Avo aparece al guardar, no en el primer despacho.
+- `required` es para el dato que el proveedor necesita y que no se puede inventar con un `default`. Si falta, el pedido no sale: el adaptador lo rechaza (`rejected?`) con el nombre del dato, y el despacho responde 422 con ese motivo.
 - `{{template:body}}` en el `request_mapper` arma el `body_template` de la plantilla y lo manda como el valor de ese parámetro: es el `xml_Datos` de OCA. En el body template **cada valor se escapa para XML** (un `&` en un nombre no rompe el documento) y una variable sin valor queda vacía (los atributos opcionales, como el piso). En un valor suelto del `request_mapper`, en cambio, una variable sin valor hace que la entrada no se mande, como hasta ahora.
 - `ascii` existe porque el entorno de prueba de OCA guarda un nombre con tildes con espacios o `?` en su lugar (verificado con `UTF-8` y con referencias numéricas). Las plantillas de OCA lo aplican a nombres, calles y localidades.
 
@@ -104,17 +105,20 @@ Es una llamada **sincrónica** dentro del request, como la cotización y el desp
 
 - El `response_value_mapper` busca primero la clave exacta (lo de siempre); si no está, **sin distinguir mayúsculas, tildes ni espacios repetidos**; y por último las claves que terminan en `*` como **prefijos**, ganando el más largo (`Estado de Visita ONLINE (Entregado)*` antes que `Estado de Visita ONLINE*`). Es lo que necesita un courier que agrega un detalle al estado (`En proceso de Retiro - Suc: ...`).
 - `answers_tracking?` reconoce también la plantilla que manda el número de seguimiento **como parámetro** (`numeroEnvio` → `tracking_number`), no sólo en la URI.
-- Una fecha `dd/MM/yyyy` se lee explícita (no se deja que `Time.zone.parse` adivine el orden). Con hora, es un momento. **Sin hora**, viaja como `occurred_on`: el evento se registra al final de ese día, o *ahora* si el día es hoy, y nunca antes del último evento del envío; el duplicado se mira por el último estado. Sin esto el primer estado del día (`En proceso de Retiro`, mismo día que el despacho) quedaba a las 00:00, antes de «Etiqueta generada», y se descartaba como desordenado.
+- Una fecha `dd/MM/yyyy` se lee explícita (no se deja que `Time.zone.parse` adivine el orden). Con hora, es un momento. **Sin hora**, viaja como `occurred_on`: el evento se registra al final de ese día, o *ahora* si el día es hoy, y el duplicado se mira por el último estado. En la consulta periódica, que contesta el estado **actual**, además nunca queda antes del último evento del envío: sin esto el primer estado del día (`En proceso de Retiro`, mismo día que el despacho) quedaba a las 00:00, antes de «Etiqueta generada», y se descartaba como desordenado. Un push con un día anterior al del último evento, en cambio, se descarta como desordenado.
+- **El estado del envío sólo avanza**, en el orden de `Shipment::STATUSES`. Con fechas sin hora el orden de los eventos no alcanza: OCA informa «En proceso de Admision» (`ready_to_ship`) después de «Retirado» (`in_transit`). Un estado traducido que queda atrás se registra en la bitácora como informativo, con el estado que ya tenía el envío.
 
 ### Cotización y alta manual
 
 La cotización de OCA usa el mismo flujo de 4 s en paralelo (ADR-016). Medido contra el entorno de prueba: **0,08–0,45 s**, así que no hizo falta un timeout por plantilla. La cotización de OCA pide CPs, peso, volumen, valor declarado, CUIT y operativa: no pide localidad ni provincia.
 
+El peso y las medidas del bulto **no se inventan**. `package_weight_kg` es nil si algún producto no tiene peso, y el bulto consolidado no tiene medidas si a algún producto le falta una. Las plantillas de OCA los piden con `required`: sin ellos OCA no aparece entre las opciones de la cotización, y el despacho responde 422 con el dato que falta. Antes se cotizaba un paquete de 0 kg y se pedía el retiro de una caja de 1 cm de lado. `total_weight` sigue sumando cero por el producto sin peso: es como la mapean Andreani y Correo.
+
 `POST /api/v1/quotes` (el borrador del alta manual) acepta tres parámetros **opcionales** nuevos: `destination_city`, `destination_province` y `declared_value` (número ≥ 0; si no, 400). Los dos primeros no los usa OCA, pero el `CourierPayload` ya los tiene y un courier que los pida los recibe. Sin `declared_value`, OCA cotiza con 0 (la plantilla dice `{{declared_value|default:0}}`).
 
 ### Seeds, conexión y demo
 
-Los seeds cargan **sólo las plantillas**, que apuntan al entorno de prueba de OCA, nunca al productivo. Ninguna empresa queda conectada: la cuenta se carga con las tareas de desarrollo, con el mismo patrón que Shopify (TESIS-138, `lib/tasks/integrations.rake`):
+Los seeds cargan las plantillas, que apuntan al entorno de prueba de OCA, nunca al productivo. **En desarrollo**, además, Norte queda conectada con la cuenta de prueba pública de OCA (`OcaSeeds.connect_demo!`), así el flujo completo anda apenas se siembra la base; nunca pisa una integración que ya existe. **En producción** sólo se siembran las plantillas. Otra cuenta se carga con las tareas de desarrollo, con el mismo patrón que Shopify (TESIS-138, `lib/tasks/integrations.rake`):
 
 - `bin/rails "integrations:oca:connect[slug]"` lee `OCA_<SLUG>_USR`, `_PSW`, `_CUIT`, `_NROCUENTA`, `_OPERATIVA`, `_CENTROCOSTO` (y opcionales `_IDFRANJAHORARIA`, `_EMAIL`) del entorno o de `.env`, y crea la integración que despacha y la que cotiza con `Integrations::UpsertIntegration`, que valida los campos declarados y cifra las credenciales.
 - `integrations:oca:test[slug]` prueba la cuenta.
@@ -122,7 +126,9 @@ Los seeds cargan **sólo las plantillas**, que apuntan al entorno de prueba de O
 
 La lectura de `.env` se extrajo a `DevEnv` (`lib/tasks/dev_env.rake`), compartido con las tareas de Shopify. `.env.example` trae, comentados, los valores de la cuenta de prueba pública de OCA (`test@oca.com.ar`, CUIT `30-53625919-4`, cuenta `111757/001`, operativa puerta a puerta `64665`, centro de costo `1`): son públicos, están en la documentación de OCA para desarrolladores.
 
-Se descartó sembrar la integración con esa cuenta: los seeds corren también en el entorno desplegado (ADR-021), y una cuenta de un proveedor no se siembra, se conecta.
+Fuera de desarrollo no se siembra la integración con esa cuenta: los seeds corren también en el entorno desplegado (ADR-021), y una cuenta de un proveedor no se siembra, se conecta.
+
+Las credenciales que se cargan desde Avo viajan como `credentials__<clave>`, con la clave que decide el proveedor (`usr` y `psw` en OCA). `filter_parameters` filtra `credentials` entero, para que ninguna termine en la línea `Parameters:` del log.
 
 ## Alternativas consideradas
 
@@ -152,7 +158,9 @@ Pedirlo al despachar y guardarlo evitaba la llamada al imprimir. Exige almacenam
 - ⚠️ **Sólo puerta a puerta**: la operativa de la demo. Retiro en sucursal o entrega en sucursal (`idci`) piden otra operativa y elegir la sucursal, que el alta manual no ofrece
 - ⚠️ **Sin anulación**: `AnularOrdenGenerada` existe, pero el sistema no tiene cancelación de envíos
 - ⚠️ **Sin push**: OCA no empuja el tracking; se le pregunta cada 30 minutos (ADR-014)
-- ⚠️ La fecha del retiro es **hoy** (`{{today|date:%Y%m%d}}`): un despacho un viernes a la noche pide el retiro para ese día. OCA lo acepta, y lo reprograma él
+- ⚠️ La fecha del retiro es **hoy** (`{{today|date:%Y%m%d}}`), y el sistema corre en UTC: un despacho después de las 21 (hora argentina) pide el retiro para el día siguiente. Resolverlo bien es definir `config.time_zone`, que toca todas las fechas de la app y es otra card
+- ⚠️ **El despacho no es idempotente**: si OCA crea la orden de retiro y la respuesta tarda más que el timeout, el envío queda pendiente y reintentarlo pide otro retiro. Si dos requests despachan a la vez, el que pierde descarta su orden de retiro y la deja en el log con nivel error, para anularla a mano. El remito lleva el momento del alta (`OS-<id>-<aammddhhmmss>`), porque la cuenta de prueba es una sola y `OS-1` se repite en cada base sembrada
+- ⚠️ Las devoluciones y anulaciones de OCA no están mapeadas (el dominio no tiene esos estados): quedan como eventos informativos y el envío sigue en curso, así que la consulta periódica lo sigue preguntando
 - ⚠️ Las horas de OCA están en hora argentina y el sistema corre en UTC; con fechas sin hora, el día se toma tal cual. Un estado reportado entre las 21 y las 24 puede quedar con el día anterior
 - ⚠️ Los nombres con tildes se mandan sin tildes (`ascii`): OCA no los guarda bien de ninguna otra forma
 - ⚠️ La cuenta de prueba es pública y compartida: cualquiera puede ver las órdenes de retiro creadas en el entorno de prueba. Los datos de la demo son inventados
