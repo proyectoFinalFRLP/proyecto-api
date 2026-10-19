@@ -161,7 +161,8 @@ module Shipments
     # pero con un motivo que el operador entienda y pueda corregir (TESIS-188).
     def missing_data_error(error)
       message = MissingDataMessage.call(courier: @integration.service.service_name,
-                                        key: error.missing_value, products: lines.map(&:first))
+                                        key: error.missing_value, products: lines.map(&:first),
+                                        payload: error.payload)
       Integrations::MissingValueError.new(message, missing_value: error.missing_value,
                                                    payload: error.payload)
     end
