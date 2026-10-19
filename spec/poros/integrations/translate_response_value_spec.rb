@@ -34,4 +34,10 @@ RSpec.describe Integrations::TranslateResponseValue, type: :poro do
   it 'says when nothing matches' do
     expect(translate('Desconocido')).to eq([false, nil])
   end
+
+  # Un JSON en Latin-1 deja bytes que no son UTF-8: antes `fetch` no los
+  # encontraba y ya, con la normalización levantaba ArgumentError.
+  it 'does not fail on bytes that are not valid UTF-8' do
+    expect(translate("EN TR\xC1NSITO".b.force_encoding('UTF-8'))).to eq([false, nil])
+  end
 end

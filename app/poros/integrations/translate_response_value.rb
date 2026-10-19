@@ -21,8 +21,11 @@ module Integrations
   class TranslateResponseValue < ApplicationPoro
     PREFIX_MARK = '*'
 
+    # `scrub` primero: un courier que contesta en Latin-1 deja bytes que no son
+    # UTF-8 válido, y `unicode_normalize` levanta con ellos. Ese valor no tiene
+    # que voltear la consulta de seguimiento: a lo sumo no se reconoce.
     def self.normalize(text)
-      text.to_s.unicode_normalize(:nfkd).gsub(/\p{Mn}/, '').downcase.squish
+      text.to_s.scrub.unicode_normalize(:nfkd).gsub(/\p{Mn}/, '').downcase.squish
     end
 
     def initialize(mapper:, value:)
