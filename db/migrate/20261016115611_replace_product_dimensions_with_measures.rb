@@ -15,9 +15,18 @@ class ReplaceProductDimensionsWithMeasures < ActiveRecord::Migration[8.1]
   MEASURES = %i[length_cm width_cm height_cm].freeze
 
   # Tres números separados por x, X o ×, con coma o punto decimal y espacios
-  # alrededor. Nada más: '10x15' o '10x15x20 cm' no se reconocen.
+  # alrededor, y opcionalmente `cm` al final, que es como mucha gente lo
+  # escribe. Nada más: '10x15' no se reconoce.
   NUMBER = '\s*(\d+(?:[.,]\d+)?)\s*'
-  PATTERN = /\A#{NUMBER}[xX×]#{NUMBER}[xX×]#{NUMBER}\z/
+  PATTERN = /\A#{NUMBER}[xX×]#{NUMBER}[xX×]#{NUMBER}(?:cm)?\s*\z/i
+
+  # Lo que entra en la columna y pasa la validación del modelo
+  # (`Product::MAX_MEASURE_CM`), copiado y no leído del modelo: la migración no
+  # depende de él. Fuera de ese rango el texto queda en NULL, como el que no se
+  # entiende: un 0,004 se redondearía a 0,00 y rompería el CHECK, y un número
+  # enorme no entra en decimal(10,2). Cualquiera de los dos abortaba el deploy.
+  MIN_MEASURE = BigDecimal('0.01')
+  MAX_MEASURE = 10_000
 
   # Modelo propio de la migración: no depende de las validaciones ni del
   # default_scope por tenant de `Product`, que pueden cambiar después.
@@ -66,8 +75,8 @@ class ReplaceProductDimensionsWithMeasures < ActiveRecord::Migration[8.1]
     match = PATTERN.match(text.to_s.strip)
     return nil if match.nil?
 
-    measures = match.captures.map { |value| BigDecimal(value.tr(',', '.')) }
-    measures.all?(&:positive?) ? measures : nil
+    measures = match.captures.map { |value| BigDecimal(value.tr(',', '.')).round(2) }
+    measures.all? { |measure| measure.between?(MIN_MEASURE, MAX_MEASURE) } ? measures : nil
   end
 
   # '16.5' y no '16.50': el texto vuelve como se escribía.
