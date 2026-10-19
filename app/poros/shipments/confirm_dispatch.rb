@@ -190,10 +190,14 @@ module Shipments
     # el tracking del otro —hace rollback y sale por 409—, aunque haya gastado una
     # etiqueta. Evitarlo del todo exigiría sostener el lock durante la llamada
     # externa, que es justo lo que no se quiere.
+    #
+    # Lo que el courier devolvió se loguea antes del rollback: con OCA no es
+    # sólo una etiqueta, es una orden de retiro que hay que anular a mano, y sin
+    # el log no queda rastro de cuál era (TESIS-186).
     def persist(parsed)
       ActiveRecord::Base.transaction do
         @shipment.lock!
-        validate_status!(@shipment)
+        validate_status_after_dispatch!(parsed)
 
         @shipment.update!(company_integration: @integration,
                           tracking_number: tracking_number!(parsed),
@@ -203,6 +207,17 @@ module Shipments
                           **confirmed_cost)
         register_event
       end
+    end
+
+    def validate_status_after_dispatch!(parsed)
+      validate_status!(@shipment)
+    rescue AlreadyDispatchedError
+      Rails.logger.error(
+        "[TESIS-186] shipment #{@shipment.id} was dispatched by another request while " \
+        "#{@integration.service.service_name} answered: tracking #{parsed[TRACKING_KEY]}, " \
+        "reference #{parsed[REFERENCE_KEY]} discarded"
+      )
+      raise
     end
 
     # El costo se escribe sólo si vino: sin él, el despacho no tiene por qué

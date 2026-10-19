@@ -332,6 +332,13 @@ RSpec.describe Shipments::ConfirmDispatch, type: :poro do
       expect(shipment.reload.tracking_number).to eq('AND-OTHER')
     end
 
+    # El número que se descarta es un paquete que el courier ya conoce.
+    it 'logs what the courier answered before discarding it' do
+      allow(Rails.logger).to receive(:error)
+      attempt_dispatch
+      expect(Rails.logger).to have_received(:error).with(/shipment #{shipment.id}.*tracking AND-999/)
+    end
+
     it 'records no event' do
       expect { attempt_dispatch }.not_to change(ShipmentEvent, :count)
     end
