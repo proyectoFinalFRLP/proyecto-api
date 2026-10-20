@@ -38,10 +38,6 @@ RSpec.describe Reports::BuildOverview do
       expect(overview[:kpis][:revenue][:value]).to eq(1_500.0)
     end
 
-    it 'counts those orders' do
-      expect(overview[:kpis][:orders][:value]).to eq(2)
-    end
-
     # 750 en la semana anterior contra 1.500 en esta.
     it 'compares them with the previous window of the same length' do
       expect(overview[:kpis][:revenue][:trend]).to eq(100.0)
@@ -92,10 +88,39 @@ RSpec.describe Reports::BuildOverview do
     end
   end
 
-  # El modelo no tiene con qué calcularlos: `nil` y no un número inventado.
-  it 'leaves out what the model cannot answer', :aggregate_failures do
+  # Sin entregas con plazo que medir, el KPI es `nil` y no un 0 % que se leería
+  # como que todas llegaron tarde. Sin demoras, las anomalías son cero.
+  it 'answers no rate and no anomalies for a company without promised deliveries', :aggregate_failures do
     expect(overview[:kpis][:on_time_delivery_rate]).to be_nil
-    expect(overview[:kpis][:active_anomalies]).to be_nil
+    expect(overview[:kpis][:active_anomalies]).to eq(count: 0, critical: false)
+    expect(overview[:anomalies]).to eq([])
+  end
+
+  # Las entregas de la ventana que tenían fecha comprometida: cuántas llegaron
+  # a tiempo, contra las de la ventana anterior.
+  describe 'the on time delivery rate' do
+    def promised_delivery(promised:, delivered:)
+      shipment = Shipment.create!(company: company, order: order(at: delivered - 3.days, amount: 10),
+                                  status: 'delivered', promised_delivery_on: promised)
+      ShipmentEvent.create!(shipment: shipment, internal_status: 'delivered',
+                            external_status: 'Entregado', occurred_at: delivered)
+    end
+
+    before do
+      today = now.to_date
+      promised_delivery(promised: today, delivered: now - 1.hour)
+      promised_delivery(promised: today - 3, delivered: now - 2.days)
+      promised_delivery(promised: today - 2, delivered: now - 2.days)
+      promised_delivery(promised: today - 1, delivered: now - 1.day)
+      # La semana anterior: una de dos a tiempo.
+      promised_delivery(promised: today - 9, delivered: now - 9.days)
+      promised_delivery(promised: today - 12, delivered: now - 10.days)
+    end
+
+    # Tres de cuatro en la ventana (75 %), contra la mitad en la anterior.
+    it 'is the share of the deliveries that arrived by the promised day', :aggregate_failures do
+      expect(overview[:kpis][:on_time_delivery_rate]).to eq(value: 75.0, trend: 50.0)
+    end
   end
 
   it 'only sees the orders of the current tenant' do

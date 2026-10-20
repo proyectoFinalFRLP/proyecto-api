@@ -3,10 +3,9 @@
 module Reports
   # Agregados de la pantalla de Reportes (S14) sobre una ventana de tiempo.
   #
-  # Calcula sólo lo que el modelo permite calcular. El diseño tiene además el
-  # cumplimiento de plazo y las anomalías regionales, que no tienen dominio
-  # detrás (no hay fecha comprometida en `shipments`, ni una entidad de
-  # anomalía): esos van como `nil` explícito y no como un número inventado.
+  # El cumplimiento de plazo y las anomalías salen de la fecha comprometida que
+  # el despacho guarda en el envío (Reports::PromisedDeliveries y
+  # Reports::DelayedShipments). Antes de guardarla viajaban como `nil` fijo.
   #
   # Todo pasa por los modelos con `CompanyScoped`, así que el reporte es del
   # tenant del request sin filtrar a mano.
@@ -26,19 +25,21 @@ module Reports
         granularity: @window.granularity,
         kpis: kpis,
         curve: curve,
-        carriers: carriers
+        carriers: carriers,
+        anomalies: delayed_shipments.call
       }
     end
 
     private
 
+    # La cantidad de órdenes no va: la pantalla nunca la mostró, y la curva ya
+    # las cuenta día por día.
     def kpis
       {
-        orders: trended { |range| sales(range).count },
         revenue: trended { |range| sales(range).sum(:total_amount).to_f },
         dispatched_units: trended { |range| dispatched_units(range) },
-        on_time_delivery_rate: nil,
-        active_anomalies: nil
+        on_time_delivery_rate: on_time_delivery_rate,
+        active_anomalies: delayed_shipments.summary
       }
     end
 
@@ -48,9 +49,36 @@ module Reports
     def trended
       current = yield(@window.range)
       previous = yield(@window.previous_range)
-      trend = previous.zero? ? nil : ((current - previous) * 100.0 / previous).round(1)
 
-      { value: current, trend: trend }
+      { value: current, trend: trend(current, previous) }
+    end
+
+    def trend(current, previous)
+      return nil if previous.nil? || previous.zero?
+
+      ((current - previous) * 100.0 / previous).round(1)
+    end
+
+    # Qué porcentaje de las entregas de la ventana llegó a tiempo. Sólo cuentan
+    # las que tenían fecha comprometida: sin plazo no hay nada que cumplir. Sin
+    # ninguna, el KPI entero es `nil` —«sin entregas que medir»—, y no un 0 %
+    # que se leería como que todas llegaron tarde.
+    def on_time_delivery_rate
+      current = on_time_rate(@window.range)
+      return nil if current.nil?
+
+      { value: current, trend: trend(current, on_time_rate(@window.previous_range)) }
+    end
+
+    def on_time_rate(range)
+      deliveries = PromisedDeliveries.call(range: range)
+      return nil if deliveries.empty?
+
+      (deliveries.count(&:on_time?) * 100.0 / deliveries.size).round(1)
+    end
+
+    def delayed_shipments
+      @delayed_shipments ||= DelayedShipments.new(window: @window)
     end
 
     # Las ventas que cuentan: las canceladas no facturaron.
