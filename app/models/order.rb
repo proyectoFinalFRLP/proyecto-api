@@ -82,6 +82,18 @@ class Order < ApplicationRecord
     reference ? "#{label} (#{reference})" : label
   end
 
+  # El id interno que nombra un término de búsqueda, o nil. Una venta cargada a
+  # mano no tiene número del canal y la pantalla la muestra como `#42`, así que
+  # el operador tipea «42» o «#42»: los dos buscadores (órdenes y envíos) la
+  # tienen que encontrar.
+  #
+  # Hasta 18 dígitos: lo que entra en un `bigint` sin desbordar. Un número más
+  # largo no es un id, y bindearlo haría que Postgres corte la consulta.
+  def self.internal_id_in(term)
+    digits = term.to_s.strip.delete_prefix('#')
+    digits.match?(/\A\d{1,18}\z/) ? digits.to_i : nil
+  end
+
   # Lo que suman las líneas. Es el valor que los dos caminos de alta
   # (Orders::CreateOrder y Orders::ProcessWebhookOrder) escriben en
   # total_amount dentro de la misma transacción que crea la orden.

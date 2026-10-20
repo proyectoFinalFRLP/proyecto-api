@@ -97,6 +97,25 @@ RSpec.describe Order, type: :model do
     end
   end
 
+  # El número interno que nombra un término del buscador (TESIS-180 dejó a
+  # las ventas manuales nombradas por su id).
+  describe '.internal_id_in' do
+    it 'reads the number with or without the hash', :aggregate_failures do
+      expect(described_class.internal_id_in('42')).to eq(42)
+      expect(described_class.internal_id_in(' #42 ')).to eq(42)
+    end
+
+    it 'answers nil for anything that is not a number', :aggregate_failures do
+      expect(described_class.internal_id_in('ML-42')).to be_nil
+      expect(described_class.internal_id_in('')).to be_nil
+      expect(described_class.internal_id_in(nil)).to be_nil
+    end
+
+    it 'answers nil for a number that does not fit a bigint' do
+      expect(described_class.internal_id_in('9' * 19)).to be_nil
+    end
+  end
+
   describe '#display_name' do
     it 'names the order with the number the store shows (TESIS-180)' do
       order.assign_attributes(external_order_id: '18948032757993', external_order_number: '#1001')
