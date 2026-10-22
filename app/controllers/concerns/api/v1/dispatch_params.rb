@@ -10,10 +10,9 @@ module Api
     module DispatchParams
       extend ActiveSupport::Concern
 
-      # Tope de los días estimados que acepta el despacho (ver `estimated_days`).
       # Los errores de forma son los de ApplicationController, con su nombre
       # completo: un módulo no ve las constantes de la clase que lo incluye.
-      MAX_ESTIMATED_DAYS = 365
+      MAX_ESTIMATED_DAYS = Shipment::MAX_ESTIMATED_DAYS
 
       private
 
@@ -41,8 +40,7 @@ module Api
       # couriers que cotizan sin plazo, y un despacho sin días queda sin fecha
       # comprometida en vez de con una inventada.
       #
-      # El techo no es un plazo real: es para que un número absurdo sea un 400 y
-      # no una fecha en el año 30.000 que después nadie entiende.
+      # Fuera de 0..Shipment::MAX_ESTIMATED_DAYS es un 400.
       def estimated_days
         raw = dispatch_params[:estimated_days]
         return nil if raw.blank?

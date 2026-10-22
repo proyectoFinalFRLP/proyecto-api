@@ -63,22 +63,31 @@ module Reports
     # las que tenían fecha comprometida: sin plazo no hay nada que cumplir. Sin
     # ninguna, el KPI entero es `nil` —«sin entregas que medir»—, y no un 0 %
     # que se leería como que todas llegaron tarde.
+    #
+    # La variación va en puntos y no relativa como en `trended`: de 50 % a 75 %
+    # son 25 puntos, y un «+50 %» sobre un porcentaje se lee como otra cosa.
     def on_time_delivery_rate
-      current = on_time_rate(@window.range)
+      current = on_time_rate(deliveries)
       return nil if current.nil?
 
-      { value: current, trend: trend(current, on_time_rate(@window.previous_range)) }
+      previous = on_time_rate(PromisedDeliveries.call(range: @window.previous_range))
+      { value: current, trend: previous && (current - previous).round(1) }
     end
 
-    def on_time_rate(range)
-      deliveries = PromisedDeliveries.call(range: range)
+    def on_time_rate(deliveries)
       return nil if deliveries.empty?
 
       (deliveries.count(&:on_time?) * 100.0 / deliveries.size).round(1)
     end
 
+    # Las entregas con plazo de la ventana. Las leen el cumplimiento y las
+    # anomalías resueltas: una sola consulta para las dos.
+    def deliveries
+      @deliveries ||= PromisedDeliveries.call(range: @window.range)
+    end
+
     def delayed_shipments
-      @delayed_shipments ||= DelayedShipments.new(window: @window)
+      @delayed_shipments ||= DelayedShipments.new(window: @window, deliveries: deliveries)
     end
 
     # Las ventas que cuentan: las canceladas no facturaron.

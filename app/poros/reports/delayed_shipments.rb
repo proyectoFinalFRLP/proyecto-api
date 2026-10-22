@@ -25,10 +25,13 @@ module Reports
 
     PRELOAD = [:origin_warehouse, { order: :order_items, company_integration: :service }].freeze
 
-    def initialize(window:)
+    # `deliveries` son las PromisedDeliveries de la ventana, si quien llama ya
+    # las tiene (BuildOverview las usa también para el cumplimiento).
+    def initialize(window:, deliveries: nil)
       super()
       @window = window
       @today = window.to.to_date
+      @deliveries = deliveries
     end
 
     # El KPI «Anomalías activas»: las demoras abiertas hoy, y si alguna ya es
@@ -60,9 +63,9 @@ module Reports
     end
 
     def late_deliveries
-      PromisedDeliveries.call(range: @window.range)
-                        .reject(&:on_time?)
-                        .sort_by { |delivery| [-delivery.delivered_on.jd, delivery.shipment_id] }
+      (@deliveries || PromisedDeliveries.call(range: @window.range))
+        .reject(&:on_time?)
+        .sort_by { |delivery| [-delivery.delivered_on.jd, delivery.shipment_id] }
     end
 
     # `until_day` es hasta cuándo corre la demora: hoy si sigue en camino, el

@@ -103,6 +103,7 @@ RSpec.describe Order, type: :model do
     it 'reads the number with or without the hash', :aggregate_failures do
       expect(described_class.internal_id_in('42')).to eq(42)
       expect(described_class.internal_id_in(' #42 ')).to eq(42)
+      expect(described_class.internal_id_in('# 42')).to eq(42)
     end
 
     it 'answers nil for anything that is not a number', :aggregate_failures do

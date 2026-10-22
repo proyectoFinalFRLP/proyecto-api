@@ -117,9 +117,10 @@ RSpec.describe Reports::BuildOverview do
       promised_delivery(promised: today - 12, delivered: now - 10.days)
     end
 
-    # Tres de cuatro en la ventana (75 %), contra la mitad en la anterior.
+    # Tres de cuatro en la ventana (75 %), contra la mitad en la anterior: la
+    # variación son 25 puntos, no el 50 % relativo.
     it 'is the share of the deliveries that arrived by the promised day', :aggregate_failures do
-      expect(overview[:kpis][:on_time_delivery_rate]).to eq(value: 75.0, trend: 50.0)
+      expect(overview[:kpis][:on_time_delivery_rate]).to eq(value: 75.0, trend: 25.0)
     end
   end
 

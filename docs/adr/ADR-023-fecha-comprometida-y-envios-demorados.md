@@ -60,6 +60,7 @@ Las abiertas son de hoy y no dependen del período elegido. Las resueltas sí, p
 ### Lo que no cambia
 
 - Un envío sin fecha comprometida no está demorado ni cuenta para el cumplimiento: los despachados antes de este cambio y los de un courier que cotiza sin plazo. Si en la ventana no hay ninguna entrega con plazo, el KPI es `nil` («sin entregas que medir») y no un 0 %.
+- El cumplimiento de plazo mide **entregas**: un envío vencido que sigue en camino no baja el porcentaje hasta que se entrega. Mientras tanto lo muestran las anomalías activas. Su variación contra el período anterior va en puntos (de 50 % a 75 % son +25), no relativa como la de facturación y unidades.
 - La curva de Reportes sigue siendo de **ventas** (órdenes creadas y facturación por día). La pantalla la llamaba «Curva de despacho»; el front la renombra.
 - `kpis.orders` se deja de calcular: la pantalla nunca lo mostró.
 

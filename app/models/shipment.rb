@@ -18,6 +18,11 @@ class Shipment < ApplicationRecord
   # lo prueba contra esta regla antes de pedir la etiqueta (TESIS-131).
   MAX_SHIPPING_COST = 100_000_000
 
+  # Tope del plazo en días del que sale la fecha comprometida. No es un plazo
+  # real: es para que un número absurdo no termine en una fecha en el año
+  # 30.000. Lo aplican el despacho (400) y la cotización (el plazo queda vacío).
+  MAX_ESTIMATED_DAYS = 365
+
   # En qué zona se cuenta el día de la fecha comprometida: la de la operación,
   # la misma con la que Reportes corta sus ventanas (Reports::Window). La app
   # corre en UTC, y a las 22 h de Argentina UTC ya está en el día siguiente: un
