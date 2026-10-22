@@ -507,6 +507,27 @@ RSpec.describe 'Warehouses API', type: :request do
           .to eq('Cannot delete warehouse with stock transfers from or to it')
       end
     end
+
+    # El envío recuerda de qué depósito salió. El del despacho lo elige el
+    # operador, así que puede no ser el de las líneas de la orden: ellas no lo
+    # frenan, y sin la restricción el borrado llegaba a la FK y respondía 500.
+    context 'when a shipment was dispatched from it and nothing else references it' do
+      before { create_shipment_dispatched_from_warehouse }
+
+      it 'returns 409 and keeps it', :aggregate_failures do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response).to have_http_status(:conflict)
+        expect(Warehouse.find_by(id: warehouse.id)).to be_present
+      end
+
+      it 'says the shipments are what block it' do
+        delete "/api/v1/warehouses/#{warehouse.id}", headers: headers
+
+        expect(response.parsed_body['error'])
+          .to eq('Cannot delete warehouse with shipments dispatched from it')
+      end
+    end
   end
 
   def create_warehouse_with_stock
@@ -537,5 +558,16 @@ RSpec.describe 'Warehouses API', type: :request do
     origin, destination = as == :origin ? [warehouse, other] : [other, warehouse]
     StockTransfer.create!(company: company, product: product, origin_warehouse: origin,
                           destination_warehouse: destination, quantity: 1, dispatched_at: Time.current)
+  end
+
+  # Un envío despachado desde `warehouse` de una orden cuyas líneas salieron de
+  # otro depósito.
+  def create_shipment_dispatched_from_warehouse
+    other = Warehouse.create!(company: company, name: 'Sucursal', zip_code: '1900', address: 'Calle 2')
+    product = Product.create!(company: company, sku: 'SKU-4', name: 'Despachado')
+    order = Order.create!(company: company, customer_name: 'Cliente')
+    OrderItem.create!(order: order, product: product, warehouse: other, quantity: 1, unit_price: 100)
+    Shipment.create!(company: company, order: order, status: 'in_transit',
+                     tracking_number: 'TRK-1', origin_warehouse: warehouse)
   end
 end

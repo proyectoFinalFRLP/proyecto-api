@@ -35,4 +35,14 @@ class ShipmentListSerializer < ApplicationSerializer
   # Service, no de la integración, así que el controller precarga
   # `company_integration: :service` — sin eso es una query por fila.
   courier_field(:courier, &:company_integration)
+
+  # Mismo motivo que en ShipmentSerializer.
+  field :origin_warehouse do |shipment|
+    warehouse = shipment.origin_warehouse
+    warehouse && { id: warehouse.id, name: warehouse.name }
+  end
+
+  field :promised_delivery_on
+
+  field :delayed, &:delayed?
 end

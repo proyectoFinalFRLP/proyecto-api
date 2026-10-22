@@ -56,11 +56,13 @@ module ContratoDeLaApi
     courier: %w[id service_id name],
     envio: %w[id order_id external_order_id external_order_number status tracking_number
               shipping_label_url external_reference label_available shipping_cost courier events
-              created_at updated_at],
+              origin_warehouse promised_delivery_on delayed created_at updated_at],
     evento: %w[id internal_status external_status description occurred_at created_at],
     meta: %w[page per_page total],
-    reporte: %w[period from to granularity kpis curve carriers],
-    reporte_kpis: %w[orders revenue dispatched_units on_time_delivery_rate active_anomalies],
+    reporte: %w[period from to granularity kpis curve carriers anomalies],
+    reporte_kpis: %w[revenue dispatched_units on_time_delivery_rate active_anomalies],
+    anomalia: %w[shipment_id order_id external_order_id external_order_number courier
+                 origin_warehouse promised_delivery_on days_late units status],
     punto_curva: %w[date orders revenue],
     operador: %w[company_integration_id name dispatched delivered]
   }.freeze
@@ -198,6 +200,14 @@ RSpec.describe 'API contract with the frontend', type: :request do
       get '/api/v1/reports/overview', headers: headers
 
       expect(response.parsed_body['carriers'].first.keys).to match_array(claves[:operador])
+    end
+
+    it 'answers each anomaly of the overview with the agreed keys' do
+      dispatch_with_a_courier.shipment.update!(promised_delivery_on: Date.current - 5)
+
+      get '/api/v1/reports/overview', headers: headers
+
+      expect(response.parsed_body['anomalies'].first.keys).to match_array(claves[:anomalia])
     end
 
     # Era el único que devolvía un array pelado. Un array en la raíz no admite

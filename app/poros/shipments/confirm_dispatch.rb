@@ -37,13 +37,16 @@ module Shipments
 
     # `shipping_cost` es el de la opción que el operador confirmó al cotizar
     # (TESIS-131). Es opcional: un despacho que no lo trae deja el costo como
-    # estaba.
-    def initialize(shipment:, company_integration:, origin_warehouse:, shipping_cost: nil)
+    # estaba. `estimated_days` es el plazo de esa misma opción, y de él sale la
+    # fecha comprometida; sin él el envío queda sin plazo, no con uno inventado.
+    def initialize(shipment:, company_integration:, origin_warehouse:, shipping_cost: nil,
+                   estimated_days: nil)
       super()
       @shipment = shipment
       @integration = company_integration
       @origin = origin_warehouse
       @shipping_cost = shipping_cost
+      @estimated_days = estimated_days
     end
 
     def call
@@ -216,6 +219,8 @@ module Shipments
                           shipping_label_url: parsed[LABEL_KEY],
                           external_reference: parsed[REFERENCE_KEY]&.to_s,
                           status: DISPATCHED_STATUS,
+                          origin_warehouse: @origin,
+                          promised_delivery_on: promised_delivery_on,
                           **confirmed_cost)
         register_event
       end
@@ -236,6 +241,15 @@ module Shipments
     # borrar uno que ya estuviera cargado.
     def confirmed_cost
       @shipping_cost.nil? ? {} : { shipping_cost: @shipping_cost }
+    end
+
+    # El plazo corre desde el despacho y no desde la cotización: el operador
+    # puede cotizar hoy y despachar mañana, y lo que el courier promete es a
+    # partir de que retira el paquete.
+    def promised_delivery_on
+      return nil if @estimated_days.nil?
+
+      Shipment.promise_for(@estimated_days)
     end
 
     # Sin número de seguimiento el despacho no sirve para nada: no se puede

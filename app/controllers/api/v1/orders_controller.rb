@@ -61,6 +61,13 @@ module Api
         customer_zip_code
       ].freeze
 
+      # Los campos de texto por ILIKE, y el número interno por igualdad (ver
+      # Order.internal_id_in): es el que la pantalla muestra en una venta
+      # manual, y por ILIKE «4» traería también la 14, la 40 y la 104. Sin un
+      # número que buscar, `orders.id = NULL` no matchea nada.
+      SEARCH_CONDITION = SEARCH_FIELDS.map { |field| "#{field} ILIKE :pattern" }
+                                      .push('orders.id = :order_id').join(' OR ').freeze
+
       def index
         # La precarga alimenta dos columnas del serializer: `item_count` sale de
         # order_items y `courier` de la cadena envío → integración → servicio.
@@ -199,8 +206,7 @@ module Api
         return orders if term.blank?
 
         pattern = "%#{Order.sanitize_sql_like(term)}%"
-        condition = SEARCH_FIELDS.map { |field| "#{field} ILIKE :pattern" }.join(' OR ')
-        orders.where(condition, pattern: pattern)
+        orders.where(SEARCH_CONDITION, pattern: pattern, order_id: Order.internal_id_in(term))
       end
 
       def order_params

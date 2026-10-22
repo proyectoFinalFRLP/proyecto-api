@@ -82,7 +82,7 @@ module Api
         params.expect(warehouse: %i[name zip_code address city province capacity])
       end
 
-      # Tres cosas bloquean el borrado y el mensaje tiene que decir cuál. Se
+      # Cuatro cosas bloquean el borrado y el mensaje tiene que decir cuál. Se
       # pregunta en el mismo orden en que el modelo las declara, que es el orden
       # en que `restrict_with_error` corta: si hay stock, el motivo es el stock.
       def render_conflict(_exception)
@@ -96,8 +96,13 @@ module Api
       def blocking_reason
         return 'existing stock' if @warehouse.stocks.holding_units.exists?
         return 'order lines taken from it' if @warehouse.order_items.exists?
+        return 'stock transfers from or to it' if transfers?
 
-        'stock transfers from or to it'
+        'shipments dispatched from it'
+      end
+
+      def transfers?
+        @warehouse.outgoing_transfers.exists? || @warehouse.incoming_transfers.exists?
       end
     end
   end
