@@ -161,9 +161,10 @@ module DemoActivity
 
   def seed_sale(context, index, sale)
     days_ago, customer, lines, status, shipping = sale
-    return if Order.exists?(customer_name: customer)
+    existing = Order.find_by(customer_name: customer)
+    return backfill_promise(context, existing, index, days_ago) if existing
 
-    at = ZONE.now.beginning_of_day - days_ago.days + (9 + (index % 9)).hours
+    at = sold_at(index, days_ago)
     order = create_order(context, index, customer, status, at)
     lines.each do |sku, quantity|
       OrderItem.create!(order: order, product: context[:products].fetch(sku),
@@ -187,7 +188,8 @@ module DemoActivity
     shipment = Shipment.create!(
       company: context[:company], order: order, status: shipping.to_s,
       company_integration: context[:couriers][index % context[:couriers].size],
-      tracking_number: format('DEMO-%06d', 100 + index), shipping_cost: 4_500 + (index * 350)
+      tracking_number: format('DEMO-%06d', 100 + index), shipping_cost: 4_500 + (index * 350),
+      **dispatch_data(context, index, at)
     )
     events = [['ready_to_ship', 'Etiqueta generada', 1.day], ['in_transit', 'En camino', 2.days]]
     events << ['delivered', 'Entregado', 4.days] if shipping == :delivered
@@ -195,6 +197,38 @@ module DemoActivity
       ShipmentEvent.create!(shipment: shipment, internal_status: internal,
                             external_status: external, occurred_at: [at + offset, ZONE.now].min)
     end
+  end
+
+  # De dónde salió el paquete y para cuándo se prometió: lo que el despacho
+  # guarda desde que Reportes mide el cumplimiento de plazo y las anomalías.
+  #
+  # Se despacha al día siguiente de la venta y se entrega tres días después,
+  # así que con PROMISED_DAYS llega justo. Una de cada cuatro se prometió con
+  # un día menos: Cumplimiento de plazo da cerca del 75 % y las entregadas
+  # tarde son las anomalías resueltas. De las cuatro en camino, vendidas hace
+  # 8, 6, 5 y 3 días, tres quedan demoradas —4, 3 y 1 días: las dos primeras,
+  # críticas— y la última todavía en plazo.
+  PROMISED_DAYS = 3
+
+  def dispatch_data(context, index, at)
+    days = (index % 4).zero? ? PROMISED_DAYS - 1 : PROMISED_DAYS
+    { origin_warehouse: context[:warehouse],
+      promised_delivery_on: Shipment.promise_for(days, from: at + 1.day) }
+  end
+
+  # Una base sembrada antes de guardar el origen y la fecha comprometida tiene
+  # las ventas pero no esos datos, y `seed_sale` no vuelve a crearlas: sin
+  # esto, Reportes seguiría sin nada que medir.
+  def backfill_promise(context, order, index, days_ago)
+    shipment = order.shipment
+    return if shipment.nil? || shipment.promised_delivery_on.present?
+
+    shipment.update!(dispatch_data(context, index, sold_at(index, days_ago)))
+  end
+
+  # A qué hora del día se vendió cada una: repartidas entre las 9 y las 17.
+  def sold_at(index, days_ago)
+    ZONE.now.beginning_of_day - days_ago.days + (9 + (index % 9)).hours
   end
 
   # Uno agotado y uno pendiente, para que la cola de eventos fallidos tenga qué

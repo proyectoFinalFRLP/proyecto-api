@@ -33,6 +33,19 @@ class ShipmentSerializer < ApplicationSerializer
 
   courier_field(:courier, &:company_integration)
 
+  # De dónde salió el paquete y para cuándo quedó comprometida la entrega. Los
+  # fija el despacho, así que un envío sin despachar —o despachado antes de
+  # guardarlos— los trae en nil. `delayed` es la regla de Shipment#delayed?, la
+  # misma que cuentan las anomalías de Reportes.
+  field :origin_warehouse do |shipment|
+    warehouse = shipment.origin_warehouse
+    warehouse && { id: warehouse.id, name: warehouse.name }
+  end
+
+  field :promised_delivery_on
+
+  field :delayed, &:delayed?
+
   # Bitácora en orden cronológico. El orden se resuelve en memoria y no con un
   # `order` de SQL a propósito: el controller ya precargó los eventos, y pedir
   # el orden a la base sobre la asociación cargada dispararía una query más.

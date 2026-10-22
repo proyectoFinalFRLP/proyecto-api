@@ -29,7 +29,7 @@ Paso 3 del alta
        ├─ POST /api/v1/orders/:id/shipment    abre el envío en `pending`
        └─ POST /api/v1/shipments/:id/dispatch
             { company_integration_id: <dispatch_integration_id>,
-              origin_warehouse_id, shipping_cost }
+              origin_warehouse_id, shipping_cost, estimated_days }
 ```
 
 | Pieza                                   | Rol                                                                                       |
@@ -37,7 +37,7 @@ Paso 3 del alta
 | `Api::V1::DraftQuotesController`        | `POST /api/v1/quotes`: arma el paquete del borrador dentro del tenant y delega            |
 | `Shipments::QuoteShipment`              | Cotiza un paquete (origen, destino y líneas); `.for_order` lo arma desde una orden        |
 | `Service#quote_service`                 | En la plantilla que despacha: la plantilla con la que se cotiza al mismo courier          |
-| `Shipments::ConfirmDispatch`            | Guarda además el `shipping_cost` confirmado, si viene                                     |
+| `Shipments::ConfirmDispatch`            | Guarda además el `shipping_cost` confirmado, si viene (y el plazo, [ADR-023](ADR-023-fecha-comprometida-y-envios-demorados.md)) |
 
 ### Se cotiza el paquete, no la orden
 

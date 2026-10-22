@@ -37,6 +37,13 @@ class Warehouse < ApplicationRecord
   has_many :incoming_transfers, class_name: 'StockTransfer', inverse_of: :destination_warehouse,
                                 foreign_key: :destination_warehouse_id,
                                 dependent: :restrict_with_error
+  # Ni si despachó envíos: el envío recuerda de dónde salió el paquete, y
+  # borrarlo dejaría el detalle de la orden y las anomalías de Reportes sin
+  # depósito. Casi siempre lo frenan antes sus líneas de venta, pero el depósito
+  # del despacho lo elige el operador y puede no ser el de las líneas.
+  has_many :dispatched_shipments, class_name: 'Shipment', inverse_of: :origin_warehouse,
+                                  foreign_key: :origin_warehouse_id,
+                                  dependent: :restrict_with_error
 
   # Lo que entra en la columna `integer` de la base. Declarar más unidades de
   # las que un entero de 4 bytes puede guardar no es una capacidad: es un error

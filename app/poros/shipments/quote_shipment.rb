@@ -124,6 +124,8 @@ module Shipments
     # Una respuesta sin costo no es una opción que el usuario pueda elegir: se
     # descarta como si el operador no hubiera contestado, en vez de ofrecer una
     # tarifa vacía. `estimated_days` sí puede faltar — es informativo.
+    # Un plazo fuera del rango que acepta el despacho viaja vacío: si no, el
+    # front lo reenvía tal cual y el despacho de esa opción termina en 400.
     #
     # El nombre es el del courier (la plantilla que despacha) y no el de su
     # plantilla de cotización: el operador elige «Andreani», no
@@ -138,10 +140,15 @@ module Shipments
         dispatch_integration_id: dispatcher.id,
         provider_name: dispatcher.service.service_name,
         shipping_cost: BigDecimal(cost.to_s),
-        estimated_days: parsed[DAYS_KEY]&.to_i }
+        estimated_days: estimated_days(parsed) }
     rescue ArgumentError
       # El courier contestó algo que no es un número en el campo del costo.
       nil
+    end
+
+    def estimated_days(parsed)
+      days = parsed[DAYS_KEY]&.to_i
+      days if days&.between?(0, Shipment::MAX_ESTIMATED_DAYS)
     end
 
     # Contexto del envío, en las claves internas que las plantillas mapean. El

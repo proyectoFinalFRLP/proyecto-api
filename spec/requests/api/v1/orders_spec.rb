@@ -807,6 +807,38 @@ RSpec.describe 'Orders API', type: :request do
       end
     end
 
+    # Una venta cargada a mano no tiene número del canal: la pantalla la nombra
+    # con su id interno (`#42`), y el operador tipea eso.
+    describe 'search by the internal number' do
+      def ids_for(term)
+        get '/api/v1/orders', params: { search: term }, headers: headers
+        response.parsed_body['data'].pluck('id')
+      end
+
+      it 'finds the order by the number the screen shows, with or without the hash', :aggregate_failures do
+        manual = located_order(zip: '5000')
+
+        expect(ids_for(manual.id.to_s)).to eq([manual.id])
+        expect(ids_for("##{manual.id}")).to eq([manual.id])
+      end
+
+      # Por igualdad y no por ILIKE: «4» no trae la 14, la 40 ni la 104.
+      it 'does not match an id that only contains the number' do
+        manual = located_order(zip: '5000')
+
+        expect(ids_for("#{manual.id}0")).to eq([])
+      end
+
+      # Más dígitos de los que entran en un bigint no son un id: la búsqueda
+      # sigue por los campos de texto en vez de cortar la consulta.
+      it 'answers an empty page for a number too long to be an id', :aggregate_failures do
+        located_order
+
+        expect(ids_for('9' * 25)).to eq([])
+        expect(response).to have_http_status(:ok)
+      end
+    end
+
     describe 'the courier' do
       # Mismo nombre y misma forma que en los dos endpoints de envíos: es el
       # mismo dato, y el front lo modela una sola vez.

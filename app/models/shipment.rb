@@ -18,6 +18,17 @@ class Shipment < ApplicationRecord
   # lo prueba contra esta regla antes de pedir la etiqueta (TESIS-131).
   MAX_SHIPPING_COST = 100_000_000
 
+  # Tope del plazo en días del que sale la fecha comprometida. No es un plazo
+  # real: es para que un número absurdo no termine en una fecha en el año
+  # 30.000. Lo aplican el despacho (400) y la cotización (el plazo queda vacío).
+  MAX_ESTIMATED_DAYS = 365
+
+  # En qué zona se cuenta el día de la fecha comprometida: la de la operación,
+  # la misma con la que Reportes corta sus ventanas (Reports::Window). La app
+  # corre en UTC, y a las 22 h de Argentina UTC ya está en el día siguiente: un
+  # envío comprometido para hoy figuraría demorado tres horas antes de tiempo.
+  PROMISE_ZONE = ActiveSupport::TimeZone['America/Argentina/Buenos_Aires']
+
   belongs_to :company
   # La integración se asigna al inicializar el envío y puede no existir todavía
   # (se completa al confirmar el despacho con un courier).
@@ -27,9 +38,25 @@ class Shipment < ApplicationRecord
   # que entró la orden.
   belongs_to :company_integration, optional: true
   belongs_to :order
+  # De qué depósito salió el paquete. Lo fija el despacho: antes no hay origen,
+  # y los envíos despachados antes de guardarlo no lo tienen.
+  belongs_to :origin_warehouse, class_name: 'Warehouse', optional: true,
+                                inverse_of: :dispatched_shipments
   has_many :shipment_events, dependent: :destroy
 
   scope :in_flight, -> { where(status: IN_FLIGHT_STATUSES).where.not(tracking_number: nil) }
+
+  # Envíos todavía en camino cuya fecha comprometida ya pasó. Es la anomalía de
+  # Reportes y el filtro «demorados» del listado: una sola definición para que
+  # los dos cuenten lo mismo. Sin fecha comprometida un envío no está demorado,
+  # porque nadie le prometió un plazo.
+  scope :delayed, lambda { |today = PROMISE_ZONE.today|
+    where(status: IN_FLIGHT_STATUSES).where(promised_delivery_on: ...today)
+  }
+
+  def self.promise_for(estimated_days, from: Time.current)
+    from.in_time_zone(PROMISE_ZONE).to_date + estimated_days
+  end
 
   validates :status, presence: true, inclusion: { in: STATUSES }
   validates :shipping_cost, numericality: { greater_than_or_equal_to: 0,
@@ -43,11 +70,25 @@ class Shipment < ApplicationRecord
     tracking_number || "Shipment ##{id}"
   end
 
+  # La misma regla que el scope `delayed`, para una fila ya cargada.
+  def delayed?(today = PROMISE_ZONE.today)
+    IN_FLIGHT_STATUSES.include?(status) && promised_delivery_on.present? &&
+      promised_delivery_on < today
+  end
+
   validate :order_belongs_to_company
   validate :company_integration_belongs_to_company
   validate :company_integration_is_a_courier
+  validate :origin_warehouse_belongs_to_company
 
   private
+
+  def origin_warehouse_belongs_to_company
+    return if origin_warehouse.blank? || company_id.blank?
+    return if origin_warehouse.company_id == company_id
+
+    errors.add(:origin_warehouse, 'must belong to the same company')
+  end
 
   # El envío tiene su propio company_id (multi-tenancy): el de la orden debe
   # coincidir, evitando asociar un envío de la empresa A a una orden de la B.
