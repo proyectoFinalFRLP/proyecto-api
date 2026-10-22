@@ -45,4 +45,13 @@ RSpec.describe 'CORS', type: :request do
     expect(allowed_origin).to eq('http://localhost:5173')
     expect(response.headers['Access-Control-Expose-Headers']).to include('ETag')
   end
+
+  # TESIS-188: el front guarda la etiqueta con el nombre que manda la API.
+  it 'exposes the Content-Disposition to the allowed origin', :aggregate_failures do
+    get '/api/v1/tenant-config', params: { slug: 'norte' },
+                                 headers: { 'Origin' => 'http://localhost:5173' }
+
+    expect(allowed_origin).to eq('http://localhost:5173')
+    expect(response.headers['Access-Control-Expose-Headers']).to include('Content-Disposition')
+  end
 end

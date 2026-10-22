@@ -278,6 +278,13 @@ RSpec.describe 'OCA through the generic adapter', type: :request do
         expect(response.headers['Content-Disposition']).to start_with('inline')
       end
 
+      # El front guarda el PDF con este nombre: lo lee del header, que CORS
+      # le expone (TESIS-188).
+      it 'names the file after the tracking number' do
+        expect(response.headers['Content-Disposition'])
+          .to include('filename="etiqueta-1217400000000340668.pdf"')
+      end
+
       it 'decodes the document OCA sends in base64', :aggregate_failures do
         expect(response.body).to start_with('%PDF-1.4')
         expect(response.body.bytesize).to eq(10_059)
