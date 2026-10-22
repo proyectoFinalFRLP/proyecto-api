@@ -9,6 +9,8 @@ module Api
     # resto del avance lo escribe el push de tracking del courier (TESIS-48).
     class ShipmentsController < ApplicationController
       before_action :set_shipment, only: %i[show]
+      # La etiqueta va al courier en cada pedido: tiene su propio tope.
+      include LabelRateLimit
 
       rescue_from Shipments::UnshippableOrderError, with: :render_unprocessable
       rescue_from Shipments::PickupOrderError, with: :render_unprocessable

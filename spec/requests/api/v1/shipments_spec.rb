@@ -581,6 +581,58 @@ RSpec.describe 'Shipments API', type: :request do
       get "/api/v1/shipments/#{with_url.id}", headers: headers
       expect(response.parsed_body['label_available']).to be(true)
     end
+
+    # TESIS-188: el 302 iba a cualquier esquema que el courier (o el panel)
+    # hubiera dejado guardado.
+    %w[javascript:alert(1) data:text/html,hola ftp://l.test/x.pdf etiqueta.pdf
+       https://].each do |url|
+      it "does not redirect to «#{url}», which is not a web link", :aggregate_failures do
+        shipment = dispatched(label_url: url)
+        get "/api/v1/shipments/#{shipment.id}/label", headers: headers
+        expect(response).to have_http_status(:not_found)
+
+        get "/api/v1/shipments/#{shipment.id}", headers: headers
+        expect(response.parsed_body['label_available']).to be(false)
+      end
+    end
+
+    it 'redirects to a plain http link too' do
+      get "/api/v1/shipments/#{dispatched(label_url: 'http://l.test/x.pdf').id}/label",
+          headers: headers
+      expect(response).to redirect_to('http://l.test/x.pdf')
+    end
+
+    # Cada pedido sale al courier con las credenciales de la empresa. Mismo
+    # truco que la cotización del alta: en test la cache es :null_store, así
+    # que el contador usa una de verdad sólo durante cada ejemplo.
+    describe 'rate limit' do
+      let(:counter) { ActiveSupport::Cache::MemoryStore.new }
+      let(:shipment) { dispatched(label_url: 'https://l.test/x.pdf') }
+
+      before do
+        store = Api::V1::ShipmentsController.cache_store
+        allow(store).to receive(:increment) { |*args, **options| counter.increment(*args, **options) }
+        Api::V1::LabelRateLimit::LABELS_PER_WINDOW.times do
+          get "/api/v1/shipments/#{shipment.id}/label", headers: headers
+        end
+      end
+
+      it 'lets the labels of the window through' do
+        expect(response).to have_http_status(:found)
+      end
+
+      it 'answers 429 past the limit', :aggregate_failures do
+        get "/api/v1/shipments/#{shipment.id}/label", headers: headers
+
+        expect(response).to have_http_status(:too_many_requests)
+        expect(response.headers['Retry-After']).to eq('60')
+      end
+
+      it 'does not count the rest of the shipments endpoints' do
+        get "/api/v1/shipments/#{shipment.id}", headers: headers
+        expect(response).to have_http_status(:ok)
+      end
+    end
   end
 
   describe 'POST /api/v1/orders/:order_id/shipment' do
