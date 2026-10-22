@@ -202,6 +202,77 @@ RSpec.describe 'Shipments API', type: :request do
       end
     end
 
+    # `?delayed=true`: a dónde lleva «Ver bitácora» desde las anomalías de
+    # Reportes. En camino y con la fecha comprometida vencida; un envío sin
+    # fecha comprometida no está demorado, porque nadie le prometió un plazo.
+    describe 'the delayed filter' do
+      def promised(customer, status:, on:)
+        shipment_for(customer, status: status).tap { |s| s.update!(promised_delivery_on: on) }
+      end
+
+      before do
+        today = Shipment::PROMISE_ZONE.today
+        promised('Atrasado', status: 'in_transit', on: today - 2)
+        promised('Por despachar', status: 'ready_to_ship', on: today - 1)
+        promised('A tiempo', status: 'in_transit', on: today)
+        promised('Entregado tarde', status: 'delivered', on: today - 5)
+        shipment_for('Sin plazo', status: 'in_transit')
+      end
+
+      def customers_for(params)
+        get '/api/v1/shipments', params: params, headers: headers
+        response.parsed_body['data'].map { |row| Shipment.find(row['id']).order.customer_name }
+      end
+
+      it 'lists only the shipments on their way past the promised date' do
+        expect(customers_for(delayed: 'true')).to contain_exactly('Atrasado', 'Por despachar')
+      end
+
+      it 'says which rows are delayed on every row of the listing', :aggregate_failures do
+        get '/api/v1/shipments', headers: headers
+
+        delayed = response.parsed_body['data'].to_h { |row| [row['id'], row['delayed']] }
+        expect(delayed.values.count(true)).to eq(2)
+        expect(delayed.size).to eq(5)
+      end
+
+      it 'combines with the status filter' do
+        expect(customers_for(delayed: 'true', status: 'in_transit')).to eq(['Atrasado'])
+      end
+
+      it 'does not filter for any other value' do
+        expect(customers_for(delayed: 'yes').size).to eq(5)
+      end
+
+      it 'is respected by the tab counters' do
+        get '/api/v1/shipments/counts', params: { delayed: 'true' }, headers: headers
+
+        expect(response.parsed_body['data']).to include('all' => 2, 'in_transit' => 1,
+                                                        'ready_to_ship' => 1, 'delivered' => 0)
+      end
+    end
+
+    # La venta cargada a mano no tiene número del canal y la pantalla la
+    # muestra con su id interno (`#42`): el operador tipea eso.
+    describe 'search by the internal number of the order' do
+      let!(:manual) { shipment_for('Manual') }
+
+      def found_for(term)
+        get '/api/v1/shipments', params: { search: term }, headers: headers
+        response.parsed_body['data'].pluck('order_id')
+      end
+
+      it 'finds it by the number, with or without the hash', :aggregate_failures do
+        expect(found_for(manual.order_id.to_s)).to eq([manual.order_id])
+        expect(found_for("##{manual.order_id}")).to eq([manual.order_id])
+      end
+
+      # Por igualdad: buscar «4» no tiene por qué traer la 14 ni la 40.
+      it 'does not match a number that only contains it' do
+        expect(found_for("9#{manual.order_id}")).to eq([])
+      end
+    end
+
     # El buscador del listado (TESIS-164): los dos códigos que el operador tiene
     # en la mano cuando lo llaman a preguntar por un paquete.
     describe 'search' do
@@ -460,6 +531,24 @@ RSpec.describe 'Shipments API', type: :request do
       expect(response.parsed_body).to include('id' => shipment.id, 'tracking_number' => 'AND-1',
                                               'order_id' => shipment.order_id)
       expect(response.parsed_body['courier']).to include('name' => 'Andreani')
+    end
+
+    # Los fija el despacho: un envío que no los tiene los trae en null.
+    it 'returns where it left from and when it was promised', :aggregate_failures do
+      origin = Warehouse.create!(company: company, name: 'Central', zip_code: '1900', address: 'Calle 1')
+      shipment.update!(origin_warehouse: origin, promised_delivery_on: Date.new(2026, 10, 21))
+
+      get "/api/v1/shipments/#{shipment.id}", headers: headers
+
+      expect(response.parsed_body).to include('origin_warehouse' => { 'id' => origin.id, 'name' => 'Central' },
+                                              'promised_delivery_on' => '2026-10-21')
+    end
+
+    it 'returns no origin nor promise for a shipment dispatched before keeping them' do
+      get "/api/v1/shipments/#{shipment.id}", headers: headers
+
+      expect(response.parsed_body).to include('origin_warehouse' => nil, 'promised_delivery_on' => nil,
+                                              'delayed' => false)
     end
 
     context 'with a tracking log' do

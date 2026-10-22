@@ -214,6 +214,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_021152) do
     t.datetime "created_at", null: false
     t.string "external_reference"
     t.bigint "order_id", null: false
+    t.bigint "origin_warehouse_id"
+    t.date "promised_delivery_on"
     t.decimal "shipping_cost", precision: 10, scale: 2
     t.string "shipping_label_url"
     t.string "status", default: "pending", null: false
@@ -222,6 +224,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_021152) do
     t.index ["company_id"], name: "index_shipments_on_company_id"
     t.index ["company_integration_id"], name: "index_shipments_on_company_integration_id"
     t.index ["order_id"], name: "index_shipments_on_order_id", unique: true
+    t.index ["origin_warehouse_id"], name: "index_shipments_on_origin_warehouse_id"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying, 'returned'::character varying, 'cancelled'::character varying]::text[])", name: "shipments_status_check"
   end
 
@@ -320,6 +323,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_021152) do
   add_foreign_key "shipments", "companies", on_delete: :cascade
   add_foreign_key "shipments", "company_integrations", on_delete: :nullify
   add_foreign_key "shipments", "orders", on_delete: :cascade
+  add_foreign_key "shipments", "warehouses", column: "origin_warehouse_id", on_delete: :restrict
   add_foreign_key "stock_transfers", "companies", on_delete: :cascade
   add_foreign_key "stock_transfers", "products", on_delete: :restrict
   add_foreign_key "stock_transfers", "warehouses", column: "destination_warehouse_id", on_delete: :restrict

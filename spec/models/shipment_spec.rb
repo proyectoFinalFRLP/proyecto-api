@@ -159,6 +159,73 @@ RSpec.describe Shipment, type: :model do
     end
   end
 
+  it 'rejects an origin warehouse from another company', :aggregate_failures do
+    shipment.origin_warehouse = Warehouse.create!(company: other_company, name: 'Ajeno',
+                                                  zip_code: '2000', address: 'Otra')
+    expect(shipment).not_to be_valid
+    expect(shipment.errors[:origin_warehouse]).to include('must belong to the same company')
+  end
+
+  # La anomalía de Reportes y el filtro «demorados» del listado: en camino y con
+  # la fecha comprometida vencida.
+  describe '.delayed and #delayed?' do
+    # Método y no `let`: el archivo ya tiene cinco helpers memoizados.
+    def today = Date.new(2026, 10, 20)
+
+    def promised(status, on, customer: "Cliente #{status} #{on}")
+      described_class.create!(company: company, status: status, promised_delivery_on: on,
+                              order: Order.create!(company: company, customer_name: customer))
+    end
+
+    context 'with shipments in every situation' do
+      before do
+        promised('ready_to_ship', today - 1, customer: 'Tarde')
+        promised('in_transit', today - 3, customer: 'Tarde')
+        promised('in_transit', today)
+        promised('delivered', today - 3)
+        promised('returned', today - 3)
+        promised('cancelled', today - 3)
+        promised('pending', today - 3)
+        promised('in_transit', nil)
+      end
+
+      def late = described_class.joins(:order).where(orders: { customer_name: 'Tarde' })
+
+      it 'takes the shipments on their way whose promised date already passed' do
+        expect(described_class.delayed(today)).to match_array(late)
+      end
+
+      it 'says the same of each of them' do
+        expect(late.map { |one| one.delayed?(today) }).to all(be(true))
+      end
+    end
+
+    # El día del vencimiento todavía está en plazo.
+    it 'is not delayed on the promised day itself' do
+      expect(promised('in_transit', today).delayed?(today)).to be(false)
+    end
+
+    it 'is not delayed without a promised date' do
+      expect(promised('in_transit', nil).delayed?(today)).to be(false)
+    end
+
+    # Devuelto o anulado ya terminó: no va a llegar, así que no está demorado.
+    it 'is not delayed once it ended returned or cancelled' do
+      ended = %w[returned cancelled].map { |status| promised(status, today - 3) }
+      expect(ended.map { |one| one.delayed?(today) }).to all(be(false))
+    end
+  end
+
+  describe '.promise_for' do
+    # A las 23 h de Argentina UTC ya está en el día siguiente: el plazo corre
+    # desde el día de la operación, no desde el de UTC.
+    it 'counts the days from the day of the operation in Argentina' do
+      at = Time.zone.parse('2026-10-20 02:00:00 UTC')
+
+      expect(described_class.promise_for(3, from: at)).to eq(Date.new(2026, 10, 22))
+    end
+  end
+
   it 'is queryable within a tenant context' do
     Current.company_id = company.id
     expect { described_class.count }.not_to raise_error

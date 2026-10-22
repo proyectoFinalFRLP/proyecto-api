@@ -25,6 +25,7 @@ module Api
 
       include Paginatable
       include Sortable
+      include DispatchParams
 
       # Cuánto del cuerpo del courier se propaga en el mensaje de error.
       COURIER_ERROR_LIMIT = 300
@@ -42,10 +43,16 @@ module Api
       # seguimiento y cómo el canal nombra la venta, por su id o por el número
       # que muestra la tienda (TESIS-180). Son los códigos que el operador tiene
       # en la mano cuando lo llaman a preguntar por un paquete.
+      #
+      # Y por el número interno de la orden: es el que la pantalla muestra
+      # (`#42`) cuando la venta se cargó a mano y el canal no le dio ninguno. Va
+      # por igualdad y no por ILIKE: buscar «4» no tiene por qué traer la 14, la
+      # 40 y la 104. Sin un número que buscar, `orders.id = NULL` no matchea nada.
       SEARCH_CONDITION = <<~SQL.squish
         shipments.tracking_number ILIKE :pattern
         OR orders.external_order_id ILIKE :pattern
         OR orders.external_order_number ILIKE :pattern
+        OR orders.id = :order_id
       SQL
 
       # La plantilla y sus hijas: `label_available` pregunta si el courier tiene
@@ -71,12 +78,14 @@ module Api
         # La precarga es load-bearing: ShipmentListSerializer lee el nombre del
         # courier a través de la plantilla del Service, y sin ella son dos
         # queries por fila (company_integrations + services). La orden, por el
-        # número del canal que muestra cada fila (TESIS-181).
+        # número del canal que muestra cada fila (TESIS-181), y el depósito de
+        # origen, por su nombre.
         #
         # El total lo cuenta el concern sobre el scope filtrado, no sobre el
         # total de la empresa: de acá sale el KPI de envíos activos (TESIS-53).
         shipments, meta = paginate(
-          sort_listing(filtered_shipments.preload(:order, company_integration: LISTING_PRELOAD),
+          sort_listing(filtered_shipments.preload(:order, :origin_warehouse,
+                                                  company_integration: LISTING_PRELOAD),
                        SORTS, default: { created_at: :desc, id: :desc })
         )
 
@@ -124,7 +133,8 @@ module Api
 
         dispatched = Shipments::ConfirmDispatch.new(
           shipment: shipment, company_integration: courier_integration,
-          origin_warehouse: origin_warehouse, shipping_cost: shipping_cost
+          origin_warehouse: origin_warehouse, shipping_cost: shipping_cost,
+          estimated_days: estimated_days
         ).call
 
         render json: ShipmentSerializer.render(dispatched), status: :ok
@@ -168,7 +178,15 @@ module Api
         shipments = policy_scope(Shipment)
         shipments = shipments.where(status: status) if status.present?
         shipments = shipments.where(order_id: order_id) if order_id.present?
+        shipments = shipments.delayed if delayed_only?
         apply_search(shipments)
+      end
+
+      # `?delayed=true`: sólo los envíos en camino con la fecha comprometida
+      # vencida. Es a dónde lleva «Ver bitácora» desde las anomalías de
+      # Reportes, que cuentan con el mismo scope. Cualquier otro valor no filtra.
+      def delayed_only?
+        scalar_param(:delayed) == 'true'
       end
 
       # Cuántas filas matchean cada pestaña, en una sola consulta: un
@@ -213,56 +231,18 @@ module Api
         return shipments if term.blank?
 
         pattern = "%#{Shipment.sanitize_sql_like(term)}%"
-        shipments.left_outer_joins(:order).where(SEARCH_CONDITION, pattern: pattern)
+        shipments.left_outer_joins(:order)
+                 .where(SEARCH_CONDITION, pattern: pattern, order_id: Order.internal_id_in(term))
       end
 
       # find y no find_by dentro del scope del tenant: el default_scope de
       # CompanyScoped ya acota, así que un id de otra empresa levanta
       # RecordNotFound -> 404, que es lo que corresponde (no revelar que existe).
       def set_shipment
-        @shipment = Shipment.includes(:order, :shipment_events,
+        @shipment = Shipment.includes(:order, :shipment_events, :origin_warehouse,
                                       company_integration: { service: :operation_services })
                             .find(params.expect(:id))
         authorize @shipment
-      end
-
-      # find y no find_by: las dos son CompanyScoped, así que un id de otra
-      # empresa levanta RecordNotFound -> 404 en vez de revelar que existe.
-      def courier_integration
-        CompanyIntegration.includes(:service).find(required_param(:company_integration_id))
-      end
-
-      # El depósito de origen viaja en el request por el mismo motivo que en la
-      # cotización (TESIS-46): `shipments` no guarda origen y los ítems de una
-      # orden pueden estar en varios depósitos, así que deducirlo sería inventarlo.
-      def origin_warehouse
-        Warehouse.find(required_param(:origin_warehouse_id))
-      end
-
-      def dispatch_params
-        params.expect(dispatch: %i[company_integration_id origin_warehouse_id shipping_cost])
-      end
-
-      # El costo de la opción que el operador confirmó al cotizar (TESIS-131).
-      # Opcional: sin él, el despacho funciona como antes. Acá sólo se lee como
-      # número; el rango lo valida ConfirmDispatch contra el modelo, antes de
-      # llamar al courier, para que la regla viva en un solo lugar.
-      def shipping_cost
-        raw = dispatch_params[:shipping_cost]
-        return nil if raw.blank?
-
-        BigDecimal(raw.to_s, exception: false) ||
-          raise(MalformedParameterError, 'shipping_cost must be a number')
-      end
-
-      # `expect` cubre la clave ausente, no el valor vacío: sin esto un id en
-      # blanco llegaba a `find('')` y salía como 404, diciéndole al cliente que el
-      # recurso no existe cuando lo que falta es el parámetro.
-      def required_param(name)
-        value = dispatch_params[name]
-        raise ActionController::ParameterMissing, name if value.blank?
-
-        value
       end
 
       def render_label_unavailable(exception)

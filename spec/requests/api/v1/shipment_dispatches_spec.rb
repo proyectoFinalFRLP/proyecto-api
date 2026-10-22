@@ -130,6 +130,47 @@ RSpec.describe 'Shipment dispatch API', type: :request do
     end
   end
 
+  # De dónde sale el paquete y para cuándo se comprometió la entrega. Sin
+  # guardarlos, el detalle de la orden mostraba «Depósito de origen» vacío y
+  # Reportes no podía medir el cumplimiento de plazo.
+  describe 'the origin and the promised delivery date' do
+    include ActiveSupport::Testing::TimeHelpers
+
+    before { stub_courier }
+
+    it 'keeps the warehouse it was dispatched from', :aggregate_failures do
+      dispatch_shipment
+
+      expect(response.parsed_body['origin_warehouse']).to eq('id' => warehouse.id, 'name' => 'Central')
+      expect(shipment.reload.origin_warehouse).to eq(warehouse)
+    end
+
+    # 23 h de Argentina: en UTC ya es el día siguiente, y el plazo corre desde
+    # el día del despacho en la operación.
+    it 'promises the delivery the estimated days after the dispatch, in Argentina', :aggregate_failures do
+      travel_to(Time.zone.parse('2026-10-19 02:00:00 UTC')) { dispatch_shipment(estimated_days: 3) }
+
+      expect(response.parsed_body['promised_delivery_on']).to eq('2026-10-21')
+      expect(response.parsed_body['delayed']).to be(false)
+    end
+
+    it 'leaves the promise empty when the chosen option had no estimated days' do
+      dispatch_shipment
+
+      expect(shipment.reload.promised_delivery_on).to be_nil
+    end
+
+    { 'negative' => -1, 'not a whole number' => 2.5, 'not a number' => 'pronto',
+      'beyond a year' => 366 }.each do |label, days|
+      it "answers 400 for estimated days that are #{label}, without asking the courier", :aggregate_failures do
+        dispatch_shipment(estimated_days: days)
+
+        expect(response).to have_http_status(:bad_request)
+        expect(WebMock).not_to have_requested(:post, 'https://andreani.test/ordenes')
+      end
+    end
+  end
+
   # Criterio de la card: no se puede despachar dos veces el mismo paquete.
   it 'returns 409 when the shipment was already dispatched' do
     stub_courier
