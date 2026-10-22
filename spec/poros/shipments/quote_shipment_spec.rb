@@ -195,6 +195,21 @@ RSpec.describe Shipments::QuoteShipment, type: :poro do
     end
   end
 
+  # Un plazo que el despacho rechazaría (fuera de 0..365) viaja vacío: si no,
+  # el front lo reenvía y esa opción no se puede despachar.
+  context 'when a courier quotes a delivery time out of range' do
+    before do
+      integrate(quoting_service('Fast', 'https://fast.test/rates'))
+      stub_request(:post, 'https://fast.test/rates')
+        .to_return(status: 200, body: { precio: 2500.0, dias: 400 }.to_json)
+    end
+
+    it 'keeps the option without the estimate', :aggregate_failures do
+      expect(quotes.length).to eq(1)
+      expect(quotes.first[:estimated_days]).to be_nil
+    end
+  end
+
   # Un costo que no es un número: el courier contestó 'gratis', o un texto de
   # error en el campo del precio. La opción se descarta en vez de tumbar la
   # cotización entera, que es lo mismo que se hace cuando no manda precio.
