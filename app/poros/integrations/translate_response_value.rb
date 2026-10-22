@@ -13,6 +13,12 @@ module Integrations
   #    coinciden, gana la más larga (`Estado de Visita ONLINE (Entregado)*`
   #    antes que `Estado de Visita ONLINE*`).
   #
+  #    El prefijo es una palabra entera: lo que sigue tiene que ser el fin del
+  #    texto o algo que no sea una letra (un espacio, un guion, un paréntesis).
+  #    Sin esto `Visita*` tomaba también «Visitante…», un estado que no tiene
+  #    nada que ver (TESIS-188). Si el prefijo ya termina en algo que no es
+  #    una letra (`Estado (`), no hay palabra que cortar y sigue cualquier cosa.
+  #
   # Es lo que necesita un courier que informa el estado con un texto libre que
   # arranca igual y sigue con un detalle (OCA: `En proceso de Retiro - Suc: ...`),
   # sin una entrada en el mapper por cada sucursal.
@@ -55,9 +61,18 @@ module Integrations
       @mapper.keys
              .select { |key| key.end_with?(PREFIX_MARK) }
              .map { |key| [key, self.class.normalize(key.delete_suffix(PREFIX_MARK))] }
-             .select { |_key, prefix| prefix.present? && normalized.start_with?(prefix) }
+             .select { |_key, prefix| prefix.present? && word_prefix?(prefix) }
              .max_by { |_key, prefix| prefix.length }
              &.first
     end
+
+    def word_prefix?(prefix)
+      return false unless normalized.start_with?(prefix)
+
+      following = normalized[prefix.length]
+      following.nil? || !letter?(prefix[-1]) || !letter?(following)
+    end
+
+    def letter?(char) = char.match?(/\p{L}/)
   end
 end
