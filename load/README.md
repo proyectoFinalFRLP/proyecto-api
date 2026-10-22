@@ -135,11 +135,19 @@ rm load/fixtures.json
 ## Workers y webhooks
 
 Los webhooks se **aceptan** en el request (firma → `WebhookLog` → job encolado → 202) y se
-**procesan** después en Solid Queue. `webhooks.js` mide la aceptación. Los workers no arrancan en
-Windows (`bin/jobs` y `SOLID_QUEUE_IN_PUMA` usan `fork`, ver `architecture.md` §8.3), así que en
-Windows la cola sólo crece; en Linux o en Docker se pueden levantar con `SOLID_QUEUE_IN_PUMA=1`
-y medir el drenaje mirando cuánto tardan en desaparecer los `pending` de `webhook_logs`. El
-informe trae una medición del costo de procesamiento corriendo el job en línea.
+**procesan** después en Solid Queue. `webhooks.js` mide la aceptación. En Windows ni `bin/jobs`
+ni `SOLID_QUEUE_IN_PUMA` arrancan (`architecture.md` §8.3), así que durante la corrida la cola
+sólo crece. Para medir el drenaje después, con las mismas variables de entorno de la base:
+
+```bash
+QUEUES=realtime bundle exec rails runner bin/worker_windows.rb
+```
+
+y mirar cuánto tardan en desaparecer los `pending` de `webhook_logs`. `QUEUES=realtime` deja
+afuera la cola `low`, donde están los `SyncStockToChannelsJob` que encolan las órdenes: con los
+productos vinculados a Shopify, correrlos intentaría pegarle a la tienda de verdad. En Linux o
+Docker, `SOLID_QUEUE_IN_PUMA=1` mide API y workers juntos, como en el despliegue (pero con la
+misma salvedad sobre la cola `low`).
 
 ## Contra el entorno desplegado
 
