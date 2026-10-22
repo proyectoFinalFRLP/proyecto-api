@@ -51,7 +51,19 @@ module Avo
                                                      help: (STORED_HELP if stored)
       end
 
+      # Si «Probar conexión» trajo las opciones del setting (las ubicaciones de
+      # una tienda de Shopify), se elige de una lista en vez de pegar un id.
       def setting_field(spec)
+        key = spec['key']
+        options = record.settings.dig(::Integrations::TestConnection::OPTIONS_KEY, key)
+        return text_setting_field(spec) if options.blank?
+
+        field :"#{SETTING_PREFIX}#{key}", as: :select, name: spec['label'], options: options,
+                                          include_blank: true, default: record.settings[key],
+                                          help: 'Options returned by the last connection test.'
+      end
+
+      def text_setting_field(spec)
         field :"#{SETTING_PREFIX}#{spec['key']}", as: :text, name: spec['label'],
                                                   default: record.settings[spec['key']]
       end
@@ -71,16 +83,30 @@ module Avo
               .transform_keys { |key| key.delete_prefix(prefix) }
       end
 
+      # Un test que falla, o que pasa pero no deja lo que hace falta para
+      # publicar el stock (la ubicación de Shopify), es un error y no un aviso:
+      # «Connection saved» con un warning dejaba la integración sin poder
+      # publicar y nadie lo notaba (TESIS-177). Los datos quedan guardados
+      # igual, para corregir sólo lo que falta.
       def report_test(integration)
-        return succeed('Connection saved.') unless integration.service.connection_testable?
+        return report_ready(integration, 'Connection saved.') unless
+          integration.service.connection_testable?
 
         result = ::Integrations::TestConnection.new(company_integration: integration).call
-        if result[:ok]
-          succeed("Connection saved. #{result[:message]}.")
-          report_webhook(integration)
-        else
-          warn("Connection saved, but the test failed: #{result[:message]}")
+        unless result[:ok]
+          return error("Connection saved, but NOT ready: the test failed: #{result[:message]}")
         end
+
+        # Las ventas entrantes no dependen de la ubicación: el webhook se
+        # registra aunque falte elegirla.
+        report_ready(integration.reload, "Connection saved. #{result[:message]}.")
+        report_webhook(integration)
+      end
+
+      def report_ready(integration, message)
+        problem = ::Catalog::StockPublishRequirements.new(integration.service)
+                                                     .setting_problem(integration.settings)
+        problem ? error("#{message} But it is NOT ready: #{problem}.") : succeed(message)
       end
 
       # Con la cuenta probada, se suscribe a los eventos del proveedor si la

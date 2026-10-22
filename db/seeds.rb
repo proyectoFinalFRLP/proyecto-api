@@ -389,6 +389,10 @@ services = [
     setting_fields: [
       { 'key' => 'shop_domain', 'label' => 'Dominio de la tienda', 'required' => true,
         'format' => '\A[a-z0-9][a-z0-9-]*\.myshopify\.com\z' },
+      # No es `required` en el formulario porque se completa con «Probar
+      # conexión», que corre después de guardar. Para publicar el stock sí hace
+      # falta: la plantilla la lee (`settings.location_id`) y el sync no sale
+      # sin ella (Catalog::StockPublishRequirements, TESIS-177).
       { 'key' => 'location_id', 'label' => 'Ubicación de stock', 'required' => false }
     ],
     request_mapper: {
@@ -449,8 +453,11 @@ services = [
                       'secret_key' => 'client_secret' }
   },
   # «Probar conexión» de Shopify: plantilla hija, se ejecuta con la cuenta de la
-  # madre. Trae el nombre de la tienda y la primera ubicación, que completa el
-  # setting `location_id` si la empresa no lo cargó.
+  # madre. Trae el nombre de la tienda y sus ubicaciones. Si hay una sola,
+  # completa el setting `location_id` si la empresa no lo cargó; si hay varias,
+  # las deja como opciones y el administrador elige en «Configure connection»
+  # (TESIS-177: tomar la primera podía publicar el stock en una ubicación que
+  # nadie mira). Sin ubicación, el sync saliente no publica.
   {
     service_name: 'Shopify - Conexión',
     parent_service_name: 'Shopify',
@@ -459,11 +466,13 @@ services = [
     uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
     http_method: 'POST',
     request_format: 'graphql',
-    body_template: '{ shop { name } locations(first: 5) { nodes { id name } } }',
+    body_template: '{ shop { name } locations(first: 50) { nodes { id name } } }',
     request_mapper: {},
     response_mapper: {
       'data.shop.name' => 'account_name',
-      'data.locations.nodes.0.id' => 'location_id'
+      'data.locations.nodes.0.id' => 'location_id',
+      'data.locations.nodes[].id' => 'location_id',
+      'data.locations.nodes[].name' => 'option_label'
     },
     request_value_mapper: {},
     response_value_mapper: {}
