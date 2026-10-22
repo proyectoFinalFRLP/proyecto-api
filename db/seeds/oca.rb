@@ -60,8 +60,12 @@ module OcaSeeds
       request_mapper: {
         'PesoTotal' => '{{package_weight_kg|required}}',
         'VolumenTotal' => '{{package_volume_m3|required}}',
-        'CodigoPostalOrigen' => 'origin_postal_code',
-        'CodigoPostalDestino' => 'destination_postal_code',
+        # Los 4 dígitos salen del código cargado (Addresses::ShortPostalCode):
+        # si no se pueden leer, `required` corta antes de llamar a OCA, que
+        # con el parámetro vacío contestaba un error y desaparecía de la
+        # cotización sin que se supiera por qué (TESIS-188).
+        'CodigoPostalOrigen' => '{{origin_postal_code|required}}',
+        'CodigoPostalDestino' => '{{destination_postal_code|required}}',
         'CantidadPaquetes' => 'literal:1',
         'ValorDeclarado' => '{{declared_value|default:0}}',
         'Cuit' => 'settings.cuit',
@@ -82,7 +86,9 @@ module OcaSeeds
   # Un solo bulto (el consolidado de TESIS-185) y puerta a puerta: es lo que
   # cubre la operativa de la demo. El bulto va con `required`: sin el peso o las
   # medidas de algún producto el despacho se rechaza con el motivo, en vez de
-  # pedir un retiro de una caja de 1 cm y 0 kg.
+  # pedir un retiro de una caja de 1 cm y 0 kg. Los códigos postales también:
+  # uno que no se puede leer responde 422 diciendo cuál, en vez de mandar el
+  # alta con el `cp` vacío para que OCA la rechace (TESIS-188).
   #
   # El remito lleva el momento del alta además del id del envío: la cuenta de
   # prueba de OCA es una sola para todos, y `OS-1` se repite en cada base que se
@@ -132,7 +138,7 @@ module OcaSeeds
         <origenes>
           <origen calle="{{origin_street|ascii|truncate:30}}"
                   nro="{{origin_street_number|default:S/N|truncate:5}}" piso="" depto=""
-                  cp="{{origin_postal_code}}" localidad="{{origin_city|ascii|truncate:30}}"
+                  cp="{{origin_postal_code|required}}" localidad="{{origin_city|ascii|truncate:30}}"
                   provincia="{{origin_province|ascii|truncate:30}}" contacto=""
                   email="{{settings.email|truncate:100}}" solicitante="" observaciones=""
                   centrocosto="{{settings.centrocosto}}"
@@ -146,7 +152,7 @@ module OcaSeeds
                               nro="{{destination_street_number|default:S/N|truncate:5}}"
                               piso="" depto="" localidad="{{destination_city|ascii|truncate:30}}"
                               provincia="{{destination_province|ascii|truncate:30}}"
-                              cp="{{destination_postal_code}}" telefono="" email="" idci="0"
+                              cp="{{destination_postal_code|required}}" telefono="" email="" idci="0"
                               celular="" observaciones=""/>
                 <paquetes>
                   <paquete alto="{{package_height_cm|required}}"
