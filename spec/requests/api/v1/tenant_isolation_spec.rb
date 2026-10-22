@@ -136,13 +136,21 @@ RSpec.describe 'Tenant isolation and abuse cases', type: :request do
         [%i[get], "/api/v1/shipments/#{other_shipment.id}"],
         [%i[get], "/api/v1/shipments/#{other_shipment.id}/label"],
         [%i[post], "/api/v1/shipments/#{other_shipment.id}/dispatch"],
-        [%i[get post], "/api/v1/products/#{producto}/mappings"],
-        [%i[delete], "/api/v1/products/#{producto}/mappings/#{other_mapping.id}"],
+        *rutas_de_mapeos(producto),
         [%i[post], "/api/v1/failed-events/#{evento}/retry"],
         [%i[post], "/api/v1/failed-events/#{evento}/discard"],
         [%i[post], "/api/v1/stock-transfers/#{transferencia}/receive"],
         [%i[post], "/api/v1/stock-transfers/#{transferencia}/cancel"]
       ].flat_map { |verbos, ruta| verbos.map { |verbo| [verbo, ruta] } }
+    end
+
+    # Los vínculos de un producto con sus canales, y el «Reintentar» de uno
+    # (TESIS-177).
+    def rutas_de_mapeos(producto)
+      mapeo = "/api/v1/products/#{producto}/mappings/#{other_mapping.id}"
+      [[%i[get post], "/api/v1/products/#{producto}/mappings"],
+       [%i[delete], mapeo],
+       [%i[post], "#{mapeo}/resync"]]
     end
 
     it 'answers 404 on every route, never 403', :aggregate_failures do

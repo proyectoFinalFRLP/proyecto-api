@@ -36,7 +36,11 @@ Rails.application.routes.draw do
         # pide una vez y los invalida recién cuando algo muta.
         get :counts, on: :collection
 
-        resources :mappings, only: %i[index create destroy], controller: 'product_mappings'
+        # `resync` vuelve a publicar el stock del producto en ese canal: el
+        # «Reintentar» de la tarjeta «Canales de venta» (TESIS-177).
+        resources :mappings, only: %i[index create destroy], controller: 'product_mappings' do
+          post :resync, on: :member
+        end
       end
 
       resources :stock_transfers, path: 'stock-transfers', only: %i[index create] do

@@ -295,6 +295,23 @@ En el camino A, con `docker exec -e RAILS_ENV=test onestock-api bundle exec rspe
 
 La integración con Shopify funciona contra una tienda de prueba (*dev store*) del Partner Program: publica el stock, vincula productos por SKU y recibe las ventas con firma HMAC. Necesita una app propia en el Dev Dashboard de Shopify y un túnel público (`ngrok http 3000`) para que la tienda alcance el gateway. El paso a paso y las tareas `bin/rails "integrations:shopify:*"` están en `lib/tasks/integrations.rake`. Las decisiones, en [ADR-018](../adr/ADR-018-conexion-con-proveedores-reales.md) y [ADR-019](../adr/ADR-019-ventas-entrantes-de-shopify.md).
 
+**La ubicación de stock es obligatoria para publicar** (TESIS-177). `integrations:shopify:connect` prueba la conexión al terminar y completa `location_id` si la tienda tiene una sola ubicación. Si tiene varias, no elige: hay que elegirla en el backoffice con «Configure connection», que la ofrece en una lista. Sin ubicación, el sync no llama a Shopify: el vínculo guarda el motivo (`last_sync_error`) y `GET /api/v1/integrations` la muestra en `stock_sync.missing_settings`. Para ver el estado:
+
+```bash
+bin/rails "integrations:shopify:test[norte]"     # prueba la conexión y dice si puede publicar el stock
+```
+
+#### Volver a publicar el stock (también en producción)
+
+Después de completar la ubicación, o de cualquier incidente que dejó a Shopify con otro stock que el OMS:
+
+```bash
+bin/rails "integrations:shopify:resync[norte]"   # sólo Shopify
+bin/rails "integrations:resync_stock[norte]"     # todos los canales activos de la empresa
+```
+
+Encolan un job por producto vinculado (necesita los workers corriendo, `SOLID_QUEUE_IN_PUMA=1` en el deploy) y publican el stock vigente. Si a la integración le falta configuración no encolan nada y dicen qué falta; un vínculo sin `inventory_item_id` se saltea y se lista: hay que volver a vincularlo desde «Canales de venta» del producto. En producción se corren dentro del contenedor (`bin/kamal app exec --reuse "bin/rails 'integrations:shopify:resync[<slug>]'"`).
+
 ### OCA e-Pak (entorno de prueba)
 
 **No hace falta configurar nada.** En desarrollo, `db:seed` carga las plantillas de **OCA e-Pak** y deja a Norte conectada con la **cuenta de prueba pública** de OCA (la que publica la propia OCA en developers.oca.com.ar, sólo válida en su entorno de prueba). Con internet, alcanza con levantar la API y la web: el alta manual cotiza con OCA, despacha, imprime la etiqueta y sigue el envío.

@@ -67,8 +67,14 @@ RSpec.describe 'Integrations API', type: :request do
       it 'lists only the status, without the engine or the connection form', :aggregate_failures do
         row = row_for(service)
         expect(row.keys).to match_array(
-          %w[service_id service_name type configured is_active integration_id account_name]
+          %w[service_id service_name type configured is_active integration_id account_name
+             stock_sync]
         )
+      end
+
+      # La plantilla de este servicio no publica stock (no mapea la cantidad).
+      it 'has no stock sync status when the template does not publish stock' do
+        expect(row_for(service)['stock_sync']).to be_nil
       end
     end
 
@@ -95,6 +101,53 @@ RSpec.describe 'Integrations API', type: :request do
       get '/api/v1/integrations', headers: headers
 
       expect(response).to have_http_status(:ok)
+    end
+  end
+
+  # TESIS-177: una integración que no puede publicar el stock, o cuyo último
+  # intento falló, tiene que verse en la pantalla de integraciones.
+  describe 'stock sync status' do
+    def shop
+      @shop ||= Service.create!(
+        service_name: 'Shop', type: 'ecommerce', http_method: 'POST', uri: 'https://shop.test/inventory',
+        setting_fields: [{ 'key' => 'location_id', 'label' => 'Ubicación de stock' }],
+        request_mapper: { 'location' => 'settings.location_id', 'qty' => 'available_quantity' }
+      )
+    end
+
+    def connect_shop(settings)
+      CompanyIntegration.create!(company: company, service: shop, settings: settings,
+                                 credentials: { 'access_token' => 'TOKEN' })
+    end
+
+    def link(integration, sku, error, at)
+      product = Product.create!(company: company, sku: sku, name: sku)
+      ProductMapping.create!(product: product, company_integration: integration,
+                             external_product_id: "EXT-#{sku}", last_sync_error: error, last_synced_at: at)
+    end
+
+    it 'reports the missing setting that keeps it from publishing', :aggregate_failures do
+      connect_shop({})
+      stock_sync = row_for(shop)['stock_sync']
+
+      expect(stock_sync['ready']).to be(false)
+      expect(stock_sync['missing_settings']).to eq([{ 'key' => 'location_id', 'label' => 'Ubicación de stock' }])
+    end
+
+    it 'is ready and has no failures yet when it has everything it needs' do
+      connect_shop('location_id' => 'LOC-1')
+
+      expect(row_for(shop)['stock_sync']).to eq('ready' => true, 'missing_settings' => [], 'failing_products' => 0,
+                                                'last_sync_error' => nil, 'last_synced_at' => nil)
+    end
+
+    it 'reports the products whose last sync failed, with the latest reason', :aggregate_failures do
+      integration = connect_shop('location_id' => 'LOC-1')
+      [['A', 'old failure', 2.hours.ago], ['B', 'Shop responded with HTTP 500', 1.minute.ago],
+       ['C', nil, Time.current]].each { |row| link(integration, *row) }
+
+      expect(row_for(shop)['stock_sync']).to include('failing_products' => 2,
+                                                     'last_sync_error' => 'Shop responded with HTTP 500')
     end
   end
 
