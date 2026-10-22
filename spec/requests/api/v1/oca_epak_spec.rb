@@ -258,7 +258,16 @@ RSpec.describe 'OCA through the generic adapter', type: :request do
       'En Tránsito a Sucursal Destino' => 'in_transit',
       'Visita - Domicilio Cerrado' => 'in_transit',
       'Entregado' => 'delivered',
-      'Estado de Visita ONLINE (Entregado)' => 'delivered'
+      'Estado de Visita ONLINE (Entregado)' => 'delivered',
+      # Una visita fallida no es un final: OCA vuelve a intentar.
+      'No entregado - Domicilio Cerrado' => 'in_transit',
+      # Los finales que no son una entrega (TESIS-188).
+      'Devuelto al Remitente' => 'returned',
+      'Devolución a origen' => 'returned',
+      'Anulado' => 'cancelled',
+      'Anulada por el cliente' => 'cancelled',
+      'Siniestrado' => 'cancelled',
+      'Siniestro - Extravío' => 'cancelled'
     }.each do |estado, status|
       it "registers «#{estado}» as #{status}", :aggregate_failures do
         stub_state(estado)

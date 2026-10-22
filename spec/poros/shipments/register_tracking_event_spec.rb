@@ -141,6 +141,40 @@ RSpec.describe Shipments::RegisterTrackingEvent, type: :poro do
     end
   end
 
+  # TESIS-188: OCA informa «Devuelto al Remitente» o «Anulado» y el envío
+  # termina ahí. Los finales no son pasos sucesivos: ninguno pisa a otro.
+  context 'when the courier reports a final status that is not a delivery' do
+    it 'closes a shipment on the road as returned', :aggregate_failures do
+      event = register(external_status: 'Devuelto al Remitente', internal_status: 'returned')
+
+      expect(event.internal_status).to eq('returned')
+      expect(shipment.reload.status).to eq('returned')
+    end
+
+    it 'closes a shipment that was never picked up as cancelled' do
+      register(external_status: 'Anulado', internal_status: 'cancelled')
+      expect(shipment.reload.status).to eq('cancelled')
+    end
+
+    it 'does not move a returned shipment to another final status', :aggregate_failures do
+      register(external_status: 'Devuelto al Remitente', internal_status: 'returned')
+      event = register(external_status: 'Anulado', internal_status: 'cancelled',
+                       occurred_at: Time.zone.parse('2026-09-21T10:00:00Z'))
+
+      expect(event.internal_status).to eq('returned')
+      expect(shipment.reload.status).to eq('returned')
+    end
+
+    it 'does not turn a delivered shipment into a returned one', :aggregate_failures do
+      register(external_status: 'Entregado', internal_status: 'delivered')
+      event = register(external_status: 'Devuelto al Remitente', internal_status: 'returned',
+                       occurred_at: Time.zone.parse('2026-09-21T10:00:00Z'))
+
+      expect(event.internal_status).to eq('delivered')
+      expect(shipment.reload.status).to eq('delivered')
+    end
+  end
+
   context 'when the courier does not date its movements' do
     before { register(occurred_at: nil) }
 

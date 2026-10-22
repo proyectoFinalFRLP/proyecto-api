@@ -226,10 +226,21 @@ module OcaSeeds
       'Programado para visita*' => 'in_transit',
       'Visita*' => 'in_transit',
       'En Espera de Retiro por Sucursal*' => 'in_transit',
+      # Una visita fallida: OCA vuelve a intentar, el envío sigue en camino.
       'No entregado*' => 'in_transit',
       'Estado de Visita ONLINE*' => 'in_transit',
       'Entregado*' => 'delivered',
-      'Estado de Visita ONLINE (Entregado)*' => 'delivered'
+      'Estado de Visita ONLINE (Entregado)*' => 'delivered',
+      # Los finales que no son una entrega (TESIS-188). Sin ellos el envío
+      # quedaba en curso para siempre y se seguía consultando cada 30 minutos.
+      # El siniestro (robo, rotura, extravío) es `cancelled`: el paquete no
+      # llega ni vuelve, y el dominio no distingue «perdido» de «anulado».
+      'Devuelto*' => 'returned',
+      'Devolución*' => 'returned',
+      'Anulado*' => 'cancelled',
+      'Anulada*' => 'cancelled',
+      'Siniestrado*' => 'cancelled',
+      'Siniestro*' => 'cancelled'
     }
   end
 

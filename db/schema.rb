@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_19_150557) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_22_021152) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -205,7 +205,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_150557) do
     t.datetime "updated_at", null: false
     t.index ["shipment_id", "external_status", "occurred_at"], name: "index_shipment_events_on_shipment_and_event", unique: true
     t.index ["shipment_id"], name: "index_shipment_events_on_shipment_id"
-    t.check_constraint "internal_status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipment_events_internal_status_check"
+    t.check_constraint "internal_status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying, 'returned'::character varying, 'cancelled'::character varying]::text[])", name: "shipment_events_internal_status_check"
   end
 
   create_table "shipments", force: :cascade do |t|
@@ -222,7 +222,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_150557) do
     t.index ["company_id"], name: "index_shipments_on_company_id"
     t.index ["company_integration_id"], name: "index_shipments_on_company_integration_id"
     t.index ["order_id"], name: "index_shipments_on_order_id", unique: true
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying]::text[])", name: "shipments_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'ready_to_ship'::character varying, 'in_transit'::character varying, 'delivered'::character varying, 'returned'::character varying, 'cancelled'::character varying]::text[])", name: "shipments_status_check"
   end
 
   create_table "stock_transfers", force: :cascade do |t|

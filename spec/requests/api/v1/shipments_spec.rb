@@ -337,10 +337,13 @@ RSpec.describe 'Shipments API', type: :request do
       shipment_for('Lista', status: 'ready_to_ship')
       shipment_for('En viaje', status: 'in_transit')
       shipment_for('Entregada', status: 'delivered')
+      shipment_for('Devuelta', status: 'returned')
+      shipment_for('Anulada', status: 'cancelled')
     end
 
     let(:uno_por_pestania) do
-      { 'all' => 4, 'pending' => 1, 'ready_to_ship' => 1, 'in_transit' => 1, 'delivered' => 1 }
+      { 'all' => 6, 'pending' => 1, 'ready_to_ship' => 1, 'in_transit' => 1, 'delivered' => 1,
+        'returned' => 1, 'cancelled' => 1 }
     end
 
     it 'returns 401 without a token' do
@@ -367,7 +370,7 @@ RSpec.describe 'Shipments API', type: :request do
 
       expect(response.parsed_body['data'])
         .to eq('all' => 1, 'pending' => 1, 'ready_to_ship' => 0,
-               'in_transit' => 0, 'delivered' => 0)
+               'in_transit' => 0, 'delivered' => 0, 'returned' => 0, 'cancelled' => 0)
     end
 
     # Si los contadores ignoraran el buscador, el número de la pestaña y las
