@@ -46,6 +46,23 @@ RSpec.describe Integrations::RenderTemplate, type: :poro do
       expect(render('{{name|ascii}}').last).to eq('Munoz Perez')
     end
 
+    # TESIS-188: antes se borraban, y `Piso 1°` llegaba como `Piso 1`.
+    {
+      'Piso 1º B' => 'Piso 1o B', 'Piso 1° B' => 'Piso 1o B', '1ª' => '1a',
+      'Lote ½' => 'Lote 1/2', 'Lote 3½' => 'Lote 3 1/2', 'Ruta 2 – km 40' => 'Ruta 2 - km 40',
+      '«El Ombú»' => '"El Ombu"', 'O’Higgins' => "O'Higgins", 'm²' => 'm2'
+    }.each do |text, expected|
+      it "transliterates #{text} with ascii instead of dropping its symbols" do
+        values['name'] = text
+        expect(render('{{name|ascii}}').last).to eq(expected)
+      end
+    end
+
+    it 'drops what has no ASCII form' do
+      values['name'] = 'Precio € 10 ✓'
+      expect(render('{{name|ascii}}').last).to eq('Precio  10 ')
+    end
+
     it 'chains filters in the order they are written' do
       expect(render('{{nothing|default:Calle larguísima|truncate:5}}').last).to eq('Calle')
     end
@@ -97,6 +114,22 @@ RSpec.describe Integrations::RenderTemplate, type: :poro do
 
     it 'leaves a raw value as it is' do
       expect(render('{{name|raw}}', escape: :xml).last).to eq('José Pérez & "Hijos"')
+    end
+
+    # XML 1.0 no admite caracteres de control, ni escapados: el documento
+    # entero quedaba ilegible para el proveedor (TESIS-188).
+    it 'strips the control characters XML does not allow', :aggregate_failures do
+      values['name'] = "Juan\u0000 Pérez\u0007\u000B\u001F"
+      values['note'] = "línea 1\nlínea 2\tfin\r"
+
+      expect(render('<a n="{{name}}" o="{{note}}"/>', escape: :xml).last)
+        .to eq("<a n=\"Juan Pérez\" o=\"línea 1\nlínea 2\tfin\r\"/>")
+      expect(render('{{name|raw}}', escape: :xml).last).to eq('Juan Pérez')
+    end
+
+    it 'leaves control characters alone outside XML' do
+      values['name'] = "a\u0001b"
+      expect(render('{{name}}').last).to eq("a\u0001b")
     end
   end
 end
