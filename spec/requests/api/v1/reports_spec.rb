@@ -40,9 +40,9 @@ RSpec.describe 'Reports API', type: :request do
       get '/api/v1/reports/overview', params: { period: '30d' }, headers: headers
 
       expect(response.parsed_body.keys)
-        .to match_array(%w[period from to granularity kpis curve carriers])
+        .to match_array(%w[period from to granularity kpis curve carriers anomalies])
       expect(response.parsed_body['kpis'].keys)
-        .to match_array(%w[orders revenue dispatched_units on_time_delivery_rate active_anomalies])
+        .to match_array(%w[revenue dispatched_units on_time_delivery_rate active_anomalies])
     end
 
     it 'counts the orders of the tenant of the token' do
