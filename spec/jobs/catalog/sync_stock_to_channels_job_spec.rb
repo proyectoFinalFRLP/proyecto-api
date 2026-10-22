@@ -86,4 +86,23 @@ RSpec.describe Catalog::SyncStockToChannelsJob, type: :job do
         .not_to(change { product.reload.total_stock })
     end
   end
+
+  # TESIS-177: a una integración sin la configuración que su plantilla de stock
+  # lee no le sirve reintentar. El job falla una vez, con el motivo, y queda
+  # en solid_queue_failed_executions.
+  context 'when the channel is not ready to publish' do
+    before do
+      ProductMapping.find_by!(external_product_id: 'MLA-1').company_integration.service
+                    .update!(request_mapper: { 'available_quantity' => 'available_quantity',
+                                               'site' => 'settings.site_id' })
+    end
+
+    it 'fails with the reason instead of retrying', :aggregate_failures do
+      expect do
+        expect { described_class.perform_now(product.id, company.id) }
+          .to raise_error(Catalog::ChannelNotReadyError, /site_id/)
+      end.not_to have_enqueued_job(described_class)
+      expect(channel).not_to have_been_requested
+    end
+  end
 end
