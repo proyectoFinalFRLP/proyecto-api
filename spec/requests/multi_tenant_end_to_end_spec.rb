@@ -17,7 +17,10 @@ require Rails.root.join('db/seeds/oca').to_s
 # TESIS-97/161 (tenant_isolation_spec.rb) ya barren el 404 ruta por ruta sobre
 # registros armados a mano. Este spec es el complemento: los datos nacen del
 # flujo real, así que si algún paso intermedio (el worker, el picking de stock,
-# el adaptador del courier) pierde el tenant en el camino, cae acá.
+# el adaptador del courier) termina con el tenant de la OTRA empresa, cae acá.
+# Un tenant en nil no: esos pasos buscan por id o por integración y escriben
+# `company_id` explícito, así que pasarían igual. Ese caso lo cubre el `raise`
+# de `with_tenant` en los jobs.
 RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type: :request do
   include ActiveJob::TestHelper
 
@@ -54,7 +57,10 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
   # Cada empresa conecta su propia app de Shopify, contra su propia tienda.
   let(:shops) { Hash.new { |cache, company| cache[company] = connect_shopify(company) } }
 
-  def headers_of(company) = sessions[company]
+  # Una copia: el integration test de Rails escribe `X-Http-Method-Override`
+  # en el Hash de headers que recibe, y si fuera el memoizado, los requests
+  # siguientes de la empresa saldrían con otro verbo.
+  def headers_of(company) = sessions[company].dup
 
   def log_in(company)
     user = User.create!(email: "admin@#{company.slug}.test", password: 'password123', company: company)
@@ -169,9 +175,19 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
 
   def stub_oca(method, fixture)
     stub_request(:post, "#{OcaSeeds.base_uri}/#{method}").to_return do |request|
-      outbound[method] << URI.decode_www_form(request.body).to_h
-      oca_xml(fixture)
+      sent = URI.decode_www_form(request.body).to_h
+      outbound[method] << sent
+      yield(oca_xml(fixture), sent)
     end
+  end
+
+  # Cada cuenta de OCA cotiza con su propio plazo, para que la fecha
+  # comprometida de cada envío diga con qué cotización se despachó.
+  def days_by_cuit = { accounts[:norte][:cuit] => 1, accounts[:sur][:cuit] => 4 }
+
+  def quoted_days(reply, sent)
+    reply.merge(body: reply[:body].sub('<PlazoEntrega>1<',
+                                       "<PlazoEntrega>#{days_by_cuit.fetch(sent['Cuit'])}<"))
   end
 
   def json(body) = { status: 200, headers: { 'Content-Type' => 'application/json' }, body: body.to_json }
@@ -239,14 +255,15 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
     option = response.parsed_body['data'].sole
     post "/api/v1/shipments/#{shipment_id}/dispatch", headers: headers_of(company), as: :json, params: {
       dispatch: { company_integration_id: option['dispatch_integration_id'],
-                  origin_warehouse_id: warehouse_of(company).id, shipping_cost: option['shipping_cost'] }
+                  origin_warehouse_id: warehouse_of(company).id, shipping_cost: option['shipping_cost'],
+                  estimated_days: option['estimated_days'] }
     }
   end
 
   def order_of(company) = as(company) { Order.find_by!(external_order_id: external_order_id) }
   def product_of(company) = as(company) { Product.find_by!(sku: sku) }
   def warehouse_of(company) = as(company) { Warehouse.sole }
-  def shipment_of(company) = as(company) { Shipment.includes(:company_integration).sole }
+  def shipment_of(company) = as(company) { Shipment.includes(:company_integration).find_by!(order: order_of(company)) }
   def stock_of(company) = product_of(company).total_stock
 
   before do
@@ -255,8 +272,8 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
       [norte, sur].each { |company| connect_oca(company) }
     end
     [norte, sur].each { |company| stub_shop(company) }
-    stub_oca('Tarifar_Envio_Corporativo', 'quote')
-    stub_oca('IngresoORMultiplesRetiros_v2', 'dispatch')
+    stub_oca('Tarifar_Envio_Corporativo', 'quote') { |reply, sent| quoted_days(reply, sent) }
+    stub_oca('IngresoORMultiplesRetiros_v2', 'dispatch') { |reply| reply }
 
     [norte, sur].each { |company| build_catalog(company) }
   end
@@ -306,9 +323,11 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
         .to eq([[4, 'gid://shopify/InventoryItem/sur', 'gid://shopify/Location/sur']])
     end
 
-    it 'authenticates against each shop with the token of its own app' do
-      expect(WebMock).to have_requested(:post, 'https://sur.myshopify.com/admin/api/2026-07/graphql.json')
-        .with(headers: { 'X-Shopify-Access-Token' => 'TOKEN-sur' }).once
+    it 'authenticates against each shop with the token of its own app', :aggregate_failures do
+      [norte, sur].each do |company|
+        expect(WebMock).to have_requested(:post, "https://#{account_of(company)[:shop]}/admin/api/2026-07/graphql.json")
+          .with(headers: { 'X-Shopify-Access-Token' => "TOKEN-#{company.slug}" }).once
+      end
     end
   end
 
@@ -326,6 +345,13 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
         expect(shipment_of(company)).to have_attributes(company_id: company.id, order_id: order_of(company).id,
                                                         status: 'ready_to_ship')
         expect(shipment_of(company).company_integration).to eq(oca_dispatch_of(company))
+      end
+    end
+
+    it 'promises each shipment with the delivery days its own company was quoted', :aggregate_failures do
+      [norte, sur].each do |company|
+        expect(shipment_of(company).promised_delivery_on)
+          .to eq(Shipment.promise_for(days_by_cuit.fetch(account_of(company)[:cuit])))
       end
     end
 
@@ -358,13 +384,15 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
       end
     end
 
-    # Las ventas, la facturación, las unidades despachadas y el operador con
-    # que se despacharon, tal como los lee la pantalla de Reportes.
+    # Las ventas (de la curva: #132 sacó el KPI de órdenes), la facturación,
+    # las unidades despachadas y el operador con que se despacharon, tal como
+    # los lee la pantalla de Reportes.
     def overview_of(company)
       get '/api/v1/reports/overview', headers: headers_of(company)
-      kpis = response.parsed_body['kpis']
-      [*kpis.values_at('orders', 'revenue', 'dispatched_units').pluck('value'),
-       response.parsed_body['carriers'].pluck('company_integration_id')]
+      body = response.parsed_body
+      [body['curve'].sum { |day| day['orders'] },
+       *body['kpis'].values_at('revenue', 'dispatched_units').pluck('value'),
+       body['carriers'].pluck('company_integration_id')]
     end
 
     it 'reports to each company its own sales and dispatched units', :aggregate_failures do
@@ -372,9 +400,18 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
       expect(overview_of(sur)).to eq([1, 4_350_000.0, 3, [oca_dispatch_of(sur).id]])
     end
 
-    it 'shows each company only its own activity' do
-      expect(listed('/api/v1/activity', sur).pluck('id'))
-        .to contain_exactly("order-#{order_of(sur).id}", start_with('dispatch-'))
+    def dispatch_event_of(company)
+      as(company) do
+        ShipmentEvent.find_by!(shipment: shipment_of(company),
+                               internal_status: Shipments::ConfirmDispatch::DISPATCHED_STATUS)
+      end
+    end
+
+    it 'shows each company only its own activity', :aggregate_failures do
+      [norte, sur].each do |company|
+        expect(listed('/api/v1/activity', company).pluck('id'))
+          .to contain_exactly("order-#{order_of(company).id}", "dispatch-#{dispatch_event_of(company).id}")
+      end
     end
 
     # ───────────────────────────────────────────────── el intento de cruzarse
@@ -389,18 +426,38 @@ RSpec.describe 'Two companies with the same SKU, from webhook to shipment', type
        [:get, "/api/v1/products/#{product_of(sur).id}", {}], [:get, "/api/v1/shipments/#{shipment}/label", {}],
        [:post, "/api/v1/orders/#{order}/quotes", { quote: { origin_warehouse_id: warehouse_of(norte).id } }],
        [:post, "/api/v1/shipments/#{shipment}/dispatch", own_dispatch(norte)],
-       [:post, "/api/v1/shipments/#{shipment_of(norte).id}/dispatch", own_dispatch(norte, courier: sur)]]
+       [:post, "/api/v1/shipments/#{pending_shipment_of(norte)}/dispatch", own_dispatch(norte, courier: sur)]]
+    end
+
+    # Un envío de Norte todavía sin despachar, para que el cruce con el OCA de
+    # Sur no pueda contestar 409 por el estado antes de buscar el courier.
+    def pending_shipment_of(company)
+      post '/api/v1/orders', headers: headers_of(company), as: :json, params: {
+        order: { customer_name: 'Ana Gómez', customer_address: 'Calle 7 N° 1200', customer_zip_code: '1900',
+                 customer_city: 'La Plata', customer_province: 'Buenos Aires',
+                 items: [{ product_id: product_of(company).id, warehouse_id: warehouse_of(company).id,
+                           quantity: 1, unit_price: 1000 }] }
+      }
+      post "/api/v1/orders/#{response.parsed_body.fetch('id')}/shipment", headers: headers_of(company)
+      response.parsed_body.fetch('id')
     end
 
     def own_dispatch(company, courier: company)
       { dispatch: { company_integration_id: oca_dispatch_of(courier).id, origin_warehouse_id: warehouse_of(company).id } }
     end
 
+    # El 404 tiene que ser el de la app (RecordNotFound) y no el del router: uno
+    # por una ruta o un verbo mal armados pasaría sin probar el aislamiento.
     it 'answers 404 when Norte reaches for anything of Sur', :aggregate_failures do
       crossings.each do |verb, path, params|
         public_send(verb, path, headers: headers_of(norte), params: params, as: :json)
         expect(response).to have_http_status(:not_found), "#{verb.upcase} #{path} answered #{response.status}"
+        expect(response.parsed_body).to eq('error' => 'Not found'), "#{verb.upcase} #{path} answered #{response.body}"
       end
+    end
+
+    it 'crosses with a shipment of Norte that is still pending' do
+      expect(as(norte) { Shipment.find(pending_shipment_of(norte)).status }).to eq('pending')
     end
   end
 end
