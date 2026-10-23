@@ -121,4 +121,54 @@ RSpec.describe ProductMapping, type: :model do
   it 'belongs to a company_integration' do
     expect(described_class.reflect_on_association(:company_integration).macro).to eq(:belongs_to)
   end
+
+  # TESIS-177: un vínculo creado desde el backoffice o la consola quedaba sin
+  # `inventory_item_id`, y el stock no se podía publicar. Lo que hace falta lo
+  # dice la plantilla de stock del canal.
+  describe 'the refs the channel needs to publish stock' do
+    def shop_integration
+      @shop_integration ||= CompanyIntegration.create!(
+        company: company, credentials: { token: 'x' },
+        service: Service.create!(
+          service_name: 'Shop', type: 'ecommerce', uri: 'https://shop.test/graphql', http_method: 'POST',
+          request_mapper: { 'item' => 'inventory_item_id', 'location' => 'settings.location_id',
+                            'qty' => 'available_quantity', 'key' => 'idempotency_key' }
+        )
+      )
+    end
+
+    def link(refs)
+      described_class.new(product: product, company_integration: shop_integration,
+                          external_product_id: '111', external_refs: refs)
+    end
+
+    it 'rejects a link without them', :aggregate_failures do
+      mapping = link({})
+
+      expect(mapping).not_to be_valid
+      expect(mapping.errors[:external_refs].first).to include('must include inventory_item_id')
+    end
+
+    it 'accepts a link that has them' do
+      expect(link('inventory_item_id' => 'gid://shopify/InventoryItem/9')).to be_valid
+    end
+
+    # Lo que pone el sync (la cantidad, la clave de idempotencia) y los settings
+    # de la integración no son referencias del vínculo.
+    it 'asks only for what the link has to carry' do
+      expect(link('inventory_item_id' => 'INV-9').tap(&:valid?).errors[:external_refs]).to be_empty
+    end
+
+    it 'does not ask anything of a channel that does not need refs' do
+      expect(mapping).to be_valid
+    end
+
+    it 'lets an old incomplete link change other fields, but not its refs', :aggregate_failures do
+      old = link('inventory_item_id' => 'INV-9').tap(&:save!)
+      old.update_columns(external_refs: {}) # rubocop:disable Rails/SkipsModelValidations
+
+      expect(old.reload.update(external_price: 10)).to be(true)
+      expect(old.update(external_refs: { 'other' => 'x' })).to be(false)
+    end
+  end
 end

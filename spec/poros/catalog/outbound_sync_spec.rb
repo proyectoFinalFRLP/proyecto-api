@@ -223,4 +223,115 @@ RSpec.describe Catalog::OutboundSync, type: :poro do
       expect(a_request(:put, /api\.ml\.test/)).not_to have_been_made
     end
   end
+
+  # TESIS-177: cada vínculo guarda cómo le fue en su último intento.
+  describe 'the result of the last attempt' do
+    let!(:mapping) { publish_on('Mercado Libre', 'api.ml.test', 'MLA-1') }
+
+    it 'records a successful attempt without an error', :aggregate_failures do
+      stub_channel('api.ml.test', 'MLA-1')
+      mapping.update_columns(last_sync_error: 'old failure') # rubocop:disable Rails/SkipsModelValidations
+
+      sync.call
+
+      expect(mapping.reload.last_synced_at).to be_within(1.minute).of(Time.current)
+      expect(mapping.last_sync_error).to be_nil
+    end
+
+    it 'records why the attempt failed', :aggregate_failures do
+      stub_channel('api.ml.test', 'MLA-1', status: 500)
+
+      suppress(Integrations::AdapterExecutionError) { sync.call }
+
+      expect(mapping.reload.last_sync_error).to eq('Mercado Libre responded with HTTP 500 (status 500)')
+      expect(mapping.last_synced_at).to be_present
+    end
+
+    it 'does not move updated_at: the attempt is not a change of the link' do
+      stub_channel('api.ml.test', 'MLA-1')
+      expect { sync.call }.not_to(change { mapping.reload.updated_at })
+    end
+  end
+
+  # TESIS-177: en producción la integración de Shopify no tenía `location_id`,
+  # el pedido salía con `locationId: null` y Shopify contestaba un error de
+  # GraphQL que no decía qué faltaba. Ahora el pedido no sale.
+  context 'when the stock template reads a setting the integration does not have' do
+    let(:settings) { {} }
+    let!(:mapping) do
+      ProductMapping.create!(product: product, company_integration: shopify_integration,
+                             external_product_id: '111',
+                             external_refs: { 'inventory_item_id' => 'gid://shopify/InventoryItem/9' })
+    end
+
+    def shopify_integration
+      shop = Service.create!(service_name: 'Shopify', type: 'ecommerce', http_method: 'POST',
+                             uri: 'https://shop.test/graphql.json', request_format: 'graphql',
+                             body_template: 'mutation SetStock { x }',
+                             setting_fields: [{ 'key' => 'location_id', 'label' => 'Ubicación de stock' }],
+                             request_mapper: { 'inventoryItemId' => 'inventory_item_id',
+                                               'locationId' => 'settings.location_id',
+                                               'quantity' => 'available_quantity' })
+      CompanyIntegration.create!(company: company, service: shop, settings: settings,
+                                 credentials: { 'access_token' => 'TOKEN' })
+    end
+
+    before { stub_request(:post, 'https://shop.test/graphql.json').to_return(status: 200, body: '{}') }
+
+    it 'does not call the channel' do
+      suppress(Catalog::ChannelNotReadyError) { sync.call }
+      expect(a_request(:post, 'https://shop.test/graphql.json')).not_to have_been_made
+    end
+
+    it 'fails with a message that says what is missing' do
+      expect { sync.call }.to raise_error(
+        Catalog::ChannelNotReadyError,
+        /Shopify cannot publish stock: the integration has no Ubicación de stock \(location_id\)/
+      )
+    end
+
+    # Reintentar no completa un setting: no es un AdapterExecutionError, que
+    # ApplicationJob reintenta.
+    it 'is not a transient failure of the provider' do
+      expect(Catalog::ChannelNotReadyError.ancestors).not_to include(Integrations::AdapterExecutionError)
+    end
+
+    it 'records the reason on the link' do
+      suppress(Catalog::ChannelNotReadyError) { sync.call }
+      expect(mapping.reload.last_sync_error).to include('Ubicación de stock (location_id)')
+    end
+
+    it 'still publishes on a healthy channel and retries as a provider failure if one fails' do
+      publish_on('Mercado Libre', 'api.ml.test', 'MLA-1')
+      stub_channel('api.ml.test', 'MLA-1', status: 500)
+
+      expect { sync.call }.to raise_error(Integrations::AdapterExecutionError, /2 of 2 channels/)
+    end
+
+    context 'when the setting is there' do
+      let(:settings) { { 'location_id' => 'gid://shopify/Location/7' } }
+
+      it 'publishes with it' do
+        sync.call
+        expect(WebMock).to have_requested(:post, 'https://shop.test/graphql.json')
+          .with(body: hash_including('variables' => hash_including(
+            'locationId' => 'gid://shopify/Location/7', 'inventoryItemId' => 'gid://shopify/InventoryItem/9'
+          )))
+      end
+    end
+
+    # Un vínculo creado antes de la validación de ProductMapping puede no tener
+    # las referencias: tampoco se manda a medias.
+    context 'when the link has no inventory item' do
+      let(:settings) { { 'location_id' => 'gid://shopify/Location/7' } }
+
+      before { mapping.update_columns(external_refs: {}) } # rubocop:disable Rails/SkipsModelValidations
+
+      it 'fails without calling the channel and says how to fix it', :aggregate_failures do
+        expect { sync.call }.to raise_error(Catalog::ChannelNotReadyError,
+                                            /no inventory_item_id\. Link it again/)
+        expect(a_request(:post, 'https://shop.test/graphql.json')).not_to have_been_made
+      end
+    end
+  end
 end

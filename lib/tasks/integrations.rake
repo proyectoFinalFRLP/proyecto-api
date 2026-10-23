@@ -8,11 +8,12 @@
 #   SHOPIFY_<SLUG>_CLIENT_ID
 #   SHOPIFY_<SLUG>_CLIENT_SECRET
 #
-#   bin/rails "integrations:shopify:connect[norte]"
+#   bin/rails "integrations:shopify:connect[norte]"   (conecta y prueba la conexión)
 #   bin/rails "integrations:shopify:test[norte]"
 #   bin/rails "integrations:shopify:webhook[norte]"   (con PUBLIC_WEBHOOK_BASE_URL)
 #   bin/rails "integrations:shopify:link[norte,NOR-001]"          (busca por SKU)
 #   bin/rails "integrations:shopify:link[norte,NOR-001,4567890]"  (por id de variante)
+#   bin/rails "integrations:shopify:resync[norte]"   (vuelve a publicar todo; también en producción)
 #
 # La lectura del entorno y de `.env` es la de DevEnv (lib/tasks/dev_env.rake),
 # compartida con las tareas de OCA e-Pak (lib/tasks/oca.rake).
@@ -33,8 +34,13 @@ module ShopifyDevTasks
 
     puts "#{company.name} conectada a #{integration.settings['shop_domain']} " \
          "(integración ##{integration.id}). Credenciales guardadas cifradas."
+    # Sin la prueba, la integración quedaba sin ubicación de stock y el sync
+    # saliente no publicaba nada (TESIS-177).
+    test(slug)
   end
 
+  # Prueba la conexión (completa la ubicación de stock) y dice si la
+  # integración ya puede publicar el stock.
   def test(slug)
     company = company(slug)
     Current.set(company_id: company.id) do
@@ -42,7 +48,8 @@ module ShopifyDevTasks
       result = Integrations::TestConnection.new(company_integration: integration).call
 
       puts "ok: #{result[:ok]} — #{result[:message]}"
-      puts "settings: #{integration.reload.settings}"
+      puts "settings: #{integration.reload.settings.except(Integrations::TestConnection::OPTIONS_KEY)}"
+      StockResyncTasks.report_readiness(integration)
     end
   end
 
@@ -105,6 +112,11 @@ namespace :integrations do
     desc 'Registra el webhook de ventas de Shopify de la empresa [slug]'
     task :webhook, [:slug] => :environment do |_task, args|
       ShopifyDevTasks.webhook(args.fetch(:slug, 'norte'))
+    end
+
+    desc 'Vuelve a publicar en Shopify el stock de los productos vinculados de la empresa [slug]'
+    task :resync, [:slug] => :environment do |_task, args|
+      StockResyncTasks.resync(args.fetch(:slug), service_name: 'Shopify')
     end
 
     desc 'Prueba la conexión de Shopify de la empresa [slug]'

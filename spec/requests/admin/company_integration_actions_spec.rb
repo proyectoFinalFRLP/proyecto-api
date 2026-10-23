@@ -95,6 +95,86 @@ RSpec.describe 'Admin company integration actions (Avo)', type: :request do
     end
   end
 
+  # TESIS-177: «Connection saved» con un warning dejaba a la integración sin
+  # ubicación de stock y el sync fallaba sin que nadie lo notara.
+  describe 'Configure connection on a template that publishes stock' do
+    def action = 'Avo::Actions::ConfigureConnection'
+    def graphql_url = 'https://demo.myshopify.com/admin/api/2026-07/graphql.json'
+
+    def answer_locations(*locations)
+      stub_request(:post, graphql_url).to_return(
+        status: 200, headers: { 'Content-Type' => 'application/json' },
+        body: { data: { shop: { name: 'Demo Store' },
+                        locations: { nodes: locations.map { |id, name| { id:, name: } } } } }.to_json
+      )
+    end
+
+    def save_connection(location: '')
+      run_action(action, credentials__client_id: '', credentials__client_secret: '',
+                         settings__shop_domain: 'demo.myshopify.com', settings__location_id: location)
+    end
+
+    before do
+      shopify.update!(request_mapper: { 'locationId' => 'settings.location_id',
+                                        'quantity' => 'available_quantity' })
+      Service.create!(service_name: 'Shopify - Conexión', type: 'ecommerce', http_method: 'POST',
+                      parent_service: shopify, operation: 'connection_test',
+                      uri: 'https://:shop_domain/admin/api/2026-07/graphql.json',
+                      request_format: 'graphql', body_template: '{ shop { name } }',
+                      response_mapper: { 'data.shop.name' => 'account_name',
+                                         'data.locations.nodes.0.id' => 'location_id',
+                                         'data.locations.nodes[].id' => 'location_id',
+                                         'data.locations.nodes[].name' => 'option_label' })
+    end
+
+    it 'shows an error, not a warning, when the test fails', :aggregate_failures do
+      stub_request(:post, graphql_url).to_return(status: 403)
+      save_connection
+
+      expect(flash[:error][:body]).to include('NOT ready', 'HTTP 403')
+      expect(flash[:warning]).to be_nil
+    end
+
+    it 'is saved and ready when the test completes the location', :aggregate_failures do
+      answer_locations(['gid://shopify/Location/7', 'Main'])
+      save_connection
+
+      expect(flash[:error]).to be_nil
+      expect(flash[:success][:body]).to eq('Connection saved. Connected to Demo Store.')
+      expect(integration.reload.settings['location_id']).to eq('gid://shopify/Location/7')
+    end
+
+    context 'when the store has several locations' do
+      before do
+        answer_locations(['gid://shopify/Location/7', 'Main'], ['gid://shopify/Location/8', 'Depósito'])
+        save_connection
+      end
+
+      it 'says the integration cannot publish until one is chosen' do
+        expect(flash[:error][:body]).to include('NOT ready', 'Location (location_id)')
+      end
+
+      it 'offers the locations to choose from', :aggregate_failures do
+        open_action(action)
+
+        expect(response.body).to include('Depósito (gid://shopify/Location/8)')
+        expect(response.body).to include('<select')
+      end
+
+      it 'is ready once the administrator chooses one', :aggregate_failures do
+        save_connection(location: 'gid://shopify/Location/8')
+
+        expect(flash[:success][:body]).to eq('Connection saved. Connected to Demo Store.')
+        expect(integration.reload.settings['location_id']).to eq('gid://shopify/Location/8')
+      end
+    end
+
+    it 'shows on the integration whether it can publish stock' do
+      get record_path
+      expect(response.body).to include('cannot publish stock')
+    end
+  end
+
   describe 'Test connection' do
     before do
       stub_request(:post, 'https://demo.myshopify.com/admin/oauth/access_token')

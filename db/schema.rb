@@ -128,6 +128,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_021152) do
     t.decimal "external_price", precision: 10, scale: 2
     t.string "external_product_id", null: false
     t.jsonb "external_refs", default: {}, null: false
+    t.text "last_sync_error"
+    t.datetime "last_synced_at"
     t.bigint "product_id", null: false
     t.datetime "updated_at", null: false
     t.index ["company_integration_id", "external_product_id"], name: "index_product_mappings_on_integration_and_external_id", unique: true

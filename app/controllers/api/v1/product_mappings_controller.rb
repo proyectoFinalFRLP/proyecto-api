@@ -8,9 +8,19 @@ module Api
       MISSING_INTEGRATION = 'company_integration_id is required'
       ALREADY_LINKED = 'external product already linked to another product in this integration'
 
+      # «Reintentar» sale al proveedor (vía un job) con las credenciales de la
+      # empresa: un botón apretado en loop no puede convertirse en tráfico
+      # ilimitado contra Shopify. Por usuario, como la cotización.
+      RESYNCS_PER_WINDOW = 10
+      RESYNC_WINDOW = 1.minute
+
       before_action :set_product
 
+      rate_limit to: RESYNCS_PER_WINDOW, within: RESYNC_WINDOW, only: :resync,
+                 by: -> { current_user.id }, with: :render_too_many_resyncs
+
       rescue_from ActiveRecord::RecordNotSaved, with: :render_unprocessable
+      rescue_from Catalog::ChannelNotReadyError, with: :render_unprocessable
       rescue_from ActiveRecord::RecordNotUnique, with: :render_conflict
       rescue_from Catalog::ExternalProductNotFoundError, with: :render_unprocessable
       rescue_from Integrations::AdapterExecutionError, with: :render_channel_failure
@@ -55,7 +65,26 @@ module Api
         head :no_content
       end
 
+      # Vuelve a publicar el stock del producto en el canal de este vínculo
+      # (TESIS-177). Responde 202 con el vínculo: la publicación corre en un job,
+      # y su resultado aparece en `last_synced_at` / `last_sync_error`. Si el
+      # canal o el vínculo no pueden publicar, 422 con el motivo y no se encola.
+      def resync
+        mapping = @product.product_mappings.find(params.expect(:id))
+        authorize mapping
+        result = Catalog::ResyncChannel.new(company_integration: mapping.company_integration,
+                                            mappings: [mapping]).call
+        raise Catalog::ChannelNotReadyError, result.skipped[mapping.id] if result.skipped.any?
+
+        render json: ProductMappingSerializer.render_as_hash(mapping), status: :accepted
+      end
+
       private
+
+      def render_too_many_resyncs
+        response.set_header('Retry-After', RESYNC_WINDOW.to_i.to_s)
+        render json: { error: 'Too many retries, try again later' }, status: :too_many_requests
+      end
 
       # El producto viene de la URL y Product.find aplica el default_scope de
       # CompanyScoped: un product_id de otra empresa devuelve 404 y la request

@@ -98,6 +98,72 @@ RSpec.describe Integrations::TestConnection, type: :poro do
     end
   end
 
+  # TESIS-177: con varias ubicaciones, tomar la primera podía publicar el stock
+  # donde nadie lo mira. La plantilla declara la lista (una colección que mapea
+  # el setting) y el administrador elige.
+  context 'when the template lists the options of a setting' do
+    before do
+      connection_test.update!(response_mapper: connection_test.response_mapper.merge(
+        'data.locations.nodes[].id' => 'location_id',
+        'data.locations.nodes[].name' => 'option_label'
+      ))
+      stub_request(:post, graphql_url).to_return(
+        status: 200, headers: { 'Content-Type' => 'application/json' },
+        body: { data: { shop: { name: 'Demo Store' }, locations: { nodes: locations } } }.to_json
+      )
+    end
+
+    context 'with a single option' do
+      let(:locations) { [{ id: 'gid://shopify/Location/7', name: 'Main' }] }
+
+      it 'completes the setting with it', :aggregate_failures do
+        expect(test_connection).to eq(ok: true, message: 'Connected to Demo Store')
+        expect(integration.reload.settings['location_id']).to eq('gid://shopify/Location/7')
+      end
+    end
+
+    context 'with several options' do
+      let(:locations) do
+        [{ id: 'gid://shopify/Location/7', name: 'Main' },
+         { id: 'gid://shopify/Location/8', name: 'Depósito' }]
+      end
+
+      it 'does not pick one on its own' do
+        test_connection
+        expect(integration.reload.settings).not_to have_key('location_id')
+      end
+
+      it 'keeps the options for the connection form' do
+        test_connection
+        expect(integration.reload.settings['setting_options']).to eq(
+          'location_id' => { 'Main (gid://shopify/Location/7)' => 'gid://shopify/Location/7',
+                             'Depósito (gid://shopify/Location/8)' => 'gid://shopify/Location/8' }
+        )
+      end
+
+      it 'asks the administrator to choose' do
+        expect(test_connection[:message])
+          .to eq('Connected to Demo Store. Choose the location_id in «Configure connection»: ' \
+                 'there are 2 options')
+      end
+    end
+
+    context 'with several options and one already chosen' do
+      let(:locations) do
+        [{ id: 'gid://shopify/Location/7', name: 'Main' },
+         { id: 'gid://shopify/Location/8', name: 'Depósito' }]
+      end
+      let(:settings) do
+        { 'shop_domain' => 'demo.myshopify.com', 'location_id' => 'gid://shopify/Location/8' }
+      end
+
+      it 'keeps it and does not ask again', :aggregate_failures do
+        expect(test_connection[:message]).to eq('Connected to Demo Store')
+        expect(integration.reload.settings['location_id']).to eq('gid://shopify/Location/8')
+      end
+    end
+  end
+
   it 'returns the failure as a message instead of raising' do
     stub_request(:post, graphql_url).to_return(status: 403)
 

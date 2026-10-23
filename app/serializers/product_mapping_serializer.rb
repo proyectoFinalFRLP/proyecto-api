@@ -3,8 +3,12 @@
 class ProductMappingSerializer < ApplicationSerializer
   identifier :id
 
+  # `last_synced_at` es el último intento de publicar el stock en el canal y
+  # `last_sync_error`, por qué falló (null si salió bien o si nunca se intentó).
+  # Es lo que la tarjeta «Canales de venta» muestra junto a «Reintentar»
+  # (TESIS-177).
   fields :product_id, :company_integration_id, :external_product_id,
-         :created_at, :updated_at
+         :last_synced_at, :last_sync_error, :created_at, :updated_at
 
   # El servicio viaja junto al mapping para que el front pueda mostrar
   # "Mercado Libre - ID: MLA123" sin pedir la integración en otra request.

@@ -23,6 +23,7 @@ module Avo
         credentials_field
         field :settings, as: :code, language: 'json', only_on: :show, disabled: true,
                          format_using: -> { JSON.pretty_generate(value || {}) }
+        stock_publishing_field
         field :product_mappings, as: :has_many, name: 'Product Mappings'
       end
 
@@ -37,6 +38,18 @@ module Avo
       end
 
       private
+
+      # Si la integración puede publicar el stock y, si no, qué le falta
+      # (TESIS-177). Es lo primero que hay que mirar cuando el stock no llega
+      # al canal.
+      def stock_publishing_field
+        field :stock_publishing, as: :text, only_on: :show, name: 'Stock publishing' do
+          requirements = ::Catalog::StockPublishRequirements.new(record.service)
+          next 'Does not publish stock' unless requirements.publishes_stock?
+
+          requirements.setting_problem(record.settings) || 'Ready'
+        end
+      end
 
       # Las credenciales son API keys y tokens de las cuentas de cada empresa, y
       # el backoffice las mostraba descifradas en el detalle y en el formulario
