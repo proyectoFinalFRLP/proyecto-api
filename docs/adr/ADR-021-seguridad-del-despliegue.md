@@ -43,7 +43,7 @@ Sólo el front puede llamar a la API desde un navegador. El riesgo de `*` no era
 
 - Como cada empresa entra por su subdominio, `CORS_ALLOWED_ORIGINS` acepta un comodín para ese único nivel: `https://*.dominio` vale para `norte.dominio`, pero no para `a.b.dominio` ni para el dominio sin subdominio. rack-cors compara los strings tal cual, así que el initializer lo traduce a una regex anclada.
 - Sin la variable (desarrollo y test) se acepta `localhost` en cualquier puerto. En producción no hay fallback.
-- El `ETag` sigue expuesto para el locking optimista de TESIS-101.
+- El `ETag` sigue expuesto para el locking optimista de TESIS-101, y `Content-Disposition` para que el front guarde la etiqueta con el nombre que manda la API (`etiqueta-<tracking>.pdf`, TESIS-188).
 - `spec/requests/cors_spec.rb` fija el comportamiento sin la variable. El comodín lo fija `spec/config/cors_origins_spec.rb`, que arma un `Rack::Cors` con un valor de producción: dos niveles, el dominio sin subdominio, el dominio como prefijo o sufijo de otro, HTTP, otro puerto y un `*` suelto quedan afuera. Para eso la traducción vive en el módulo `CorsOrigins`, definido en el mismo initializer y no en `lib/`, porque `lib/` se autocarga y un initializer no puede usar constantes autocargables.
 
 ### HTTPS de punta a punta

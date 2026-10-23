@@ -100,7 +100,15 @@ module Shipments
     # eventos no alcanza para descartarlo: un envío en camino volvía a «listo
     # para despachar», o uno entregado a «en camino». Ese movimiento queda en la
     # bitácora como informativo.
+    #
+    # Un envío que ya terminó (Shipment::TERMINAL_STATUSES) no se mueve más,
+    # ni a otro final: los finales son alternativos, no pasos sucesivos, y su
+    # orden en STATUSES no dice que uno venga después del otro. Un «Entregado»
+    # que llega después de un «Devuelto al Remitente» queda informativo, igual
+    # que un «Anulado» después de la entrega (TESIS-188).
     def advances_status?
+      return false if @shipment.terminal?
+
       status_rank(@translated[:internal_status]) > status_rank(@shipment.status)
     end
 

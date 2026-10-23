@@ -27,6 +27,34 @@ RSpec.describe Integrations::TranslateResponseValue, type: :poro do
     expect(translate('Estado de Visita ONLINE (Entregado) - Firma')).to eq([true, 'delivered'])
   end
 
+  describe 'prefix boundary' do
+    it 'matches the prefix alone' do
+      expect(translate('Visita')).to eq([true, 'in_transit'])
+    end
+
+    it 'matches the prefix followed by a non-letter', :aggregate_failures do
+      expect(translate('Visita: domicilio cerrado')).to eq([true, 'in_transit'])
+      expect(translate('Visita1')).to eq([true, 'in_transit'])
+    end
+
+    # `Visita*` es la palabra «Visita», no cualquier texto que arranque con
+    # esas letras (TESIS-188).
+    it 'does not match a longer word that starts with the prefix' do
+      expect(translate('Visitante en sucursal')).to eq([false, nil])
+    end
+
+    it 'still ignores accents and case at the boundary', :aggregate_failures do
+      expect(translate('VISITÁ - Sin novedad')).to eq([true, 'in_transit'])
+      expect(translate('Visitánte')).to eq([false, nil])
+    end
+
+    it 'does not cut a word when the prefix ends in a non-letter' do
+      mapper['Estado (*'] = 'ready_to_ship'
+
+      expect(translate('Estado (pendiente)')).to eq([true, 'ready_to_ship'])
+    end
+  end
+
   it 'does not use a plain key as a prefix' do
     expect(translate('Entregado parcialmente')).to eq([false, nil])
   end

@@ -449,6 +449,7 @@ DEPENDENCIES
   json (~> 2.21)
   kamal
   lefthook
+  nokogiri (~> 1.19)
   pg (~> 1.1)
   propshaft (~> 1.3)
   puma (>= 5.0)

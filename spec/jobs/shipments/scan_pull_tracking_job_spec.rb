@@ -70,6 +70,21 @@ RSpec.describe Shipments::ScanPullTrackingJob, type: :job do
       expect { run }.to have_enqueued_job(Shipments::PollTrackingJob).twice
     end
 
+    # TESIS-188: un envío devuelto o anulado seguía consultándose cada 30 min.
+    it 'does not poll returned or cancelled shipments' do
+      shipment_for(integration, 'CA-3', status: 'returned')
+      shipment_for(integration, 'CA-4', status: 'cancelled')
+      expect { run }.to have_enqueued_job(Shipments::PollTrackingJob).twice
+    end
+
+    it 'stops polling a shipment that has not moved for the whole cutoff' do
+      stale = shipment_for(integration, 'CA-3')
+      ShipmentEvent.create!(shipment: stale, internal_status: 'in_transit',
+                            external_status: 'En viaje',
+                            occurred_at: Shipment::POLLING_CUTOFF.ago - 1.hour)
+      expect { run }.to have_enqueued_job(Shipments::PollTrackingJob).twice
+    end
+
     it 'shrinks the gap when the round would not fit before the next cycle' do
       stub_const("#{described_class}::WINDOW", 2.seconds)
       run

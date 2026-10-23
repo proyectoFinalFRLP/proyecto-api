@@ -19,7 +19,9 @@ module Integrations
   #     máximos rechazan el registro entero si uno se pasa).
   #   - `date:FORMATO`: una fecha con `strftime` (`{{today|date:%Y%m%d}}`).
   #   - `ascii`: sin tildes ni eñes (`Muñoz` es `Munoz`). OCA guarda un
-  #     nombre con tildes con espacios en su lugar.
+  #     nombre con tildes con espacios en su lugar. Los símbolos que tienen
+  #     una forma ASCII se traducen en vez de borrarse (ver ASCII_REPLACEMENTS):
+  #     `1º` y `1°` son `1o`, `½` es `1/2`. Lo que no tiene ninguna se borra.
   #   - `raw`: no escapar este valor (ver `escape`).
   #   - `required`: el valor tiene que estar. Si falta, no se arma nada: sale
   #     `MissingValueError`, y el pedido no viaja. Es para el dato que el
@@ -35,11 +37,32 @@ module Integrations
   # atributos opcionales (el piso, el departamento) eso es lo correcto.
   #
   # `escape: :xml` escapa cada valor (no el texto de la plantilla) para que un
-  # `&` o unas comillas en un nombre no rompan el documento.
+  # `&` o unas comillas en un nombre no rompan el documento. Además le saca
+  # los caracteres de control, también a un valor `raw`: XML 1.0 no los admite
+  # ni escapados (`&#1;` es tan inválido como el byte), y un tabulador o un
+  # salto de línea pegados desde una planilla en el nombre del destinatario
+  # dejaban un alta que el proveedor no podía leer (TESIS-188). El tabulador,
+  # el salto de línea y el retorno de carro sí son válidos y quedan.
   class RenderTemplate < ApplicationPoro
     VARIABLE = /\{\{\s*([\w.]+)\s*((?:\|[^|}]*)*)\}\}/
     FILTER = /\A\s*(\w+)\s*(?::(.*))?\z/m
     FILTERS = %w[default truncate date ascii raw required].freeze
+
+    XML_CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F]/
+
+    # Lo que `ascii` traduce en vez de borrar: los símbolos sin descomposición
+    # Unicode que en una dirección o un nombre dicen algo. La descomposición ya
+    # resuelve el resto (`º` es `o`, `ª` es `a`, `²` es `2`, `…` es `...`); `½`
+    # se descompone en `1⁄2`, con una barra que no es ASCII y que acá pasa a
+    # ser `/`. Sin esto `Piso 1°` llegaba como `Piso 1` y `½` como `12`.
+    ASCII_REPLACEMENTS = {
+      '°' => 'o', '⁄' => '/', '–' => '-', '—' => '-', '‘' => "'", '’' => "'",
+      '“' => '"', '”' => '"', '«' => '"', '»' => '"'
+    }.freeze
+    ASCII_REPLACEABLE = Regexp.union(ASCII_REPLACEMENTS.keys)
+    # Una fracción pegada a un número (`1½`) lleva un espacio antes, para que
+    # quede `1 1/2` y no `11/2`.
+    FRACTION_AFTER_DIGIT = /(\d)([¼-¾⅐-⅞])/
 
     class Error < StandardError; end
     class UnknownFilterError < Error; end
@@ -164,7 +187,8 @@ module Integrations
     end
 
     def ascii(text)
-      text.unicode_normalize(:nfkd).gsub(/\p{Mn}/, '').gsub(/[^[:ascii:]]/, '')
+      text.gsub(FRACTION_AFTER_DIGIT, '\1 \2').unicode_normalize(:nfkd).gsub(/\p{Mn}/, '')
+          .gsub(ASCII_REPLACEABLE, ASCII_REPLACEMENTS).gsub(/[^[:ascii:]]/, '')
     end
 
     def format_date(value, format)
@@ -175,7 +199,10 @@ module Integrations
     end
 
     def escaped(text, raw)
-      return text if raw || @escape != :xml
+      return text if @escape != :xml
+
+      text = text.gsub(XML_CONTROL_CHARS, '')
+      return text if raw
 
       text.encode(xml: :attr).delete_prefix('"').delete_suffix('"')
     end
