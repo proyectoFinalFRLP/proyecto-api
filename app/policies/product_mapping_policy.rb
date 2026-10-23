@@ -17,6 +17,10 @@ class ProductMappingPolicy < ApplicationPolicy
     record.product&.company_id == user.company_id
   end
 
+  # Reintentar la publicación del stock es una acción sobre un vínculo propio,
+  # con la misma regla de tenencia que borrarlo (TESIS-177).
+  def resync? = destroy?
+
   class Scope < ApplicationPolicy::Scope
     def resolve
       scope.joins(:product).where(products: { company_id: user.company_id })

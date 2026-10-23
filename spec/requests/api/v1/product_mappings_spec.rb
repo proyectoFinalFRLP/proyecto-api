@@ -335,6 +335,126 @@ RSpec.describe 'Product Mappings API', type: :request do
     end
   end
 
+  # Un canal que publica el stock con el inventory item del vínculo y la
+  # ubicación de la integración, como Shopify.
+  def stock_service
+    @stock_service ||= Service.create!(
+      service_name: 'Shop', type: 'ecommerce', http_method: 'POST', uri: 'https://shop.test/graphql',
+      setting_fields: [{ 'key' => 'location_id', 'label' => 'Ubicación de stock' }],
+      request_mapper: { 'item' => 'inventory_item_id', 'loc' => 'settings.location_id',
+                        'qty' => 'available_quantity' }
+    )
+  end
+
+  def stock_mapping(settings: { 'location_id' => 'gid://shopify/Location/1' },
+                    refs: { 'inventory_item_id' => 'INV-1' })
+    integration = Current.set(company_id: nil) do
+      CompanyIntegration.create!(company: company, service: stock_service, settings: settings,
+                                 credentials: { 'access_token' => 'x' })
+    end
+    mapping = ProductMapping.create!(product: product, company_integration: integration,
+                                     external_product_id: '111',
+                                     external_refs: { 'inventory_item_id' => 'INV-1' })
+    mapping.tap { it.update_columns(external_refs: refs) } # rubocop:disable Rails/SkipsModelValidations
+  end
+
+  # TESIS-177: el detalle del producto muestra cómo le fue al último intento
+  # de publicar el stock en cada canal.
+  it 'exposes the last sync attempt of each mapping and its error' do
+    failure = { last_synced_at: Time.zone.parse('2026-10-20 10:00'), last_sync_error: 'HTTP 500' }
+    mapping_for(product, meli_integration, 'MLA-123').update_columns(failure) # rubocop:disable Rails/SkipsModelValidations
+    get mappings_url(product.id), headers: headers
+
+    expect(response.parsed_body['data'].first)
+      .to include('last_sync_error' => 'HTTP 500', 'last_synced_at' => start_with('2026-10-20'))
+  end
+
+  # «Reintentar» de la tarjeta «Canales de venta».
+  describe 'POST /api/v1/products/:product_id/mappings/:id/resync' do
+    def resync_url(mapping_product, mapping_id)
+      "#{mappings_url(mapping_product.id)}/#{mapping_id}/resync"
+    end
+
+    it 'returns 401 without a token' do
+      post resync_url(product, stock_mapping.id)
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'enqueues the sync of the product, scoped to that channel', :aggregate_failures do
+      mapping = stock_mapping
+
+      expect { post resync_url(product, mapping.id), headers: headers }
+        .to have_enqueued_job(Catalog::SyncStockToChannelsJob)
+        .with(product.id, company.id, mapping.company_integration_id)
+      expect(response).to have_http_status(:accepted)
+    end
+
+    it 'returns the mapping' do
+      mapping = stock_mapping
+      post resync_url(product, mapping.id), headers: headers
+
+      expect(response.parsed_body['id']).to eq(mapping.id)
+    end
+
+    it 'answers 422 with the reason and enqueues nothing when the channel has no location',
+       :aggregate_failures do
+      mapping = stock_mapping(settings: {})
+
+      expect { post resync_url(product, mapping.id), headers: headers }
+        .not_to have_enqueued_job(Catalog::SyncStockToChannelsJob)
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to include('Ubicación de stock (location_id)')
+    end
+
+    it 'answers 422 when the link has no inventory item', :aggregate_failures do
+      post resync_url(product, stock_mapping(refs: {}).id), headers: headers
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to include('Link it again')
+    end
+
+    it 'returns 404 for a mapping of another product' do
+      sibling = Product.create!(company: company, sku: 'A-002', name: 'Beta')
+      other = mapping_for(sibling, meli_integration, 'MLA-999')
+
+      post resync_url(product, other.id), headers: headers
+      expect(response).to have_http_status(:not_found)
+    end
+
+    it 'returns 404 for a product from another company' do
+      other = mapping_for(other_product, other_integration, 'TN-1')
+      post resync_url(other_product, other.id), headers: headers
+      expect(response).to have_http_status(:not_found)
+    end
+
+    # En test la cache es :null_store y el límite nunca se alcanza: el contador
+    # usa una de verdad, sólo durante el ejemplo.
+    def count_requests_for_real
+      counter = ActiveSupport::Cache::MemoryStore.new
+      allow(Api::V1::ProductMappingsController.cache_store)
+        .to receive(:increment) { |*args, **options| counter.increment(*args, **options) }
+    end
+
+    it 'answers 429 past the limit', :aggregate_failures do
+      count_requests_for_real
+      url = resync_url(product, stock_mapping.id)
+      (Api::V1::ProductMappingsController::RESYNCS_PER_WINDOW + 1).times { post url, headers: headers }
+
+      expect(response).to have_http_status(:too_many_requests)
+      expect(response.headers['Retry-After']).to eq('60')
+    end
+  end
+
+  # TESIS-177: ningún camino crea un vínculo que no puede publicar el stock.
+  it 'refuses a link that could not publish the stock', :aggregate_failures do
+    integration_id = create_integration(company, stock_service).id
+    params = { product_mapping: { company_integration_id: integration_id, external_product_id: '111' } }
+
+    expect { post mappings_url(product.id), params: params, headers: headers, as: :json }.not_to change(ProductMapping, :count)
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.parsed_body['error']).to include('inventory_item_id')
+  end
+
   describe 'DELETE /api/v1/products/:product_id/mappings/:id' do
     it 'returns 401 without a token' do
       mapping = mapping_for(product, meli_integration, 'MLA-123')
