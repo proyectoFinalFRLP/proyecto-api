@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Alta con el envío rechazado (TESIS-188). Es el mismo DataSet de
+     IngresoORMultiplesRetiros_v2 que dispatch.xml, con el resumen en
+     CantidadRechazados 1, sin DetalleIngresos y con la fila de DetalleRechazos
+     que lee el error_path de la plantilla (`DetalleRechazos.0.Motivo`). -->
+<DataSet xmlns="#Oca_e_Pak">
+  <xs:schema id="Resultado" xmlns="" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xs:element name="Resultado" msdata:IsDataSet="true" msdata:Locale="">
+      <xs:complexType>
+        <xs:choice minOccurs="0" maxOccurs="unbounded">
+          <xs:element name="Resumen">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="CodigoOperacion" type="xs:int" minOccurs="0" />
+                <xs:element name="FechaIngreso" type="xs:dateTime" minOccurs="0" />
+                <xs:element name="mailUsuario" type="xs:string" minOccurs="0" />
+                <xs:element name="origen" type="xs:string" minOccurs="0" />
+                <xs:element name="CantidadRegistros" type="xs:int" minOccurs="0" />
+                <xs:element name="CantidadIngresados" type="xs:int" minOccurs="0" />
+                <xs:element name="CantidadRechazados" type="xs:int" minOccurs="0" />
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="DetalleIngresos">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="Operativa" type="xs:int" minOccurs="0" />
+                <xs:element name="OrdenRetiro" type="xs:int" minOccurs="0" />
+                <xs:element name="NumeroEnvio" type="xs:string" minOccurs="0" />
+                <xs:element name="Remito" type="xs:string" minOccurs="0" />
+                <xs:element name="Estado" type="xs:string" minOccurs="0" />
+                <xs:element name="SucursalDestino" type="xs:string" minOccurs="0" />
+                <xs:element name="QR" type="xs:string" minOccurs="0" />
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="DetalleRechazos">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="Operativa" type="xs:int" minOccurs="0" />
+                <xs:element name="Remito" type="xs:string" minOccurs="0" />
+                <xs:element name="Motivo" type="xs:string" minOccurs="0" />
+                <xs:element name="Cantidad" type="xs:int" minOccurs="0" />
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+        </xs:choice>
+      </xs:complexType>
+    </xs:element>
+  </xs:schema>
+  <diffgr:diffgram xmlns:msdata="urn:schemas-microsoft-com:xml-msdata" xmlns:diffgr="urn:schemas-microsoft-com:xml-diffgram-v1">
+    <Resultado xmlns="">
+      <Resumen diffgr:id="Resumen1" msdata:rowOrder="0">
+        <CodigoOperacion>12362011</CodigoOperacion>
+        <FechaIngreso>2026-10-21T10:12:03.517-03:00</FechaIngreso>
+        <mailUsuario>test@oca.com.ar</mailUsuario>
+        <origen />
+        <CantidadRegistros>1</CantidadRegistros>
+        <CantidadIngresados>0</CantidadIngresados>
+        <CantidadRechazados>1</CantidadRechazados>
+      </Resumen>
+      <DetalleRechazos diffgr:id="DetalleRechazos1" msdata:rowOrder="0">
+        <Operativa>64665</Operativa>
+        <Remito>OS-1-261021101203</Remito>
+        <Motivo>El Codigo Postal de destino no es valido para la operativa</Motivo>
+        <Cantidad>1</Cantidad>
+      </DetalleRechazos>
+    </Resultado>
+  </diffgr:diffgram>
+</DataSet>

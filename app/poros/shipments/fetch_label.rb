@@ -29,10 +29,18 @@ module Shipments
       @shipment = shipment
     end
 
+    # Los esquemas a los que se redirige. La URL la escribió el courier al
+    # despachar (o alguien desde el panel), y el endpoint la devuelve como un
+    # 302 a quien está logueado: un `javascript:` o un `data:` ahí es un
+    # vector, y un `ftp:` o un texto suelto no es una etiqueta que el navegador
+    # pueda abrir. Se trata como si no hubiera URL (TESIS-188).
+    LINK_SCHEMES = %w[http https].freeze
+
     def call
       template = label_template
       return pdf_from(template) if template
-      return { url: @shipment.shipping_label_url } if @shipment.shipping_label_url.present?
+      url = @shipment.shipping_label_url
+      return { url: url.strip } if self.class.link?(url)
 
       raise LabelUnavailableError
     end
@@ -42,8 +50,15 @@ module Shipments
     def self.available?(shipment)
       return false if shipment.tracking_number.blank?
 
-      shipment.shipping_label_url.present? ||
+      link?(shipment.shipping_label_url) ||
         shipment.company_integration&.service&.declares_operation?(OPERATION) || false
+    end
+
+    def self.link?(url)
+      uri = URI.parse(url.to_s.strip)
+      LINK_SCHEMES.include?(uri.scheme&.downcase) && uri.host.present?
+    rescue URI::InvalidURIError
+      false
     end
 
     private

@@ -20,18 +20,24 @@ class AddFormAndXmlSupportToServices < ActiveRecord::Migration[8.1]
                          name: 'services_response_format_check'
   end
 
+  # Las CHECK viejas vuelven como NOT VALID: una base sembrada tiene las
+  # plantillas de OCA (`form`, `none`), que no las cumplen, y validarlas hacía
+  # fallar el rollback (TESIS-188). Así rigen para lo que se escriba después y
+  # no tocan lo que ya está; borrar plantillas de un proveedor no es algo que
+  # un rollback de esquema deba decidir solo.
   def down
     remove_check_constraint :services, name: 'services_response_format_check'
     replace_check :services_auth_strategy_check,
-                  "auth_strategy IN ('bearer', 'oauth_client_credentials')"
-    replace_check :services_request_format_check, "request_format IN ('json', 'graphql')"
+                  "auth_strategy IN ('bearer', 'oauth_client_credentials')", validate: false
+    replace_check :services_request_format_check, "request_format IN ('json', 'graphql')",
+                  validate: false
     remove_column :services, :response_format
   end
 
   private
 
-  def replace_check(name, expression)
+  def replace_check(name, expression, validate: true)
     remove_check_constraint :services, name: name.to_s
-    add_check_constraint :services, expression, name: name.to_s
+    add_check_constraint :services, expression, name: name.to_s, validate: validate
   end
 end

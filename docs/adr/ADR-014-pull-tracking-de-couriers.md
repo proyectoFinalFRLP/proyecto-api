@@ -27,7 +27,7 @@ config/recurring.yml  (every 30 minutes, dev y producción)
   ▼
 Shipments::ScanPullTrackingJob                         (cola low, sin tenant)
   - CompanyIntegration.unscoped activas cuyo Service tiene tracking_service
-  - Shipment.unscoped.in_flight de cada una            (ready_to_ship | in_transit, con tracking)
+  - Shipment.unscoped.pollable de cada una             (in_flight y con un movimiento en 30 días)
   - PollTrackingJob.set(wait: escalonado)              (1 por envío, o 1 por lote de 50)
   │
   ▼
@@ -52,7 +52,8 @@ Shipments::PollTrackingStatus
 | `services.tracking_service_id`          | FK opcional a otra plantilla: "a este courier se le pregunta con ésta". Su presencia lo pone en el barrido |
 | `Service#answers_tracking?`             | La plantilla sabe contestar: mapea `external_status` y dice cómo preguntar (`:tracking_number` en la URI, o una colección en la respuesta) |
 | `Service#tracks_in_batch?`              | La respuesta lista envíos (`envios[].numero` → `tracking_number`): consulta masiva                 |
-| `Shipment.in_flight`                    | El universo a consultar: con etiqueta y sin entregar                                               |
+| `Shipment.in_flight`                    | Con etiqueta y sin terminar (`ready_to_ship` o `in_transit`)                                       |
+| `Shipment.pollable`                     | El universo a consultar: `in_flight` con algún movimiento en los últimos `POLLING_CUTOFF` (30 días) |
 | `Shipments::ScanPullTrackingJob`        | Cronjob: barre todos los tenants y reparte el trabajo en jobs escalonados                          |
 | `Shipments::PollTrackingJob`            | Activa el tenant y delega; `limits_concurrency` de 1 por integración                               |
 | `Shipments::PollTrackingStatus`         | Caso de uso: consulta, traduce, empareja y registra, aislando cada fallo                           |
@@ -105,6 +106,14 @@ Nada de esto va a la DLQ de ADR-008 ni aprovecha el `retry_on AdapterExecutionEr
 - **`limits_concurrency to: 1` por integración:** aunque una ronda se atrase, a un mismo courier nunca le llega más de una consulta a la vez.
 - **Lotes de 50** en la consulta masiva, para no mandar un request con cientos de números.
 
+### Cuándo se deja de preguntar (TESIS-188)
+
+Un envío sale de la consulta cuando termina. Los estados finales son `delivered`, `returned` (devuelto al remitente) y `cancelled` (anulado por el courier, o perdido: el dominio no distingue un siniestro de una anulación, y para la operación los dos cierran el envío sin entrega) — `Shipment::TERMINAL_STATUSES`. Un envío en un final no se mueve más, ni a otro final (`RegisterTrackingEvent#advances_status?`): lo que llegue después queda en la bitácora como informativo.
+
+Que la plantilla del courier mapee sus finales es lo normal, pero no alcanza: un courier puede inventar un estado nuevo que el mapper no conoce, o dejar de informar un envío. Para eso hay un tope: un envío en curso cuyo último movimiento tiene más de **30 días** (`Shipment::POLLING_CUTOFF`) deja de consultarse. Se mide desde el último evento de la bitácora —un estado que se repite no escribe otro, así que es el último cambio— o, si no tiene eventos, desde su `updated_at`. El envío sigue en curso para el operador: lo que se corta es la consulta, no el estado. A 48 consultas por día, un envío trabado gastaba unas 1.400 por mes.
+
+Antes de TESIS-188 los envíos devueltos o anulados de OCA quedaban en curso para siempre y se consultaban cada 30 minutos.
+
 ### Multi-tenancy
 
 El barrido es, como `Webhooks::ScanDueFailedEventsJob`, el único punto sin tenant: lee integraciones y envíos con `unscoped` y encola cada consulta con el `company_id` de su integración. El job activa ese tenant con `with_tenant` antes de tocar nada, y el caso de uso busca los envíos a través de la integración (`integration.shipments.in_flight.where(id:)`), así que un id de otra empresa no encuentra nada. Los envíos se revalidan al ejecutar y no al encolar: entre el barrido y el job, uno pudo entregarse.
@@ -144,7 +153,8 @@ El barrido es, como `Webhooks::ScanDueFailedEventsJob`, el único punto sin tena
 
 - ✅ Un courier sin webhooks se integra cargando dos plantillas y una FK, sin código nuevo: la bitácora y el estado de sus envíos se mantienen solos
 - ✅ Push y pull comparten una sola implementación de las reglas de idempotencia, orden y bloqueo: un arreglo en una vale para las dos
-- ✅ Un envío entregado deja de consultarse, y un courier caído no voltea la ronda ni la llena de reintentos
+- ✅ Un envío entregado, devuelto o anulado deja de consultarse, y un courier caído no voltea la ronda ni la llena de reintentos
+- ⚠️ Un envío que pasa 30 días sin moverse deja de consultarse aunque siga en curso: si el courier vuelve a informarlo después, el sistema no se entera (TESIS-188)
 - ⚠️ Latencia de hasta un ciclo (30 minutos) más el escalonamiento: el pull nunca va a ser tiempo real
 - ⚠️ Con mucho volumen en un courier de consulta individual, dos rondas pueden solaparse: la segunda consulta envíos que la primera todavía no terminó. No duplica movimientos —el núcleo descarta el duplicado exacto—, pero gasta requests; si pasa, la salida es la consulta masiva o una ventana por integración
 - ⚠️ Una sola frecuencia para todos los couriers. Si aparece uno con un límite de requests más estricto, la plantilla va a tener que declararlo y el barrido respetarlo

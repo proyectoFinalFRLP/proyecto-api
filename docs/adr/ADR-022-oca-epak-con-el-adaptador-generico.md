@@ -39,9 +39,11 @@ Las plantillas se llaman «OCA», como «Andreani» o «Correo Argentino»: e-Pa
 
 El resultado del `request_mapper` se manda como `application/x-www-form-urlencoded`: en el body de un `POST`, en el query string de un `GET`. Las claves son **planas**: `a.b` es el nombre del parámetro, no un anidamiento (un form no anida). Los números van con punto decimal y sin notación científica (`2.5`, no `0.25e1`), y un decimal entero sin decimales (`15000`, no `15000.0`), que es lo que acepta un servicio .NET.
 
+`Service` no deja guardar una plantilla `form` con `GET` (o `DELETE`) que mapee `credentials.*`, suelto, dentro de un `{{...}}` o en el `body_template` que manda: la cuenta terminaría en la URL, y una URL queda en los logs del proveedor, de los proxies y del error del adaptador. La que necesite mandar la cuenta como parámetro usa `POST` (TESIS-188).
+
 ### `response_format: xml`, columna y no Content-Type
 
-Columna nueva `services.response_format` (`json` por defecto, `xml`), con CHECK en la base. Se descartó deducirlo del `Content-Type` de la respuesta:
+Columna nueva `services.response_format` (`json` por defecto, `xml`), con CHECK en la base. El `down` de la migración (`AddFormAndXmlSupportToServices`) vuelve a poner las CHECK viejas de `request_format` y `auth_strategy` como `NOT VALID`: una base sembrada tiene las plantillas de OCA (`form`, `none`), y validarlas hacía fallar el rollback (TESIS-188). Se descartó deducirlo del `Content-Type` de la respuesta:
 
 - La plantilla ya declara todo lo demás de su transporte (`request_format`, `auth_strategy`): el formato de la respuesta es del mismo tipo de dato.
 - Un proveedor que miente el `Content-Type` (`text/html` para un JSON, `text/plain` para un XML) rompería la lectura sin que la plantilla pudiera corregirlo.
@@ -56,7 +58,7 @@ La respuesta XML se convierte a un Hash (`Integrations::ParseXmlResponse`) y des
 - La raíz no aparece como clave, salvo que sea un texto suelto: `<string>JVBER...</string>` da `{ "string" => "JVBER..." }`.
 - Los atributos se ignoran (en un DataSet son metadatos de la fila).
 
-El parseo es **estricto** (un body que no es XML es un error del proveedor, como un JSON roto) y no resuelve entidades externas: Nokogiri no carga DTDs ni sale a la red por defecto, así que una respuesta maliciosa no puede leer archivos (XXE).
+El parseo es **estricto** (un body que no es XML es un error del proveedor, como un JSON roto) y no resuelve entidades externas: Nokogiri no carga DTDs ni sale a la red por defecto, así que una respuesta maliciosa no puede leer archivos (XXE). Nokogiri está declarada en el `Gemfile` aunque Rails ya la traía: la app la usa directamente (TESIS-188).
 
 ### Credenciales como parámetros y `auth_strategy: none`
 
@@ -70,12 +72,12 @@ Lo mínimo para construir lo que OCA espera, sin convertirlo en un motor de plan
 - `literal:<texto>` es un valor fijo (`literal:true`, `literal:` para un parámetro obligatorio que va vacío).
 - Las variables `{{x}}` aceptan **filtros** encadenados: `default:X`, `truncate:N`, `date:FORMATO` (con `today` y `now`), `ascii` (sin tildes ni eñes), `raw` y `required`. Un filtro desconocido es un error, no se ignora, y `Service` no deja guardar una plantilla que lo use: un tipeo en Avo aparece al guardar, no en el primer despacho.
 - `required` es para el dato que el proveedor necesita y que no se puede inventar con un `default`. Si falta, el pedido no sale: el adaptador lo rechaza con `Integrations::MissingValueError`, que lleva la clave interna que faltó. El despacho la traduce (`Shipments::MissingDataMessage`) y responde 422 con un motivo que el operador puede corregir, nombrando el producto: «Para despachar con OCA falta el largo de “Celular Samsung Galaxy A14”» (TESIS-188). Si lo que falta es el código postal de 4 dígitos pero el código está cargado, el motivo dice que no es válido en vez de pedir que se cargue.
-- `{{template:body}}` en el `request_mapper` arma el `body_template` de la plantilla y lo manda como el valor de ese parámetro: es el `xml_Datos` de OCA. En el body template **cada valor se escapa para XML** (un `&` en un nombre no rompe el documento) y una variable sin valor queda vacía (los atributos opcionales, como el piso). En un valor suelto del `request_mapper`, en cambio, una variable sin valor hace que la entrada no se mande, como hasta ahora.
-- `ascii` existe porque el entorno de prueba de OCA guarda un nombre con tildes con espacios o `?` en su lugar (verificado con `UTF-8` y con referencias numéricas). Las plantillas de OCA lo aplican a nombres, calles y localidades.
+- `{{template:body}}` en el `request_mapper` arma el `body_template` de la plantilla y lo manda como el valor de ese parámetro: es el `xml_Datos` de OCA. En el body template **cada valor se escapa para XML** (un `&` en un nombre no rompe el documento) y una variable sin valor queda vacía (los atributos opcionales, como el piso). Además se le sacan los caracteres de control (`\x00`–`\x1F` salvo tabulador, salto de línea y retorno de carro), también a un valor `raw`: XML 1.0 no los admite ni escapados, y uno pegado desde una planilla dejaba un alta ilegible (TESIS-188). En un valor suelto del `request_mapper`, en cambio, una variable sin valor hace que la entrada no se mande, como hasta ahora.
+- `ascii` existe porque el entorno de prueba de OCA guarda un nombre con tildes con espacios o `?` en su lugar (verificado con `UTF-8` y con referencias numéricas). Las plantillas de OCA lo aplican a nombres, calles y localidades. Desde TESIS-188 traduce los símbolos que tienen forma ASCII en vez de borrarlos: `º` y `°` son `o` (`Piso 1°` → `Piso 1o`), `ª` es `a`, `½` es `1/2` (y `3½` es `3 1/2`), `²` es `2`, las rayas son `-` y las comillas tipográficas, `"` o `'`. Lo que no tiene ninguna (`€`, `✓`) se borra.
 
 ### Errores de negocio con HTTP 200
 
-`error_path` acepta **varias rutas separadas por coma** (OCA informa un alta rechazada en `Error` y un bulto rechazado en `DetalleRechazos.0.Motivo`), lee el Hash ya convertido, y un error de una sola columna se describe por su valor (`Usuario o contraseña incorrectos`) y no como JSON.
+`error_path` acepta **varias rutas separadas por coma** (OCA informa un alta rechazada en `Error` y un bulto rechazado en `DetalleRechazos.0.Motivo`), lee el Hash ya convertido, y un error de una sola columna se describe por su valor (`Usuario o contraseña incorrectos`) y no como JSON. Una fila con todas sus columnas vacías (`<Error><Descripcion/></Error>`, que llega como `{ "Descripcion" => nil }`) no es un error, y las columnas vacías no cuentan al describirlo: antes contaba como un rechazo con el motivo en blanco (TESIS-188).
 
 El error sale marcado como **rechazo** (`AdapterExecutionError#rejected?`). El despacho lo responde **422** con el motivo, igual que un 4xx del proveedor: el usuario puede corregir algo (el código postal, la cuenta). Un HTTP 500 —el `Missing parameter` de una plantilla mal armada—, un timeout o un body ilegible siguen siendo **502**.
 
@@ -92,12 +94,15 @@ Los couriers que devuelven la URL del PDF al despachar siguen igual (`shipping_l
 | Situación | Respuesta |
 |---|---|
 | El courier tiene plantilla `label` | **200** `application/pdf`, `inline`, `etiqueta-<tracking>.pdf` |
-| No hay plantilla pero sí `shipping_label_url` | **302** a esa URL |
-| El envío no se despachó, o su courier no tiene ninguna de las dos | **404** `{ error }` |
+| No hay plantilla pero sí `shipping_label_url` `http`/`https` | **302** a esa URL |
+| El envío no se despachó, o su courier no tiene ninguna de las dos, o la URL guardada no es `http`/`https` | **404** `{ error }` |
+| Más de 30 pedidos de etiqueta por minuto del mismo usuario | **429** con `Retry-After` |
 | El courier contesta otra cosa que un PDF (OCA: «No se encontraron etiquetas...») | **502** `{ error }` con el texto |
 | El courier falla | 422 / 502, con las mismas reglas del despacho |
 
-Se autoriza con `ShipmentPolicy#label?` (el mismo permiso que ver el envío), y un envío de otra empresa es 404. Los serializers de envío exponen `label_available`, que **no consulta al courier**: es `true` si el envío tiene número de seguimiento y su courier declara la plantilla `label`, o si tiene `shipping_label_url`.
+Se autoriza con `ShipmentPolicy#label?` (el mismo permiso que ver el envío), y un envío de otra empresa es 404. Los serializers de envío exponen `label_available`, que **no consulta al courier**: es `true` si el envío tiene número de seguimiento y su courier declara la plantilla `label`, o si tiene una `shipping_label_url` `http`/`https`.
+
+Desde TESIS-188 el 302 sólo va a un link web: la URL la dejó el courier al despachar (o alguien desde el panel), y un `javascript:` o un `data:` ahí es un vector contra el usuario logueado. Y el endpoint tiene tope, como la cotización del alta: cada pedido sale al courier con las credenciales de la empresa, y una pestaña en loop le pegaría sin límite. Se cuenta por usuario (`Api::V1::LabelRateLimit`). El PDF va con `Content-Disposition: inline; filename="etiqueta-<tracking>.pdf"`, y CORS expone ese header para que el front guarde el archivo con ese nombre.
 
 No se guarda el PDF: se pide cada vez. Guardarlo exigía un almacenamiento de archivos que el proyecto no tiene, y la etiqueta del courier es la fuente de verdad (si la reimprime con otro formato, se ve el nuevo).
 
@@ -105,14 +110,17 @@ Es una llamada **sincrónica** dentro del request, como la cotización y el desp
 
 ### Seguimiento: estados por prefijo y fechas sin hora
 
-- El `response_value_mapper` busca primero la clave exacta (lo de siempre); si no está, **sin distinguir mayúsculas, tildes ni espacios repetidos**; y por último las claves que terminan en `*` como **prefijos**, ganando el más largo (`Estado de Visita ONLINE (Entregado)*` antes que `Estado de Visita ONLINE*`). Es lo que necesita un courier que agrega un detalle al estado (`En proceso de Retiro - Suc: ...`).
+- El `response_value_mapper` busca primero la clave exacta (lo de siempre); si no está, **sin distinguir mayúsculas, tildes ni espacios repetidos**; y por último las claves que terminan en `*` como **prefijos**, ganando el más largo (`Estado de Visita ONLINE (Entregado)*` antes que `Estado de Visita ONLINE*`). Es lo que necesita un courier que agrega un detalle al estado (`En proceso de Retiro - Suc: ...`). El prefijo es una **palabra entera**: lo que sigue tiene que ser el fin del texto o algo que no sea una letra, así `Visita*` no toma «Visitante…» (TESIS-188). Si el prefijo termina en algo que no es una letra (`Estado (*`), sigue cualquier cosa.
+- **Estados finales** (TESIS-188). Además de `Entregado*` → `delivered`, `Devuelto*` y `Devolución*` son `returned`, y `Anulado*`, `Anulada*`, `Siniestrado*` y `Siniestro*` son `cancelled`: un siniestro (robo, rotura, extravío) cierra el envío sin entrega, igual que una anulación, y el dominio no tiene un estado propio para «perdido». `No entregado*` sigue siendo `in_transit`: es una visita fallida y OCA vuelve a intentar. Un envío en un final sale de la consulta periódica; uno que pasa 30 días sin moverse también (ADR-014).
 - `answers_tracking?` reconoce también la plantilla que manda el número de seguimiento **como parámetro** (`numeroEnvio` → `tracking_number`), no sólo en la URI.
 - Una fecha `dd/MM/yyyy` se lee explícita (no se deja que `Time.zone.parse` adivine el orden). Con hora, es un momento. **Sin hora**, viaja como `occurred_on`: el evento se registra al final de ese día, o *ahora* si el día es hoy, y el duplicado se mira por el último estado. En la consulta periódica, que contesta el estado **actual**, además nunca queda antes del último evento del envío: sin esto el primer estado del día (`En proceso de Retiro`, mismo día que el despacho) quedaba a las 00:00, antes de «Etiqueta generada», y se descartaba como desordenado. Un push con un día anterior al del último evento, en cambio, se descarta como desordenado.
-- **El estado del envío sólo avanza**, en el orden de `Shipment::STATUSES`. Con fechas sin hora el orden de los eventos no alcanza: OCA informa estados que, traducidos, pueden quedar atrás del último conocido (por ejemplo, «En proceso de Retiro» después de un «Retirado» que llegó antes). «En proceso de Admision» se traduce a `in_transit`: la admisión es posterior al retiro (TESIS-188). Un estado traducido que queda atrás se registra en la bitácora como informativo, con el estado que ya tenía el envío.
+- **El estado del envío sólo avanza**, en el orden de `Shipment::STATUSES`, y un envío en un estado final (`delivered`, `returned`, `cancelled`) no se mueve más, ni a otro final. Con fechas sin hora el orden de los eventos no alcanza: OCA informa estados que, traducidos, pueden quedar atrás del último conocido (por ejemplo, «En proceso de Retiro» después de un «Retirado» que llegó antes). «En proceso de Admision» se traduce a `in_transit`: la admisión es posterior al retiro (TESIS-188). Un estado traducido que queda atrás se registra en la bitácora como informativo, con el estado que ya tenía el envío.
 
 ### Cotización y alta manual
 
 La cotización de OCA usa el mismo flujo de 4 s en paralelo (ADR-016). Medido contra el entorno de prueba: **0,08–0,45 s**, así que no hizo falta un timeout por plantilla. La cotización de OCA pide CPs, peso, volumen, valor declarado, CUIT y operativa: no pide localidad ni provincia.
+
+Los códigos postales de 4 dígitos también van con `required` en la cotización y en el alta (TESIS-188): un código cargado que `Addresses::ShortPostalCode` no puede leer viajaba vacío, OCA contestaba un error y desaparecía de las opciones sin aviso. Ahora el pedido no sale: en la cotización OCA no aparece y queda en el log, en `info`, por qué (`OCA - Cotización left out of the quote: ... destination_postal_code ...`); el despacho responde 422 diciendo qué código no es válido.
 
 El peso y las medidas del bulto **no se inventan**. `package_weight_kg` es nil si algún producto no tiene peso, y el bulto consolidado no tiene medidas si a algún producto le falta una. Las plantillas de OCA los piden con `required`: sin ellos OCA no aparece entre las opciones de la cotización, y el despacho responde 422 con el dato que falta. Antes se cotizaba un paquete de 0 kg y se pedía el retiro de una caja de 1 cm de lado. `total_weight` sigue sumando cero por el producto sin peso: es como la mapean Andreani y Correo.
 
@@ -162,7 +170,9 @@ Pedirlo al despachar y guardarlo evitaba la llamada al imprimir. Exige almacenam
 - ⚠️ **Sin push**: OCA no empuja el tracking; se le pregunta cada 30 minutos (ADR-014)
 - ⚠️ La fecha del retiro es **hoy** (`{{today|date:%Y%m%d}}`), y el sistema corre en UTC: un despacho después de las 21 (hora argentina) pide el retiro para el día siguiente. Resolverlo bien es definir `config.time_zone`, que toca todas las fechas de la app y es otra card
 - ⚠️ **El despacho no es idempotente**: si OCA crea la orden de retiro y la respuesta tarda más que el timeout, el envío queda pendiente y reintentarlo pide otro retiro. Si dos requests despachan a la vez, el que pierde descarta su orden de retiro y la deja en el log con nivel error, para anularla a mano. El remito lleva el momento del alta (`OS-<id>-<aammddhhmmss>`), porque la cuenta de prueba es una sola y `OS-1` se repite en cada base sembrada
-- ⚠️ Las devoluciones y anulaciones de OCA no están mapeadas (el dominio no tiene esos estados): quedan como eventos informativos y el envío sigue en curso, así que la consulta periódica lo sigue preguntando
+- ✅ Las devoluciones, anulaciones y siniestros de OCA cierran el envío como `returned` o `cancelled`, y la consulta periódica deja de preguntarlo (TESIS-188). Hasta entonces quedaban como eventos informativos y el envío seguía en curso para siempre
+- ⚠️ Un envío devuelto o anulado no devuelve el stock: el sistema no tiene recepción de devoluciones. Es una card aparte
+- ⚠️ La cotización no le dice al operador por qué un courier no aparece (sólo queda en el log): sumarlo a la respuesta es un cambio de contrato con el front
 - ⚠️ Las horas de OCA están en hora argentina y el sistema corre en UTC; con fechas sin hora, el día se toma tal cual. Un estado reportado entre las 21 y las 24 puede quedar con el día anterior
 - ⚠️ Los nombres con tildes se mandan sin tildes (`ascii`): OCA no los guarda bien de ninguna otra forma
 - ⚠️ La cuenta de prueba es pública y compartida: cualquiera puede ver las órdenes de retiro creadas en el entorno de prueba. Los datos de la demo son inventados

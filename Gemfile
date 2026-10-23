@@ -91,3 +91,9 @@ gem 'propshaft', '~> 1.3'
 # dependencia de rubocop, así que la restricción va acá para que Dependabot no
 # vuelva a subirla sola.
 gem 'json', '~> 2.21'
+
+# Lee las respuestas XML de los proveedores (Integrations::ParseXmlResponse,
+# ADR-022). Ya entraba como dependencia de Rails, pero la app la usa
+# directamente: declarada acá, no depende de que Rails la siga pidiendo
+# (TESIS-188).
+gem 'nokogiri', '~> 1.19'

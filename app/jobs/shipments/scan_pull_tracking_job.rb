@@ -8,8 +8,10 @@ module Shipments
   #
   # Sólo entran los couriers cuya plantilla tiene una de seguimiento
   # (Service#tracking_service) —los que empujan el tracking no la cargan— y, de
-  # ellos, sólo los envíos en curso (Shipment.in_flight): un envío entregado no
-  # se vuelve a consultar.
+  # ellos, sólo los envíos en curso que se movieron hace poco
+  # (Shipment.pollable): uno entregado, devuelto o anulado no se vuelve a
+  # consultar, y uno que lleva Shipment::POLLING_CUTOFF sin moverse tampoco
+  # (TESIS-188).
   #
   # Cómo se reparte el trabajo depende de la plantilla:
   # - consulta masiva: un job por lote de hasta BATCH_SIZE envíos;
@@ -51,7 +53,7 @@ module Shipments
     end
 
     def enqueue_round(integration)
-      ids = Shipment.unscoped.in_flight.where(company_integration_id: integration.id)
+      ids = Shipment.unscoped.pollable.where(company_integration_id: integration.id)
                     .order(:id).pluck(:id)
       return if ids.empty?
 

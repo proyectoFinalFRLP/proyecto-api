@@ -145,6 +145,13 @@ RSpec.describe Shipment, type: :model do
       expect(described_class.in_flight).to be_empty
     end
 
+    # TESIS-188: antes de estos estados, un envío devuelto quedaba en camino.
+    it 'excludes the shipments that ended returned or cancelled' do
+      shipment_with(status: 'returned')
+      shipment_with(status: 'cancelled', tracking: 'TRK-2', on: other_order)
+      expect(described_class.in_flight).to be_empty
+    end
+
     it 'excludes shipments without a tracking number to ask for' do
       shipment_with(status: 'pending', tracking: nil)
       shipment_with(status: 'ready_to_ship', tracking: nil, on: other_order)
@@ -176,6 +183,8 @@ RSpec.describe Shipment, type: :model do
         promised('in_transit', today - 3, customer: 'Tarde')
         promised('in_transit', today)
         promised('delivered', today - 3)
+        promised('returned', today - 3)
+        promised('cancelled', today - 3)
         promised('pending', today - 3)
         promised('in_transit', nil)
       end
@@ -198,6 +207,12 @@ RSpec.describe Shipment, type: :model do
 
     it 'is not delayed without a promised date' do
       expect(promised('in_transit', nil).delayed?(today)).to be(false)
+    end
+
+    # Devuelto o anulado ya terminó: no va a llegar, así que no está demorado.
+    it 'is not delayed once it ended returned or cancelled' do
+      ended = %w[returned cancelled].map { |status| promised(status, today - 3) }
+      expect(ended.map { |one| one.delayed?(today) }).to all(be(false))
     end
   end
 
@@ -233,5 +248,60 @@ RSpec.describe Shipment, type: :model do
 
   it 'has many shipment_events' do
     expect(described_class.reflect_on_association(:shipment_events).macro).to eq(:has_many)
+  end
+
+  describe '#terminal?' do
+    it 'is true for the statuses a shipment ends in', :aggregate_failures do
+      %w[delivered returned cancelled].each do |status|
+        expect(described_class.new(status: status)).to be_terminal
+      end
+    end
+
+    it 'is false while the shipment can still move', :aggregate_failures do
+      %w[pending ready_to_ship in_transit].each do |status|
+        expect(described_class.new(status: status)).not_to be_terminal
+      end
+    end
+  end
+
+  # TESIS-188: lo que la consulta periódica pregunta, con el tope de un envío
+  # que dejó de moverse.
+  describe '.pollable' do
+    let(:moving) { in_transit_since(now) }
+
+    def now = Time.zone.parse('2026-10-21T12:00:00Z')
+
+    def in_transit_since(updated_at, on: order)
+      described_class.create!(company: company, order: on, status: 'in_transit',
+                              tracking_number: "TRK-#{on.id}", updated_at: updated_at)
+    end
+
+    def last_moved(at)
+      ShipmentEvent.create!(shipment: moving, internal_status: 'in_transit',
+                            external_status: 'En viaje', occurred_at: at)
+    end
+
+    it 'includes a shipment that moved within the cutoff' do
+      last_moved(now - 29.days)
+      expect(described_class.pollable(now)).to contain_exactly(moving)
+    end
+
+    it 'leaves out a shipment whose last movement is older than the cutoff' do
+      last_moved(now - 31.days)
+      expect(described_class.pollable(now)).to be_empty
+    end
+
+    it 'measures a shipment without events from its last update' do
+      in_transit_since(now - 31.days)
+      recent = in_transit_since(now - 1.day, on: Order.create!(company: company, customer_name: 'Ana'))
+
+      expect(described_class.pollable(now)).to contain_exactly(recent)
+    end
+
+    it 'only looks at shipments in flight' do
+      moving.update!(status: 'returned')
+      last_moved(now - 1.day)
+      expect(described_class.pollable(now)).to be_empty
+    end
   end
 end
