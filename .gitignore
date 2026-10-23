@@ -34,3 +34,7 @@
 
 # Reporte de cobertura de SimpleCov (TESIS-93).
 /coverage/
+
+# Pruebas de carga (TESIS-96): ids y secreto de la base de prueba, y resúmenes de k6.
+/load/fixtures.json
+/load/results/
