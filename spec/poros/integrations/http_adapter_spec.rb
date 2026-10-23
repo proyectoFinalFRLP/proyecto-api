@@ -382,9 +382,11 @@ RSpec.describe Integrations::HttpAdapter, type: :poro do
       expect(WebMock).not_to have_requested(:post, url).with(&leaked)
     end
 
+    # Sin la cuenta: un GET con `credentials.*` no se puede guardar (TESIS-188).
     it 'sends the form in the query string of a GET' do
-      form_service.update!(http_method: 'GET')
-      query = 'PesoTotal=2.5&CodigoPostalDestino=1900&Cuit=30-53625919-4&usr=test%40oca.com.ar'
+      form_service.update!(http_method: 'GET',
+                           request_mapper: form_service.request_mapper.except('usr'))
+      query = 'PesoTotal=2.5&CodigoPostalDestino=1900&Cuit=30-53625919-4'
       stub_request(:get, "#{url}?#{query}").to_return(oca_xml('quote'))
       expect(quote['shipping_cost']).to eq('181.9200')
     end

@@ -44,7 +44,19 @@ module Integrations
 
     def declared_errors
       @service.error_path.to_s.split(',').map(&:strip).compact_blank.flat_map do |path|
-        Array.wrap(ParseExternalResponse.dig_path(@body, path)).compact_blank
+        Array.wrap(ParseExternalResponse.dig_path(@body, path)).select { meaningful?(it) }
+      end
+    end
+
+    # Una fila de error con todas sus columnas vacías no es un error: un XML
+    # trae `<Error><Descripcion/></Error>` como `{ "Descripcion" => nil }`, un
+    # Hash que no está vacío pero no dice nada. Con `compact_blank` contaba como
+    # rechazo y el despacho salía 422 con un motivo en blanco (TESIS-188).
+    def meaningful?(error)
+      case error
+      when Hash then error.values.any? { meaningful?(it) }
+      when Array then error.any? { meaningful?(it) }
+      else error.present?
       end
     end
 
@@ -53,12 +65,15 @@ module Integrations
     end
 
     # Un error de una sola columna (la fila `<Error><Descripcion>` de un
-    # DataSet) se lee por su valor, no como JSON.
+    # DataSet) se lee por su valor, no como JSON. Las columnas vacías no
+    # cuentan: una fila con el código en blanco y la descripción se lee por la
+    # descripción.
     def describe(error)
       return error.to_s unless error.is_a?(Hash)
       return error['message'] if error['message']
 
-      error.size == 1 ? error.values.first.to_s : error.to_json
+      filled = error.select { |_column, value| meaningful?(value) }
+      filled.size == 1 ? filled.values.first.to_s : filled.to_json
     end
   end
 end

@@ -108,6 +108,26 @@ RSpec.describe 'OCA through the generic adapter', type: :request do
       expect(response.parsed_body['data']).to eq([])
     end
 
+    # TESIS-188: el CP ilegible viajaba vacío, OCA contestaba un error y
+    # desaparecía de las opciones sin que quedara dicho por qué.
+    context 'when the zip code of the destination cannot be read' do
+      before do
+        stub_oca('Tarifar_Envio_Corporativo', 'quote')
+        allow(Rails.logger).to receive(:info).and_call_original
+        quote(destination_zip_code: 'La Plata')
+      end
+
+      it 'leaves OCA out without calling it', :aggregate_failures do
+        expect(response.parsed_body['data']).to eq([])
+        expect(WebMock).not_to have_requested(:post, endpoint('Tarifar_Envio_Corporativo'))
+      end
+
+      it 'logs why OCA is not among the options' do
+        expect(Rails.logger).to have_received(:info)
+          .with(/OCA - Cotización left out of the quote: .*destination_postal_code/)
+      end
+    end
+
     # Antes cotizaba un paquete de 0 kg y 0 m³.
     it 'does not quote a product without its weight', :aggregate_failures do
       stub_oca('Tarifar_Envio_Corporativo', 'quote')
@@ -181,6 +201,56 @@ RSpec.describe 'OCA through the generic adapter', type: :request do
       expect(WebMock).not_to have_requested(:post, endpoint('IngresoORMultiplesRetiros_v2'))
     end
 
+    # TESIS-188: la otra forma del rechazo, un bulto en `DetalleRechazos`.
+    it 'answers 422 with the reason when OCA rejects the parcel', :aggregate_failures do
+      stub_oca('IngresoORMultiplesRetiros_v2', 'dispatch_rejected')
+      dispatch_with_oca
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to eq('OCA returned errors: El Codigo Postal de destino no es valido para la operativa')
+      expect(shipment.reload).to have_attributes(status: 'pending', tracking_number: nil)
+    end
+
+    it 'answers 422 without calling OCA when the zip code cannot be read', :aggregate_failures do
+      order.update!(customer_zip_code: 'La Plata')
+      dispatch_with_oca
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.parsed_body['error']).to eq('Para despachar con OCA, el código postal del destino («La Plata») no es válido.')
+      expect(WebMock).not_to have_requested(:post, endpoint('IngresoORMultiplesRetiros_v2'))
+    end
+
+    # Varios productos van en un solo bulto consolidado (TESIS-185): el alta
+    # lleva un `<paquete>` con el peso de todos.
+    context 'when the order has several lines' do
+      let(:sent_form) { {} }
+
+      before do
+        router = Product.create!(company: company, sku: 'NOR-2', name: 'Router', weight: 1.5,
+                                 length_cm: 30, width_cm: 20, height_cm: 10)
+        order.order_items.create!(product: router, warehouse: warehouse, quantity: 2, unit_price: 5_000)
+        stub_request(:post, endpoint('IngresoORMultiplesRetiros_v2')).to_return do |request|
+          sent_form.merge!(URI.decode_www_form(request.body).to_h)
+          oca_xml('dispatch')
+        end
+        dispatch_with_oca
+      end
+
+      it 'sends them as one parcel with the weight of all of them', :aggregate_failures do
+        expect(response).to have_http_status(:ok)
+        parcels = Nokogiri::XML(sent_form.fetch('xml_Datos')).search('paquete')
+        expect(parcels.pluck('peso')).to eq(['5.5'])
+      end
+    end
+
+    # El despacho no es idempotente (ADR-022): si OCA no contesta a tiempo, el
+    # envío queda sin despachar para volver a intentarlo.
+    it 'answers 502 and keeps the shipment pending when OCA times out', :aggregate_failures do
+      stub_request(:post, endpoint('IngresoORMultiplesRetiros_v2')).to_timeout
+      dispatch_with_oca
+      expect(response).to have_http_status(:bad_gateway)
+      expect(response.parsed_body['error']).to start_with('OCA request failed')
+      expect(shipment.reload).to have_attributes(status: 'pending', tracking_number: nil)
+    end
+
     it 'answers 502 when OCA fails with a missing parameter', :aggregate_failures do
       stub_request(:post, endpoint('IngresoORMultiplesRetiros_v2'))
         .to_return(status: 500, body: oca_fixture('missing_parameter.txt'))
@@ -206,6 +276,13 @@ RSpec.describe 'OCA through the generic adapter', type: :request do
         expect(response).to have_http_status(:ok)
         expect(response.media_type).to eq('application/pdf')
         expect(response.headers['Content-Disposition']).to start_with('inline')
+      end
+
+      # El front guarda el PDF con este nombre: lo lee del header, que CORS
+      # le expone (TESIS-188).
+      it 'names the file after the tracking number' do
+        expect(response.headers['Content-Disposition'])
+          .to include('filename="etiqueta-1217400000000340668.pdf"')
       end
 
       it 'decodes the document OCA sends in base64', :aggregate_failures do
@@ -251,6 +328,32 @@ RSpec.describe 'OCA through the generic adapter', type: :request do
       expect(dispatched_shipment.reload.status).to eq('in_transit')
     end
 
+    # La consulta se repite cada 30 minutos con el mismo estado: el segundo
+    # poll no escribe otro evento.
+    it 'does not register the same state twice on the next poll', :aggregate_failures do
+      stub_state('En Tránsito a Sucursal Destino')
+      expect(poll.size).to eq(1)
+      expect(poll).to eq([])
+      expect(dispatched_shipment.shipment_events.count).to eq(1)
+    end
+
+    it 'registers a state the mapper does not know as informative', :aggregate_failures do
+      stub_state('Retirado')
+      poll
+      stub_state('Reprogramado por el cliente')
+      expect(poll.first).to have_attributes(external_status: 'Reprogramado por el cliente', internal_status: 'in_transit')
+      expect(dispatched_shipment.reload.status).to eq('in_transit')
+    end
+
+    # TESIS-188: con un final, el envío sale de la consulta periódica.
+    it 'stops asking OCA once the shipment is returned', :aggregate_failures do
+      stub_state('Devuelto al Remitente')
+      poll
+      expect(Shipment.unscoped.in_flight.where(id: dispatched_shipment.id)).to be_empty
+      expect(poll).to eq([])
+      expect(WebMock).to have_requested(:post, endpoint('GetEnvioEstadoActual')).once
+    end
+
     {
       'En proceso de Retiro' => 'ready_to_ship',
       'Retirado' => 'in_transit',
@@ -258,7 +361,16 @@ RSpec.describe 'OCA through the generic adapter', type: :request do
       'En Tránsito a Sucursal Destino' => 'in_transit',
       'Visita - Domicilio Cerrado' => 'in_transit',
       'Entregado' => 'delivered',
-      'Estado de Visita ONLINE (Entregado)' => 'delivered'
+      'Estado de Visita ONLINE (Entregado)' => 'delivered',
+      # Una visita fallida no es un final: OCA vuelve a intentar.
+      'No entregado - Domicilio Cerrado' => 'in_transit',
+      # Los finales que no son una entrega (TESIS-188).
+      'Devuelto al Remitente' => 'returned',
+      'Devolución a origen' => 'returned',
+      'Anulado' => 'cancelled',
+      'Anulada por el cliente' => 'cancelled',
+      'Siniestrado' => 'cancelled',
+      'Siniestro - Extravío' => 'cancelled'
     }.each do |estado, status|
       it "registers «#{estado}» as #{status}", :aggregate_failures do
         stub_state(estado)

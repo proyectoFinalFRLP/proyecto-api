@@ -51,6 +51,11 @@ Rails.application.config.middleware.insert_before 0, Rack::Cors do
              # sin esta línea `response.headers.etag` llega `undefined`, el
              # modal no manda `If-Match` y el locking optimista de TESIS-101
              # queda desactivado sin que nada falle a la vista.
-             expose: %w[ETag]
+             #
+             # `Content-Disposition`, por lo mismo: el front descarga la
+             # etiqueta (`GET /shipments/:id/label`) y la guarda con el
+             # nombre que manda la API, `etiqueta-<tracking>.pdf`. Sin
+             # exponerlo, el archivo quedaba con el UUID del blob (TESIS-188).
+             expose: %w[ETag Content-Disposition]
   end
 end
