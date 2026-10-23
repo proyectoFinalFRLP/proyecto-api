@@ -361,4 +361,5 @@ Pipeline en `.github/workflows/ci.yml`, se ejecuta en todo PR y en push a `maste
 | [docs/guidelines/testing.md](docs/guidelines/testing.md)       | Filosofía de testing, estructura de specs, factories |
 | [docs/guides/setup-local.md](docs/guides/setup-local.md)       | Setup local desde cero (nativo o Docker), cuentas de los seeds, demo |
 | [docs/guides/flujo-de-un-webhook.md](docs/guides/flujo-de-un-webhook.md) | Recorrido de punta a punta de una venta por webhook |
+| [docs/guides/carga.md](docs/guides/carga.md)                   | Pruebas de carga con k6: resultados, cuellos de botella (scripts en `load/`) |
 | [docs/adr/](docs/adr/)                                         | Decisiones arquitectónicas (ADRs)                   |

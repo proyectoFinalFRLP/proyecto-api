@@ -26,13 +26,15 @@ module Api
       # `WHOLE_LIST_PER_PAGE` porque el panel la lee entera para dibujar sus
       # nodos, no de a páginas.
       def index
-        integrations = current_company.company_integrations.index_by(&:service_id)
+        integrations = current_company.company_integrations.includes(:service)
+                                      .index_by(&:service_id)
         services, meta = paginate(Service.connectable.order(:id),
                                   per_page: WHOLE_LIST_PER_PAGE)
 
         render json: {
           data: IntegrationStatusSerializer.render_as_hash(
-            services, integrations_by_service_id: integrations
+            services, integrations_by_service_id: integrations,
+                      stock_sync_by_integration_id: Catalog::StockSyncStatus.call(integrations.values)
           ),
           meta: meta
         }

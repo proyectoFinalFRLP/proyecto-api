@@ -75,6 +75,17 @@ RSpec.describe Catalog::LinkExternalProduct, type: :poro do
         .to raise_error(Catalog::ExternalProductNotFoundError, '999 does not exist in Shop')
       expect(ProductMapping.count).to eq(0)
     end
+
+    # TESIS-177: si el canal publica el stock con el inventory item y la
+    # variante no lo trae, el vínculo no podría publicar: no se crea.
+    it 'refuses a link that could not publish the stock', :aggregate_failures do
+      shop.update!(request_mapper: { 'item' => 'inventory_item_id', 'qty' => 'available_quantity' })
+      stub_child('product_lookup', variant: { sku: 'NOR-001' })
+
+      expect { link(external_product_id: '111') }
+        .to raise_error(ActiveRecord::RecordInvalid, /must include inventory_item_id/)
+      expect(ProductMapping.count).to eq(0)
+    end
   end
 
   context 'when the provider searches variants by SKU' do

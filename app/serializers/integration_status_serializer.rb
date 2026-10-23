@@ -31,4 +31,13 @@ class IntegrationStatusSerializer < ApplicationSerializer
     settings = options[:integrations_by_service_id][service.id]&.settings || {}
     settings[Integrations::TestConnection::ACCOUNT_NAME_KEY]
   end
+
+  # Si la integración puede publicar el stock y cómo le fue (TESIS-177): sin
+  # esto, una integración sin ubicación de stock se veía «conectada» mientras
+  # cada publicación fallaba en un job. null si la empresa no la conectó o si
+  # la plantilla no publica stock. Ver Catalog::StockSyncStatus.
+  field :stock_sync do |service, options|
+    integration = options[:integrations_by_service_id][service.id]
+    integration && options[:stock_sync_by_integration_id][integration.id]
+  end
 end

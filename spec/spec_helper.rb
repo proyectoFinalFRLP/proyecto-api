@@ -24,6 +24,11 @@ SimpleCov.start 'rails' do
   skip '/spec/'
   skip '/config/'
   skip '/db/'
+  # Las tareas de Rake no se medían porque ningún spec las cargaba. Desde
+  # TESIS-177 un spec carga `lib/tasks`, y con él todas las tareas de
+  # desarrollo (OCA, Shopify), que no tienen por qué correr en la suite: se
+  # dejan afuera para que la medición siga siendo la de la aplicación.
+  skip '/lib/tasks/'
 
   group 'POROs', 'app/poros'
   group 'Policies', 'app/policies'
