@@ -437,6 +437,40 @@ RSpec.describe Service, type: :model do
       expect([service.form?, service.xml_response?, service.no_auth?]).to all(be(true))
     end
 
+    # TESIS-188: un form en un GET va en el query string, y la contraseña de
+    # la cuenta con él.
+    describe 'credentials in the query string' do
+      def form_template(http_method, mapper, body_template: nil)
+        service.assign_attributes(request_format: 'form', auth_strategy: 'none',
+                                  http_method: http_method, request_mapper: mapper,
+                                  body_template: body_template)
+        service
+      end
+
+      it 'rejects a form GET that maps a credential', :aggregate_failures do
+        expect(form_template('GET', { 'usr' => 'credentials.usr' })).not_to be_valid
+        expect(service.errors[:request_mapper].first).to include('query string de un GET')
+      end
+
+      it 'rejects a credential inside a built value or the body template', :aggregate_failures do
+        expect(form_template('GET', { 'auth' => '{{ credentials.psw|raw }}' })).not_to be_valid
+        expect(form_template('DELETE', { 'xml' => '{{template:body}}' },
+                             body_template: '<a psw="{{credentials.psw}}"/>')).not_to be_valid
+      end
+
+      it 'accepts the same mapper over POST, where it goes in the body' do
+        expect(form_template('POST', { 'usr' => 'credentials.usr' })).to be_valid
+      end
+
+      it 'accepts a form GET without credentials, and a JSON GET', :aggregate_failures do
+        expect(form_template('GET', { 'cp' => 'destination_postal_code',
+                                      'cuit' => 'settings.cuit' })).to be_valid
+        service.request_format = 'json'
+        service.request_mapper = { 'usr' => 'credentials.usr' }
+        expect(service).to be_valid
+      end
+    end
+
     it 'reads JSON responses by default and rejects an unknown response format', :aggregate_failures do
       expect(service.response_format).to eq('json')
       service.response_format = 'yaml'

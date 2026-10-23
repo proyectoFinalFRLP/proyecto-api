@@ -105,6 +105,15 @@ module Shipments
         # queda indefinido — el caso feo es el autoload de Zeitwerk trabándose
         # contra el load interlock.
         Rails.application.executor.wrap { quote_with(integration, body) }
+      rescue Integrations::MissingValueError => e
+        # No es una falla del courier: su plantilla exige un dato que este
+        # paquete no tiene (un código postal ilegible, un producto sin peso), y
+        # el pedido no salió. Se deja dicho por qué no aparece, en info y no en
+        # warn: es un dato de la carga, no algo que haya que mirar (TESIS-188).
+        Rails.logger.info(
+          "[TESIS-188] #{integration.service.service_name} left out of the quote: #{e.message}"
+        )
+        nil
       rescue StandardError => e
         Rails.logger.warn(
           "[TESIS-46] #{integration.service.service_name} quote failed: #{e.class}: #{e.message}"
