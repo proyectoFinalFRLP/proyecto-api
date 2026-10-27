@@ -23,7 +23,7 @@ module Webhooks
 
     def mark_succeeded
       @event.update!(status: :succeeded, attempts: @event.attempts + 1,
-                     next_retry_at: nil, last_error: nil, claimed_at: nil)
+                     next_retry_at: nil, error_code: nil, last_error: nil, claimed_at: nil)
       @event
     end
 

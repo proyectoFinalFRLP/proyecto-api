@@ -29,6 +29,15 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
   def retry_event = described_class.new(failed_event: event).call
 
   context 'when the replay succeeds' do
+    let(:event) do
+      FailedEvent.create!(company: company, company_integration: integration,
+                          event_type: Webhooks::ReplayRegistry::HTTP_REQUEST,
+                          payload: { 'payload' => { 'estado' => 'ok' },
+                                     'uri_params' => { 'order_id' => 42 } },
+                          status: :processing, attempts: 0, max_attempts: 3,
+                          error_code: 'INT-005', last_error: 'previous failure')
+    end
+
     before do
       stub_request(:post, url)
         .to_return(status: 200, headers: { 'Content-Type' => 'application/json' },
@@ -39,6 +48,13 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
       retry_event
       expect(event.reload).to have_attributes(status: 'succeeded', attempts: 1,
                                               next_retry_at: nil, last_error: nil)
+    end
+
+    # Un evento resuelto no tiene un error actual: el código del intento
+    # anterior no puede quedar mostrándose en la cola.
+    it 'clears the support code of the previous failure' do
+      retry_event
+      expect(event.reload.error_code).to be_nil
     end
 
     it 'releases the claim' do
@@ -60,7 +76,7 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
     it 'keeps the event pending and records the failure', :aggregate_failures do
       retry_event
       expect(event.reload).to have_attributes(status: 'pending', attempts: 1,
-                                              last_response_status: 503)
+                                              last_response_status: 503, error_code: 'INT-005')
     end
 
     it 'schedules the next attempt with exponential backoff' do
@@ -100,6 +116,7 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
       retry_event
       expect(event.reload.status).to eq('pending')
       expect(event.last_error).to include('MissingIntegration')
+      expect(event.error_code).to eq('INT-013')
     end
   end
 
@@ -113,6 +130,7 @@ RSpec.describe Webhooks::RetryFailedEvent, type: :poro do
       retry_event
       expect(event.reload.status).to eq('dead')
       expect(event.last_error).to include('UnknownEventType')
+      expect(event.error_code).to eq('GEN-001')
     end
   end
 end
