@@ -138,6 +138,8 @@ La lectura de `.env` se extrajo a `DevEnv` (`lib/tasks/dev_env.rake`), compartid
 
 Fuera de desarrollo no se siembra la integración con esa cuenta: los seeds corren también en el entorno desplegado (ADR-021), y una cuenta de un proveedor no se siembra, se conecta.
 
+**OCA es el único courier de la demo.** Los seeds conectaban también a Andreani y Correo Argentino con tokens inventados. Esas integraciones quedan inactivas (no se borran) y sus envíos pasan a la integración de OCA (`db/seeds/demo_couriers.rb`, también en una base ya sembrada); las plantillas siguen en el catálogo porque prueban el push (TESIS-48) y la consulta periódica (TESIS-49). La historia inventada de la demo (`db/seeds/demo_activity.rb`) se eliminó: la actividad la generan despachos reales contra el entorno de prueba (`Demo::GenerateRealActivity`, por la tarea `demo:real_activity` o por `Demo::RealActivityJob`, que en el entorno desplegado sólo corre con `DEMO_ACTIVITY_COMPANY`). Para conectar el entorno desplegado con la cuenta de prueba está `demo:connect_oca[slug]`, explícita y de una vez: nada la corre solo. Limitación conocida: el entorno de prueba de OCA no hace avanzar los envíos (un alta de hace diez días sigue en su primer estado), así que la consulta periódica nunca los marca entregados; la demo no lo simula.
+
 Las credenciales que se cargan desde Avo viajan como `credentials__<clave>`, con la clave que decide el proveedor (`usr` y `psw` en OCA). `filter_parameters` filtra `credentials` entero, para que ninguna termine en la línea `Parameters:` del log.
 
 ## Alternativas consideradas

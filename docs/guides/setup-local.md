@@ -165,7 +165,7 @@ Todas son de desarrollo. En producción los seeds no usan estas contraseñas.
 
 | Empresa (slug) | Usuario | Contraseña | Notas |
 | --- | --- | --- | --- |
-| Distribuidora Norte S.A. (`norte`) | `admin@norte.com`, `operador@norte.com` | `password123` | La empresa con más datos: productos, depósitos, órdenes, envíos, integraciones y cuatro semanas de actividad |
+| Distribuidora Norte S.A. (`norte`) | `admin@norte.com`, `operador@norte.com` | `password123` | La empresa con más datos: productos, depósitos, órdenes, envíos e integraciones. La actividad de Reportes no se siembra: la generan despachos reales con OCA (§9) |
 | Comercial Sur S.R.L. (`sur`) | `admin@sur.com`, `deposito@sur.com` | `password123` | Sirve para comprobar el aislamiento entre empresas |
 | Importadora Vieja S.A. (`importadora`) | `admin@vieja.com` | `password123` | Empresa dada de baja: el login se rechaza |
 | Backoffice | `admin@backoffice.com` | `admin123` | Sólo en `/admin` |
@@ -249,7 +249,7 @@ Responde `202 Accepted` enseguida: el evento quedó guardado y encolado.
 curl -s "http://localhost:3000/api/v1/failed-events?status=pending" -H "Authorization: Bearer $TOKEN"
 ```
 
-Entre los eventos (los seeds ya traen alguno de ejemplo) aparece uno `webhooks.order_ingestion`, `direction: inbound`, con `last_error` `UnmappedProductError: external product 'MLA-DEMO-1' is not mapped to any internal product`. Anotá su `id` como `EVENTO`. Si nadie lo corrige, el motor lo reintenta solo (1, 2, 4, 8 y 16 minutos) y lo da por muerto (`dead`).
+Entre los eventos aparece uno `webhooks.order_ingestion`, `direction: inbound`, con `last_error` `UnmappedProductError: external product 'MLA-DEMO-1' is not mapped to any internal product`. Anotá su `id` como `EVENTO`. Si nadie lo corrige, el motor lo reintenta solo (1, 2, 4, 8 y 16 minutos) y lo da por muerto (`dead`).
 
 **5. Se vincula el producto con su publicación en el canal:**
 
@@ -328,6 +328,43 @@ Para usar **otra cuenta** (una propia de OCA), se cargan `OCA_<SLUG>_*` en el en
 Con Norte conectada, cotizar un envío o un alta manual le pide tarifa al entorno de prueba de OCA; despachar con OCA crea una orden de retiro de prueba, y la etiqueta se baja desde `GET /api/v1/shipments/:id/label`. Sin internet, OCA simplemente no aparece entre las opciones. Las tareas sólo corren en desarrollo, y la smoke se niega a correr si la plantilla no apunta al entorno de prueba.
 
 Las decisiones están en [ADR-022](../adr/ADR-022-oca-epak-con-el-adaptador-generico.md).
+
+### Actividad real para la demo (hasta el 2026-11-10)
+
+OCA es el único courier de la demo. Andreani y Correo Argentino quedan en el catálogo de plantillas, pero las integraciones de ejemplo de Norte (tokens `DEMO-TOKEN-*`) quedan **inactivas** y sus envíos pasan a OCA: `db:seed` lo corrige también en una base sembrada antes. Los seeds ya no inventan historia: Reportes, Envíos y la bitácora se llenan con ventas reales despachadas contra el entorno de prueba de OCA.
+
+**En desarrollo, una vez por día** (con internet y Norte conectada a OCA, que es como la dejan los seeds):
+
+```bash
+bin/rails "demo:real_activity[norte,8]"
+```
+
+Crea 8 órdenes con clientes y destinos al azar por el mismo alta que la API (valida, toma los locks y descuenta stock), les abre el envío, las cotiza contra los couriers activos y despacha con OCA: cada una sale con un número de envío y una orden de retiro reales, y la etiqueta se pide desde el detalle. Alrededor de una de cada cinco queda sin despachar, como las ventas del día que todavía no salieron. Una venta que OCA rechaza se informa y la tarea sigue con la próxima. Al final imprime cada orden con su número de seguimiento y costo, un resumen y los avisos de stock. Ningún producto baja de 5 unidades por depósito: con 8 por día alcanza para más de dos semanas, y el aviso dice cuándo un producto llegó al piso.
+
+Limitación: **el entorno de prueba de OCA no hace avanzar los envíos** (un alta de hace diez días sigue en su primer estado), así que la consulta periódica no los marca entregados. Reportes muestra órdenes, facturación, despachos y costos reales; las entregas no se simulan.
+
+**Una base sembrada antes** todavía tiene las ~50 ventas inventadas de la versión anterior de los seeds (números `DEMO-000xxx`) y dos eventos de la DLQ de ejemplo. Para borrarlos, sólo a mano:
+
+```bash
+bin/rails "demo:purge_seeded_history[norte,dry_run]"   # lista lo que borraría
+bin/rails "demo:purge_seeded_history[norte]"           # lo borra (nunca movió stock)
+```
+
+**En el entorno desplegado** lo hace solo `Demo::RealActivityJob`, a las 10, 14 y 18 de Argentina, de 2 a 4 ventas por vez (`config/recurring.yml`). No hace nada salvo que se lo habilite, y sólo con la empresa que se nombra. Ahí Norte no está conectada a OCA (los seeds sólo lo hacen en desarrollo), así que una vez:
+
+```bash
+bin/kamal app exec --reuse 'bin/rails "demo:connect_oca[norte]"'    # cuenta de prueba pública de OCA; pasa los envíos de ejemplo a OCA
+bin/kamal app exec --reuse 'bin/rails "demo:real_activity[norte,2]"' # una corrida a mano, para probar
+```
+
+Después, en `config/deploy.yml` bajo `env.clear` (ver el ejemplo comentado) y `bin/kamal deploy` (o `bin/kamal env push` + `bin/kamal app boot`):
+
+```yaml
+DEMO_ACTIVITY_COMPANY: norte     # sin esto, el job no hace nada
+DEMO_ACTIVITY_UNTIL: 2026-11-10  # opcional: después de ese día (hora de Argentina), tampoco
+```
+
+Para apagarlo alcanza con sacar la variable (o que pase la fecha): no hay que desplegar código. Cada corrida queda en el log con la etiqueta `[Demo::RealActivityJob]` (`bin/kamal logs | grep Demo::`).
 
 ---
 
