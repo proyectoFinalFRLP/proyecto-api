@@ -107,6 +107,24 @@ RSpec.describe 'Failed events API', type: :request do
       expect(response).to have_http_status(:ok)
     end
 
+    # Lo que el operador lee en la cola: el código de soporte y la causa en
+    # castellano (ADR-024). El texto técnico sigue viajando para el tooltip.
+    it 'answers each event with its support code and the cause in words' do
+      event.update!(error_code: 'INT-005', last_error: 'Integrations::AdapterExecutionError: 503')
+      get '/api/v1/failed-events', headers: headers
+
+      expect(response.parsed_body['data'].first)
+        .to include('error_code' => 'INT-005', 'error_message' => 'El proveedor no está disponible',
+                    'last_error' => 'Integrations::AdapterExecutionError: 503')
+    end
+
+    it 'answers both as null when the event has no current error' do
+      get '/api/v1/failed-events', headers: headers
+
+      expect(response.parsed_body['data'].first).to include('error_code' => nil,
+                                                            'error_message' => nil)
+    end
+
     it 'never exposes the stored payload nor the response body' do
       event.update!(payload: { 'secret' => 'CUSTOMER-DATA' }, last_response_body: 'RAW-BODY')
       get '/api/v1/failed-events', headers: headers

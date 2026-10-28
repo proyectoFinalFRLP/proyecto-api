@@ -178,8 +178,11 @@ failed_events
   status:      pending
   attempts:    0 / max_attempts: 5
   next_retry_at: ahora + 1 minuto (+ jitter)
+  error_code:  ORD-002                        ← código de soporte (Webhooks::ErrorCatalog)
   last_error:  "Orders::ProcessWebhookOrder::UnmappedProductError: …"
 ```
+
+`error_code` es lo que ve el operador: la API lo devuelve junto con `error_message`, la causa en castellano («La venta trae un producto sin vincular»). `last_error` conserva el texto técnico para diagnosticar ([ADR-024](../adr/ADR-024-codigos-de-error-de-la-dlq.md)).
 
 A partir de ahí trabaja el motor de reintentos ([ADR-008](../adr/ADR-008-dead-letter-queue.md)):
 
@@ -208,7 +211,7 @@ Un evento muerto llega a `dead` unos 30 minutos después del fallo original. Des
 
 | Endpoint | Para qué |
 | --- | --- |
-| `GET /api/v1/failed-events?status=dead` | Ver qué falló y por qué (`last_error`) |
+| `GET /api/v1/failed-events?status=dead` | Ver qué falló y por qué (`error_code` y `error_message`; el detalle técnico en `last_error`) |
 | `POST /api/v1/failed-events/:id/retry` | Reintentar ya, con el contador en cero, sin esperar al cron |
 | `POST /api/v1/failed-events/:id/discard` | Sacarlo del ciclo de reintentos |
 

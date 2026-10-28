@@ -64,7 +64,10 @@ module ContratoDeLaApi
     anomalia: %w[shipment_id order_id external_order_id external_order_number courier
                  origin_warehouse promised_delivery_on days_late units status],
     punto_curva: %w[date orders revenue],
-    operador: %w[company_integration_id name dispatched delivered]
+    operador: %w[company_integration_id name dispatched delivered],
+    evento_fallido: %w[id event_type direction status attempts max_attempts next_retry_at
+                       error_code error_message last_error last_response_status
+                       company_integration_id created_at updated_at]
   }.freeze
 end
 
@@ -354,6 +357,20 @@ RSpec.describe 'API contract with the frontend', type: :request do
 
       expect(response.parsed_body.keys).to match_array(claves[:envio])
       expect(response.parsed_body['events'].first.keys).to match_array(claves[:evento])
+    end
+  end
+
+  # La cola de eventos fallidos (`features/failed-events/api.ts`). El código de
+  # soporte y la causa viajan siempre, en null cuando no hay un error actual:
+  # el front no tiene que preguntar si la clave está (ADR-024).
+  describe 'failed events' do
+    it 'answers a row of the queue with the agreed keys' do
+      FailedEvent.create!(company: company, event_type: 'integrations.http_request',
+                          error_code: 'INT-005', last_error: 'boom')
+
+      get '/api/v1/failed-events', headers: headers
+
+      expect(response.parsed_body['data'].first.keys).to match_array(claves[:evento_fallido])
     end
   end
 
