@@ -24,6 +24,14 @@ development:
     class: Shipments::ScanPullTrackingJob
     queue: low
     schedule: every 30 minutes
+  # Actividad real de la demo: ventas despachadas con OCA a las 10, 14 y 18 de
+  # Argentina, de 2 a 4 por vez (Demo::RealActivityJob). No hace nada sin
+  # DEMO_ACTIVITY_COMPANY. La zona va en el cron porque Solid Queue, si no,
+  # toma la de la aplicación (UTC): «at 10am» serían las 7 de la mañana.
+  demo_real_activity:
+    class: Demo::RealActivityJob
+    queue: low
+    schedule: "0 10,14,18 * * * America/Argentina/Buenos_Aires"
 
 production:
   clear_solid_queue_finished_jobs:
@@ -44,3 +52,11 @@ production:
     class: Shipments::ScanPullTrackingJob
     queue: low
     schedule: every 30 minutes
+  # Actividad real de la demo: ventas despachadas con OCA a las 10, 14 y 18 de
+  # Argentina, de 2 a 4 por vez (Demo::RealActivityJob). No hace nada sin
+  # DEMO_ACTIVITY_COMPANY. La zona va en el cron porque Solid Queue, si no,
+  # toma la de la aplicación (UTC): «at 10am» serían las 7 de la mañana.
+  demo_real_activity:
+    class: Demo::RealActivityJob
+    queue: low
+    schedule: "0 10,14,18 * * * America/Argentina/Buenos_Aires"

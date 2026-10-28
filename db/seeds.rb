@@ -964,36 +964,40 @@ end
 # TESIS-45 — Shipments & ShipmentEvents (base de la épica TESIS-24)
 # ---------------------------------------------------------------------------
 
-# Integración de courier Andreani para Distribuidora Norte: la consume el envío
-# de la venta manual (se asigna al confirmar el despacho).
+# Integración de courier Andreani para Distribuidora Norte. El token es
+# inventado y nunca habló con Andreani: nace inactiva, como las de los canales de
+# ejemplo, y al final de los seeds sus envíos pasan a la integración real de OCA
+# (db/seeds/demo_couriers.rb). Se conserva porque el webhook de tracking de
+# ejemplo (TESIS-48, más abajo) es de ella.
 andreani_service = Service.find_by(service_name: 'Andreani')
 if norte_company && andreani_service
   andreani_integration = CompanyIntegration.find_or_create_by!(
     company: norte_company, service: andreani_service
   ) do |ci|
     ci.credentials = { 'access_token' => 'DEMO-TOKEN-ANDREANI' }
-    ci.is_active = true
+    ci.is_active = false
   end
 
-  # Integración de la plantilla de cotización: es la que consume el motor de
-  # TESIS-46 para pedir tarifas antes de elegir operador.
+  # Integración de la plantilla de cotización (TESIS-46). Inactiva por lo mismo:
+  # activa, cada cotización le pedía tarifa a una URL que no contesta.
   quote_service = Service.find_by(service_name: 'Andreani - Cotización')
   if quote_service
     CompanyIntegration.find_or_create_by!(company: norte_company, service: quote_service) do |ci|
       ci.credentials = { 'access_token' => 'DEMO-TOKEN-ANDREANI' }
-      ci.is_active = true
+      ci.is_active = false
     end
   end
 
-  # Envío de la venta manual: despachado con Andreani, en tránsito, con bitácora.
-  # La clave de búsqueda es la orden: la restricción 1 a 1 garantiza que nunca
-  # haya dos envíos para la misma orden.
+  # Envío de la venta manual: en tránsito, con bitácora. La clave de búsqueda es
+  # la orden: la restricción 1 a 1 garantiza que nunca haya dos envíos para la
+  # misma orden. Nace con la integración de ejemplo y termina en la de OCA (ver
+  # db/seeds/demo_couriers.rb). El número lleva `DEMO-` porque OCA no lo
+  # conoce, y no tiene URL de etiqueta: la de OCA se le pide a OCA.
   if manual_order
     shipped = Shipment.find_or_create_by!(order: manual_order) do |s|
       s.company = norte_company
       s.company_integration = andreani_integration
-      s.tracking_number = 'AND-100000001'
-      s.shipping_label_url = 'https://apis.andreani.com/labels/AND-100000001.pdf'
+      s.tracking_number = 'DEMO-OCA-100000001'
       s.status = 'in_transit'
       s.shipping_cost = 12_500.00
     end
@@ -1022,13 +1026,13 @@ if norte_company && andreani_service
   end
 end
 
-# Integración de Distribuidora Norte con Correo Argentino: la que despacha y,
-# por su plantilla de seguimiento, la que recorre la consulta periódica de
-# tracking (TESIS-49). La consulta usa estas mismas credenciales.
+# Integración de Distribuidora Norte con Correo Argentino (TESIS-49). Como la de
+# Andreani, el token es inventado: nace inactiva, así la consulta periódica de
+# tracking no le pregunta a una API que no la conoce.
 if norte_company && correo_service
   CompanyIntegration.find_or_create_by!(company: norte_company, service: correo_service) do |ci|
     ci.credentials = { 'access_token' => 'DEMO-TOKEN-CORREO' }
-    ci.is_active = true
+    ci.is_active = false
   end
 end
 
@@ -1043,9 +1047,12 @@ end
 # 'pending' listo para disparar a mano en desarrollo el pipeline completo
 # (Shipments::ProcessTrackingEventJob → ProcessTrackingUpdate) sin esperar un
 # push real de Andreani. El payload sigue las rutas del response_mapper
-# ampliado más arriba y apunta al tracking_number del envío ya despachado: al
-# procesarlo, 'Entregado' traduce a delivered y el shipment pasa de
-# in_transit a delivered.
+# ampliado más arriba y apunta al tracking_number del envío ya despachado.
+#
+# Desde que ese envío pasa a OCA (db/seeds/demo_couriers.rb) el push ya no lo
+# encuentra: es de la integración de Andreani, que quedó inactiva. Se conserva
+# como el registro de auditoría de un push recibido; para recorrer el pipeline
+# a mano, apuntarle un envío de Andreani.
 #
 # Guard scopeado a la integración de Andreani (no a WebhookLog.unscoped.none?
 # a secas, como en TESIS-36): esa base ya tiene el webhook log de la orden de
@@ -1242,8 +1249,7 @@ if norte_company
     shipped_paid_1 = Shipment.find_or_create_by!(order: order_paid_1) do |s|
       s.company = norte_company
       s.company_integration = andreani_integration
-      s.tracking_number = 'AND-100000002'
-      s.shipping_label_url = 'https://apis.andreani.com/labels/AND-100000002.pdf'
+      s.tracking_number = 'DEMO-OCA-100000002'
       s.status = 'delivered'
       s.shipping_cost = 8_750.00
     end
@@ -1268,8 +1274,7 @@ if norte_company
     shipped_paid_2 = Shipment.find_or_create_by!(order: order_paid_2) do |s|
       s.company = norte_company
       s.company_integration = andreani_integration
-      s.tracking_number = 'AND-100000003'
-      s.shipping_label_url = 'https://apis.andreani.com/labels/AND-100000003.pdf'
+      s.tracking_number = 'DEMO-OCA-100000003'
       s.status = 'in_transit'
       s.shipping_cost = 15_200.00
     end
@@ -1441,8 +1446,12 @@ if ml_integration
   end
 end
 
-# Dos meses de ventas y dos eventos en la DLQ para la demo (ver el archivo).
-load Rails.root.join('db/seeds/demo_activity.rb')
+# Los couriers de ejemplo quedan inactivos y sus envíos pasan a OCA, también en
+# una base sembrada antes (ver el archivo). La actividad de la demo ya no se
+# inventa: la generan despachos reales contra el entorno de prueba de OCA
+# (`bin/rails "demo:real_activity[norte]"` y Demo::RealActivityJob).
+load Rails.root.join('db/seeds/demo_couriers.rb')
+DemoCouriers.retire!(norte_company) if norte_company
 
 puts "Seeds cargados: #{Company.count} empresas, #{User.count} usuarios, " \
      "#{Warehouse.count} depósitos, #{Service.count} servicios, " \
