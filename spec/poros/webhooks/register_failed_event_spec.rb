@@ -48,6 +48,15 @@ RSpec.describe Webhooks::RegisterFailedEvent, type: :poro do
     expect(event.last_response_body).to eq('unavailable')
   end
 
+  # El código de soporte sale del catálogo (ADR-024): un 503 es el proveedor caído.
+  it 'stores the support code of the error' do
+    expect(register.error_code).to eq('INT-005')
+  end
+
+  it 'codes an error the catalog does not know as unexpected' do
+    expect(register(error: StandardError.new('boom')).error_code).to eq('GEN-000')
+  end
+
   it 'accepts a plain error without response details' do
     event = register(error: StandardError.new('boom'))
 
@@ -69,6 +78,6 @@ RSpec.describe Webhooks::RegisterFailedEvent, type: :poro do
     event = described_class.new(event_type: 'orders.inbound_webhook').call
 
     expect(event).to have_attributes(company_id: company.id, company_integration_id: nil,
-                                     last_error: nil, status: 'pending')
+                                     error_code: nil, last_error: nil, status: 'pending')
   end
 end

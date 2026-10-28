@@ -249,7 +249,7 @@ Responde `202 Accepted` enseguida: el evento quedó guardado y encolado.
 curl -s "http://localhost:3000/api/v1/failed-events?status=pending" -H "Authorization: Bearer $TOKEN"
 ```
 
-Entre los eventos (los seeds ya traen alguno de ejemplo) aparece uno `webhooks.order_ingestion`, `direction: inbound`, con `last_error` `UnmappedProductError: external product 'MLA-DEMO-1' is not mapped to any internal product`. Anotá su `id` como `EVENTO`. Si nadie lo corrige, el motor lo reintenta solo (1, 2, 4, 8 y 16 minutos) y lo da por muerto (`dead`).
+Entre los eventos (los seeds ya traen alguno de ejemplo) aparece uno `webhooks.order_ingestion`, `direction: inbound`, con `error_code` `ORD-002` y `error_message` «La venta trae un producto sin vincular» (el detalle técnico queda en `last_error`: `UnmappedProductError: external product 'MLA-DEMO-1' is not mapped to any internal product`). Anotá su `id` como `EVENTO`. Si nadie lo corrige, el motor lo reintenta solo (1, 2, 4, 8 y 16 minutos) y lo da por muerto (`dead`).
 
 **5. Se vincula el producto con su publicación en el canal:**
 
