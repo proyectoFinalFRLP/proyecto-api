@@ -361,7 +361,7 @@ Después, en `config/deploy.yml` bajo `env.clear` (ver el ejemplo comentado) y `
 
 ```yaml
 DEMO_ACTIVITY_COMPANY: norte     # sin esto, el job no hace nada
-DEMO_ACTIVITY_UNTIL: 2026-11-10  # opcional: después de ese día (hora de Argentina), tampoco
+DEMO_ACTIVITY_UNTIL: 2026-11-09  # opcional: después de ese día (hora de Argentina), tampoco
 ```
 
 Para apagarlo alcanza con sacar la variable (o que pase la fecha): no hay que desplegar código. Cada corrida queda en el log con la etiqueta `[Demo::RealActivityJob]` (`bin/kamal logs | grep Demo::`).

@@ -65,7 +65,7 @@ env:
     #   bin/kamal app exec --reuse 'bin/rails "demo:connect_oca[norte]"'
     # Ver docs/guides/setup-local.md, «Actividad real para la demo».
     # DEMO_ACTIVITY_COMPANY: norte
-    # DEMO_ACTIVITY_UNTIL: 2026-11-10
+    # DEMO_ACTIVITY_UNTIL: 2026-11-09
 
 # Aliases are triggered with "bin/kamal <alias>". You can overwrite arguments on invocation:
 # "bin/kamal logs -r job" will tail logs from the first server in the job section.
