@@ -3,7 +3,7 @@ source 'https://rubygems.org'
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem 'rails', '~> 8.1.4'
 # Use postgresql as the database for Active Record
-gem 'pg', '~> 1.1'
+gem 'pg', '~> 1.7'
 # Use the Puma web server [https://github.com/puma/puma]
 gem 'puma', '>= 5.0'
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
@@ -77,7 +77,7 @@ gem 'blueprinter', '~> 1.2'
 
 gem 'rack-cors', '~> 3.0'
 
-gem 'avo', '~> 4.2'
+gem 'avo', '~> 4.3'
 
 gem 'propshaft', '~> 1.3'
 
