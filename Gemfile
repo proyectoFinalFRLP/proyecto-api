@@ -90,7 +90,7 @@ gem 'propshaft', '~> 1.3'
 # lo que toque `payload` o `credentials`. No lo pide el Gemfile: entra como
 # dependencia de rubocop, así que la restricción va acá para que Dependabot no
 # vuelva a subirla sola.
-gem 'json', '~> 2.21'
+gem 'json', '~> 3.1'
 
 # Lee las respuestas XML de los proveedores (Integrations::ParseXmlResponse,
 # ADR-022). Ya entraba como dependencia de Rails, pero la app la usa
